@@ -44,6 +44,7 @@ function blockedReason(command) {
     const flags = t.slice(1).filter((x) => /^-[^-]/.test(x)).join('');
     const targets = t.slice(1).filter((x) => !x.startsWith('-'));
     if (cmd === 'rm' && /[rR]/.test(flags) && targets.some((x) => PROTECTED.test(x))) return 'recursive delete of / or ~ is not allowed';
+    if (cmd === 'find' && !t.includes('-maxdepth') && /^(~\/?|\$HOME\/?|~\/Library\/?|\$HOME\/Library\/?|\/Users\/[^/]+\/?|\/Users\/[^/]+\/Library\/?|\/)$/.test(targets[0] || '')) return 'find over the whole home folder, ~/Library or / takes minutes and hangs; search a specific folder or add -maxdepth (for Artemis Files use the folder shown by library_list)';
     if (cmd === 'find' && (t.includes('-delete') || /-exec(dir)?\s+rm\b/.test(t.join(' '))) && targets.some((x) => PROTECTED.test(x))) return 'deleting with find in / or ~ is not allowed';
   }
   return '';
@@ -62,14 +63,22 @@ function runCommand({ command, cwd, timeout_seconds }, { signal, defaultCwd } = 
     if (!fs.existsSync(dir)) return resolve({ ok: false, text: `Error: directory not found: ${dir}` });
     const timeout = Math.min(Math.max(Number(timeout_seconds) || 60, 1), 300) * 1000;
 
-    exec(cmd, {
-      cwd: dir, timeout, maxBuffer: 10 * 1024 * 1024, signal,
+    // The command runs in its own process group so a timeout or cancel kills its children too (a hung find / python), not only the shell.
+    const group = process.platform !== 'win32';
+    let timedOut = false, timer = null;
+    const killTree = (sig = 'SIGKILL') => { try { if (group && child.pid) process.kill(-child.pid, sig); else child.kill(sig); } catch { try { child.kill(sig); } catch {} } };
+    // if a grandchild still holds the output pipes after the kill, close them so the call returns instead of waiting for it
+    const killTree2 = () => { killTree(); setTimeout(() => { try { child.stdout && child.stdout.destroy(); child.stderr && child.stderr.destroy(); } catch {} }, 400); };
+    const onAbort = () => killTree2();
+    const child = exec(cmd, {
+      cwd: dir, maxBuffer: 10 * 1024 * 1024, detached: group,
       shell: process.env.SHELL || '/bin/sh', env: { ...process.env, TERM: 'dumb', NO_COLOR: '1' }
     }, (err, stdout, stderr) => {
+      clearTimeout(timer); if (signal) signal.removeEventListener('abort', onAbort);
       let code = 0, note = '';
       if (err) {
-        if (err.name === 'AbortError' || signal?.aborted) return resolve({ ok: false, text: 'Error: command cancelled.' });
-        if (err.killed && err.signal) note = `\n(timed out after ${timeout / 1000}s and was killed)`;
+        if (signal?.aborted) return resolve({ ok: false, text: 'Error: command cancelled.' });
+        if (timedOut) note = `\n(timed out after ${timeout / 1000}s and was killed)`;
         code = typeof err.code === 'number' ? err.code : 1;
       }
       const out = clip(stdout || '', 24000), er = clip(stderr || '', 8000);
@@ -78,6 +87,8 @@ function runCommand({ command, cwd, timeout_seconds }, { signal, defaultCwd } = 
         text: `cwd: ${dir}\nexit code: ${code}${note}\n--- stdout ---\n${out || '(empty)'}\n--- stderr ---\n${er || '(empty)'}`
       });
     });
+    timer = setTimeout(() => { timedOut = true; killTree2(); }, timeout);
+    if (signal) { if (signal.aborted) onAbort(); else signal.addEventListener('abort', onAbort, { once: true }); }
   });
 }
 

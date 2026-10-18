@@ -19,7 +19,11 @@ export function toApiMessages(messages) {
       for (const a of m.attachments || []) {
         if (a.kind === 'image' && a.dataUrl) images.push(a);
         else if (a.text != null) {
-          text += `<attachment name="${a.name}"${a.lib ? ` library="${a.lib}"` : ''}>\n${a.text}${a.truncated ? '\n…[truncated]' : ''}\n</attachment>\n\n`;
+          const MAX_INLINE = 3000; // a big file is shown only in part (the start, so the model sees the format); it searches the rest with tools
+          const big = a.text.length > MAX_INLINE;
+          const shown = big ? a.text.slice(0, MAX_INLINE) : a.text;
+          const note = big ? `\n…[only the first ${MAX_INLINE} of ${a.text.length}${a.truncated ? '+' : ''} characters are shown. ${a.lib ? `The whole file is in the Files library as "${a.lib}": read parts with library_read (query for matching lines, from_line / to_line for a slice) or use run_command (head, grep, sed, python) on it. Do not ask for the whole file.` : 'Use run_command (head, grep, sed, python) on the file.'}]` : (a.truncated ? '\n…[truncated]' : '');
+          text += `<attachment name="${a.name}"${a.lib ? ` library="${a.lib}"` : ''}>\n${shown}${note}\n</attachment>\n\n`;
         }
       }
       text += m.content || '';

@@ -40,8 +40,9 @@ function save(dir, buf, kind, model, fallbackMime) {
 
 /** POST <baseUrl>/images/generations or /videos/generations (OpenAI-style body); the answer carries b64_json or a url. */
 async function generate(kind, { baseUrl, key, model, prompt, size, duration, dir, signal }) {
-  const url = joinUrl(baseUrl, kind === 'video' ? 'videos/generations' : 'images/generations');
-  const body = kind === 'video' ? { model, prompt, ...(duration ? { duration } : {}) } : { model, prompt, n: 1, size: size || '1024x1024', response_format: 'b64_json' };
+  const openrouter = /^(https?:\/\/)?([\w-]+\.)*openrouter\.ai(\/|$)/i.test(String(baseUrl)); // OpenRouter has its own endpoint: POST /api/v1/images (no response_format)
+  const url = joinUrl(baseUrl, kind === 'video' ? 'videos/generations' : openrouter ? 'images' : 'images/generations');
+  const body = kind === 'video' ? { model, prompt, ...(duration ? { duration } : {}) } : openrouter ? { model, prompt, n: 1, ...(size ? { size } : {}) } : { model, prompt, n: 1, size: size || '1024x1024', response_format: 'b64_json' };
   const res = await fetch(url, {
     method: 'POST', signal, body: JSON.stringify(body),
     headers: { ...headersFor(url), 'content-type': 'application/json', ...(key ? { authorization: `Bearer ${key}` } : {}) }
@@ -50,7 +51,7 @@ async function generate(kind, { baseUrl, key, model, prompt, size, duration, dir
   const j = await res.json();
   const d = j?.data?.[0];
   const fallback = kind === 'video' ? 'video/mp4' : 'image/png';
-  if (d?.b64_json) return save(dir, Buffer.from(d.b64_json, 'base64'), kind, model, fallback);
+  if (d?.b64_json) return save(dir, Buffer.from(d.b64_json, 'base64'), kind, model, d.media_type || fallback);
   if (d?.url) {
     const r = await fetch(d.url, { signal });
     if (!r.ok) throw new Error(await errorOf(r));

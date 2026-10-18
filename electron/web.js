@@ -216,7 +216,7 @@ function parseDdg(html) {
     if (href.startsWith('//')) href = 'https:' + href;
     try {
       const u = new URL(href);
-      if (u.hostname.endsWith('duckduckgo.com') && u.searchParams.get('uddg')) href = u.searchParams.get('uddg');
+      if ((u.hostname === 'duckduckgo.com' || u.hostname.endsWith('.duckduckgo.com')) && u.searchParams.get('uddg')) href = u.searchParams.get('uddg');
     } catch {}
     if (!/^https?:/.test(href)) { i++; continue; }
     results.push({ title: decodeEntities(m[2].replace(/<[^>]+>/g, '')).trim(), url: href, snippet: snippets[i] || '' });

@@ -135,7 +135,7 @@ function createTelegram(deps) {
       fs.writeFileSync(tmp, buf);
       try {
         const att = await deps.parseFile(tmp);
-        const body = att.text != null ? `<attachment name="${name}">\n${att.text}${att.truncated ? '\n…[truncated]' : ''}\n</attachment>\n\n` : `[Attached file ${name} could not be read: ${att.error || 'unsupported'}]\n\n`;
+        const body = att.text != null ? `<attachment name="${name}">\n${att.text.length > 30000 ? att.text.slice(0, 30000) : att.text}${att.truncated || att.text.length > 30000 ? '\n…[truncated]' : ''}\n</attachment>\n\n` : `[Attached file ${name} could not be read: ${att.error || 'unsupported'}]\n\n`;
         if (att.kind === 'image' && att.dataUrl) {
           return [{ type: 'text', text: text || '(image)' }, { type: 'image_url', image_url: { url: att.dataUrl } }];
         }

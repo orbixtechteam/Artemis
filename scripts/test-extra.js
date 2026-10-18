@@ -342,3 +342,51 @@ const { pruneImages } = require('../electron/agent');
   }
   console.log('extra: all tests passed');
 })().catch((e) => { console.error('FAILED:', e); process.exit(1); });
+
+// regression: a huge attachment in the newest message must not stay unshrinkable; find over home/Library is refused
+{
+  const assert = require('assert');
+  const { compactHistory } = require('../electron/agent.js');
+  const h = [{ role: 'user', content: 'x'.repeat(400000) }];
+  compactHistory(h, 40000);
+  assert(h[0].content.length < 40000, 'last message with a huge attachment is cut');
+  const { blockedReason } = require('../electron/shell.js');
+  assert(blockedReason('find ~/Library -name a.csv'), 'find in ~/Library is refused');
+  assert(!blockedReason('find ~/Documents/Artemis -name a.csv'), 'find in a project folder is fine');
+  console.log('extra: big attachment cut and find guard ok');
+}
+
+// regression: big files are searched, not dumped; OpenRouter image endpoint; hung commands are killed with their children
+(async () => {
+  const assert = require('assert'), fs = require('fs'), os = require('os'), path = require('path');
+  // library_read with query / line slice
+  const { createLibrary } = require('../electron/library');
+  const files = require('../electron/files');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lib-'));
+  const lib = createLibrary({ getRoot: () => dir, files });
+  fs.writeFileSync(path.join(dir, 'e.csv'), 'id,lcp\n' + Array.from({ length: 5000 }, (_, i) => `${i},${i % 7 === 0 ? '\\N' : i}`).join('\n'));
+  const q = lib.readLines('e.csv', { query: '\\N', limit: 5 });
+  assert(q.total === 5001 && q.hits === 5 && q.more && /^\d+: /.test(q.text), 'query returns matching lines with numbers');
+  const sl = lib.readLines('e.csv', { from: 1, to: 3 });
+  assert.strictEqual(sl.text, '1: id,lcp\n2: 0,\\N\n3: 1,1');
+  const tools = require('../electron/tools');
+  const out = await tools.run('library_read', { path: 'e.csv', query: '\\N' }, { library: lib, root: dir, approve: async () => true });
+  assert(out.ok && out.text.length < 25000 && out.text.includes('matching'), 'library_read query is bounded');
+  // OpenRouter: /images, no response_format
+  const media = require('../electron/media');
+  const seen = []; const realFetch = global.fetch;
+  global.fetch = async (url, init) => { seen.push({ url: String(url), body: JSON.parse(init.body) }); return { ok: true, json: async () => ({ data: [{ b64_json: Buffer.from('x').toString('base64'), media_type: 'image/png' }] }), headers: { get: () => 'image/png' } }; };
+  try {
+    await media.generateImage({ baseUrl: 'https://openrouter.ai/api/v1', key: 'k', model: 'm', prompt: 'p', dir });
+    await media.generateImage({ baseUrl: 'https://api.openai.com/v1', key: 'k', model: 'm', prompt: 'p', dir });
+  } finally { global.fetch = realFetch; }
+  assert.strictEqual(seen[0].url, 'https://openrouter.ai/api/v1/images');
+  assert(!('response_format' in seen[0].body));
+  assert.strictEqual(seen[1].url, 'https://api.openai.com/v1/images/generations');
+  assert.strictEqual(seen[1].body.response_format, 'b64_json');
+  // a command that outlives its timeout returns quickly
+  const { runCommand } = require('../electron/shell');
+  const t = Date.now(); const r = await runCommand({ command: 'sleep 20 & sleep 20', timeout_seconds: 1 });
+  assert(!r.ok && /timed out/.test(r.text) && Date.now() - t < 5000, 'timeout returns within seconds');
+  console.log('extra: library query, OpenRouter images and command timeout ok');
+})().catch((e) => { console.error(e); process.exit(1); });

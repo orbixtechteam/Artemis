@@ -111,6 +111,7 @@ contextBridge.exposeInMainWorld('api', {
   sentinelWidget: (cmd) => ipcRenderer.invoke('sentinel:widget', cmd),
   sentinelCopy: (text) => ipcRenderer.invoke('sentinel:copy', text),
   onSentinelCmd: (cb) => sub('sentinel:cmd', cb),
+  onSentinelFront: (cb) => sub('sentinel:front', cb),
   onAppChanged: (cb) => sub('app:changed', cb),
   onRemoteCompact: (cb) => sub('remote:compact', cb),
   logsGet: (n) => ipcRenderer.invoke('logs:get', n),

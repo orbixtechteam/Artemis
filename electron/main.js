@@ -557,11 +557,12 @@ const appInFront = () => {
   if (getSettings().sentinelHideInApp !== true) return false;
   try { return !!(win && !win.isDestroyed() && win.isVisible() && !win.isMinimized() && win.isFocused()); } catch { return false; }
 };
+const appFocused = () => { try { return !!(win && !win.isDestroyed() && win.isVisible() && !win.isMinimized() && win.isFocused()); } catch { return false; } };
 let frontTimer = null;
 const syncSentinelSoon = () => { clearTimeout(frontTimer); frontTimer = setTimeout(() => { try { if (sentinelWidget) syncSentinel(); } catch {} }, 150); };
 function syncSentinel() {
   if (!sentinelWidget) sentinelWidget = createSentinelWidget({ BrowserWindow, screen, isDev: IS_DEV, getPos: () => getSettings().sentinelPos, setPos: (p) => saveSettings({ sentinelPos: p }) });
-  if ((sentinelOn() || sentinelInfo.err) && !appInFront()) { sentinelWidget.show(); sentinelWidget.send('sentinel:state', widgetInfo()); }
+  if ((sentinelOn() || sentinelInfo.err) && !appInFront()) { sentinelWidget.show(); sentinelWidget.send('sentinel:state', widgetInfo()); sentinelWidget.send('sentinel:front', appFocused()); } // front: the widget stays put while you are in the app (no auto open / close)
   else sentinelWidget.hide();
   try { rebuildTray && rebuildTray(); } catch {}
 }

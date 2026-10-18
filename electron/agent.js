@@ -65,7 +65,7 @@ function buildSystem({ taskNote, personality, makeEnabled, custom, project, root
       (learnEnabled ? '\nLearning: after you complete a multi-step task that is likely to repeat, or when the user teaches you how they want something done, save it with create_skill (one line description saying when to use it; short, specific steps). If you used a skill and found a better way or the user corrected you, call update_skill with the complete improved instructions. Do this at most once per task, only when it is really reusable, and mention it in one short line. Durable facts about the user (preferences, context) go to memory_save instead. Never put secrets, passwords or API keys into skills or memory.' : '')
     );
   }
-  if (notesEnabled) parts.push("The user keeps a Notes knowledge base (markdown files). When they ask about their own notes, ideas, research or knowledge, call notes_search first, then notes_read the best matches (the user approves access once per task). Save research results with notes_write/notes_append only when asked. To change part of a note use notes_edit (small replacement) or notes_append, not notes_write with the whole text again, and never edit_file: Notes are not project files. Cite note paths you used. The user also has a Files library: every file they attach to a chat is kept there. Attachments marked library=\"...\" are stored in it. When they refer to a file they uploaded earlier, use library_search / library_list, then library_read. To change a text file they uploaded, use library_edit (small replacement) or library_write: it updates the stored file in place, so they never have to upload it again. Files written with library_write live in the Files library, not the project folder: delete them with library_delete, not delete_file.");
+  if (notesEnabled) parts.push("The user keeps a Notes knowledge base (markdown files). When they ask about their own notes, ideas, research or knowledge, call notes_search first, then notes_read the best matches (the user approves access once per task). Save research results with notes_write/notes_append only when asked. To change part of a note use notes_edit (small replacement) or notes_append, not notes_write with the whole text again, and never edit_file: Notes are not project files. Cite note paths you used. The user also has a Files library: every file they attach to a chat is kept there. Attachments marked library=\"...\" are stored in it. When they refer to a file they uploaded earlier, use library_search / library_list, then library_read. To change a text file they uploaded, use library_edit (small replacement) or library_write: it updates the stored file in place, so they never have to upload it again. Files written with library_write live in the Files library, not the project folder: delete them with library_delete, not delete_file. Files in the library are ordinary files in a folder on the computer (library_list prints the folder), so for big files use run_command (head, grep, sed, python) on that path; never invent a path such as Application Support.");
   if (termEnabled) parts.push("Artemis has its own integrated terminal. When the user says open the terminal, run something in the terminal, cd somewhere, or runs npm/pnpm/git/build commands, use terminal_run: it opens the terminal panel by itself and types the command there (shared session, state persists, e.g. terminal_run with \"cd ~/project && pnpm dist\"); terminal_read checks its latest output, wait with wait_seconds for long builds. Never use the computer tool to open Terminal.app or click around for this. Prefer terminal_run over run_command for dev servers, builds, interactive tools and anything the user should watch.");
   if (chatsEnabled) parts.push("search_chats and read_chat let you look up the user's earlier saved chats when they refer to something discussed before.");
   if (delegateEnabled) {
@@ -489,6 +489,16 @@ function compactHistory(history, limitTokens = DEFAULT_CONTEXT_TOKENS) {
     const m = history[i];
     if (typeof m.content === 'string' && m.role !== 'system' && m.content.length > 6000) history[i] = { ...m, content: shrink(m.content, 6000) };
   }
+  // the newest message itself may carry a huge pasted or attached file: cut that too, otherwise nothing can ever make the chat fit
+  if (total() > limit) {
+    const li = history.length - 1 - [...history].reverse().findIndex(isRealUser);
+    const m = history[li];
+    if (m && m.role === 'user' && li < history.length) {
+      const cut = (t) => (typeof t === 'string' && t.length > 30000 ? `${t.slice(0, 30000)}\n…[${t.length - 30000} characters of this message were left out to save tokens. Work on the file with its path and run_command (head, grep, sed, python) instead of reading it all.]` : t);
+      if (typeof m.content === 'string') history[li] = { ...m, content: cut(m.content) };
+      else if (Array.isArray(m.content)) history[li] = { ...m, content: m.content.map((p) => (p && p.type === 'text' ? { ...p, text: cut(p.text) } : p)) };
+    }
+  }
   // last resort: drop the oldest whole groups (an assistant call with its tool results), keep the first user message (the goal) and the last 6
   let pin = history.findIndex(isRealUser);
   while (total() > limit && history.length > 6) {
@@ -884,7 +894,7 @@ async function runAgent(opts) {
           let ok = false;
           try { ok = await summarizeHistory(history, { url, key, model, usageModel, signal, limitTokens, onUsage: opts.onUsage }); } catch (e) { if (signal?.aborted) throw e; }
           if (ok) send({ type: 'notice', text: 'Conversation compacted: earlier messages were summarized to save tokens.' });
-          else if (!ctx.sumFailNoticed) { ctx.sumFailNoticed = true; send({ type: 'notice', text: 'Could not summarize the earlier messages, so old tool output was shortened instead.' }); }
+          else if (!ctx.sumFailNoticed) { ctx.sumFailNoticed = true; send({ type: 'notice', text: 'The chat got long and could not be summarized yet, so long tool output and attached files were shortened instead.' }); }
         }
         if (compactHistory(history, limitTokens) && !ctx.shortNotice) ctx.shortNotice = true; // shorten if the summary is not enough or failed
       }

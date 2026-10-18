@@ -234,6 +234,8 @@ export default function SentinelWidget() {
   const [pinned, setPinned] = useState(() => store('sn-pin') === '1');
   const [viewer, setViewer] = useState(null); // { type: 'artifact', id } | { type: 'file', file } | { type: 'image', img }
   const [hover, setHover] = useState(false);
+  const [front, setFront] = useState(false); // the main window is up front: no automatic opening or closing, the widget stays as it is
+  const frontRef = useRef(false); frontRef.current = front;
   const [draft, setDraft] = useState('');
   const [typing, setTyping] = useState(false);
   const [sending, setSending] = useState(false);
@@ -248,13 +250,14 @@ export default function SentinelWidget() {
     api.sentinelCurrent().then((i) => i && setInfo(i)).catch(() => {});
     const o1 = api.onSentinelState((i) => setInfo(i || { state: 'off' }));
     const o2 = api.onSentinelLevel((v) => window.dispatchEvent(new CustomEvent('sentinel-level', { detail: v })));
+    const o4 = api.onSentinelFront && api.onSentinelFront((f) => setFront(!!f));
     const o3 = api.onSentinelCmd && api.onSentinelCmd((c) => {
       if (c === 'expand') setOpen(true);
       else if (c === 'collapse') { setOpen(false); setViewer(null); setPinned(false); store('sn-pin', '0'); }
       else if (c === 'pin') pin(true);
       else if (c === 'unpin') pin(false);
     });
-    return () => { o1 && o1(); o2 && o2(); o3 && o3(); offTheme && offTheme(); };
+    return () => { o1 && o1(); o2 && o2(); o3 && o3(); o4 && o4(); offTheme && offTheme(); };
   }, []);
   const v = info.view || {};
   const msgs = v.messages || [];
@@ -265,7 +268,7 @@ export default function SentinelWidget() {
   // Opens by itself when something new arrives: a question, an approval, an image, an error, an artifact.
   const sig = `${info.heard}|${v.approval ? v.approval.id : ''}|${(v.images || []).length}|${err}|${(v.artifacts || []).length}`;
   const lastSig = useRef('');
-  useEffect(() => { if (sig !== lastSig.current) { const was = lastSig.current; lastSig.current = sig; if (has && was !== '' && sig.replace(/\|/g, '')) { setOpen(true); stuck.current = true; } } }, [sig, has]);
+  useEffect(() => { if (sig !== lastSig.current) { const was = lastSig.current; lastSig.current = sig; if (has && was !== '' && sig.replace(/\|/g, '') && !frontRef.current) { setOpen(true); stuck.current = true; } } }, [sig, has]);
   useEffect(() => { if (info.state === 'off') { setOpen(false); setViewer(null); } }, [info.state]);
   // A new artifact made while the widget is open is shown right away; an update to the one on screen refreshes it (rev).
   const arts = useMemo(() => { const m = new Map(); for (const x of msgs) for (const a of x.artifacts || []) m.set(a.id, a); return m; }, [msgs]);
@@ -280,7 +283,7 @@ export default function SentinelWidget() {
   // Closes by itself once Artemis is done talking and nothing needs you (not while you type or look at something).
   const busy = !!draft.trim() || typing || !!viewer || sending;
   const quiet = (info.state === 'idle' || info.state === 'listening') && !v.approval && !v.running && !pinned && !hover && !busy;
-  useEffect(() => { if (!open || !quiet) return undefined; const t = setTimeout(() => setOpen(false), IDLE_MS); return () => clearTimeout(t); }, [open, quiet, answer, msgs.length]);
+  useEffect(() => { if (!open || !quiet || front) return undefined; const t = setTimeout(() => setOpen(false), IDLE_MS); return () => clearTimeout(t); }, [open, quiet, front, answer, msgs.length]);
   const big = open && on;
   const mode = big ? (viewer ? 'viewer' : 'expanded') : 'compact';
   const size = mode === 'compact' ? 'M' : sizes[mode];

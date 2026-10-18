@@ -84,6 +84,26 @@ function createLibrary({ getRoot, files }) {
     return { ...info, text: text.length > max ? text.slice(0, max) : text, truncated: text.length > max, length: text.length };
   }
 
+  /** A slice of a text file without loading it into the chat: lines from..to, or only the lines that contain `query` (case-insensitive, or a regex). */
+  function readLines(rel, { from = 1, to = 0, query = '', regex = false, limit = 100, maxChars = 20000 } = {}) {
+    const abs = safe(rel);
+    if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) throw new Error('File not found: ' + rel);
+    const info = describe(abs);
+    if (!info.text) throw new Error(`"${info.name}" is not a plain text file.`);
+    const lines = fs.readFileSync(abs, 'utf8').split(/\r?\n/);
+    let re = null;
+    if (query) { try { re = new RegExp(regex ? String(query) : String(query).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'); } catch { throw new Error('Invalid search pattern.'); } }
+    const out = []; let chars = 0, hits = 0, more = false;
+    const a0 = Math.max(1, Math.floor(from) || 1), b0 = to ? Math.min(lines.length, Math.floor(to)) : lines.length;
+    for (let i = a0 - 1; i < b0; i++) {
+      if (re && !re.test(lines[i])) continue;
+      const line = `${i + 1}: ${lines[i].length > 400 ? lines[i].slice(0, 400) + ' …' : lines[i]}`;
+      if (++hits > limit || chars + line.length > maxChars) { more = true; break; }
+      chars += line.length + 1; out.push(line);
+    }
+    return { ...info, total: lines.length, hits: out.length, more, text: out.join('\n') };
+  }
+
   function write(rel, text) {
     const abs = safe(rel);
     if (!isTextName(abs)) throw new Error('Only text files can be written here.');
@@ -144,7 +164,7 @@ function createLibrary({ getRoot, files }) {
     return res.sort((a, b) => b.score - a.score || b.mtime - a.mtime).slice(0, limit);
   }
 
-  return { root, abs: safe, list, ingest, addBuffer, read, write, replace, rename, remove, del, search, describe };
+  return { root, abs: safe, list, ingest, addBuffer, read, readLines, write, replace, rename, remove, del, search, describe };
 }
 
 module.exports = { createLibrary };
