@@ -203,16 +203,16 @@ scripts/   tests (plain Node scripts) and helpers
 ```
 
 - `pnpm test` runs every `scripts/test-*.js` in turn and stops at the first failure. Run one with `node scripts/test-tools.js`. No Electron is needed.
-- [`agents.md`](agents.md) is the architecture guide: the process split, the tool loop, the approval model, providers, MCP, persistence and the pitfalls to avoid. Read it before a bigger change.
-- [CONTRIBUTING.md](CONTRIBUTING.md) explains how to send a change.
+- [`agents.md`](agents) is the architecture guide: the process split, the tool loop, the approval model, providers, MCP, persistence and the pitfalls to avoid. Read it before a bigger change.
+- [CONTRIBUTING.md](CONTRIBUTING) explains how to send a change.
 
 ## Contributing and security
 
-Issues and small pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md), the [Code of Conduct](CODE_OF_CONDUCT.md) and [SECURITY.md](SECURITY.md). Artemis can run commands, edit files and control the computer when you allow it, so read the approval cards before accepting.
+Issues and small pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING), the [Code of Conduct](CODE_OF_CONDUCT) and [SECURITY.md](SECURITY). Artemis can run commands, edit files and control the computer when you allow it, so read the approval cards before accepting.
 
 ## License
 
-[MIT](LICENSE) © 2026 Orbix Labs. Third-party licenses are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+[MIT](LICENSE) © 2026 Orbix Labs. Third-party licenses are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES).
 
 ## Upgrading from Ares
 

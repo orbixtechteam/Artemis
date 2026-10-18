@@ -1,13 +1,13 @@
 # Contributing to Artemis
 
-Thanks for helping. Artemis is a plain-JavaScript Electron + React app; there is no TypeScript and no linter. Please read the [Code of Conduct](CODE_OF_CONDUCT.md) first.
+Thanks for helping. Artemis is a plain-JavaScript Electron + React app; there is no TypeScript and no linter. Please read the [Code of Conduct](CODE_OF_CONDUCT) first.
 
 ## Ways to help
 
 - **Report a bug**: open an issue with your macOS/Windows/Linux version, the Artemis version (the `.dmg` name or `package.json`), the provider and model, the steps to reproduce, and what you expected. Logs are in `~/.artemis/logs`; remove anything private before you paste them.
 - **Suggest a feature**: open an issue first for anything bigger than a small change, so we can agree on the shape before you write code.
 - **Send a fix**: small, focused pull requests are easiest to review.
-- **Security problems**: do not open a public issue. See [SECURITY.md](SECURITY.md).
+- **Security problems**: do not open a public issue. See [SECURITY.md](SECURITY).
 
 ## Setup
 
@@ -43,6 +43,6 @@ Run one test with `node scripts/test-tools.js`. Tests are plain Node scripts usi
 
 You are welcome to use AI tools, but you are responsible for what you submit: read it, run it and be able to explain it.
 
-See [`agents.md`](agents.md) for an architecture overview.
+See [`agents.md`](agents) for an architecture overview.
 
 By contributing you agree that your work is released under the MIT license.
