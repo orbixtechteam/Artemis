@@ -1,4 +1,6 @@
-# Artemis
+<p align="center"><img src="docs/images/logo.png" alt="Artemis logo" width="140"></p>
+
+<h1 align="center">Artemis</h1>
 
 **An open-source AI agent that lives on your computer.** It reads your files, runs your commands, browses the web and remembers what you tell it. You pick the model. You keep the data. You press approve.
 
