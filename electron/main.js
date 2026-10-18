@@ -220,7 +220,7 @@ const DEFAULT_SETTINGS = {
   voiceLanguage: 'auto',
   voiceAutoRead: false,
   connectorsLazy: true, fullFileAccess: true, toolsLazy: true, mcpServerEnabled: false, mcpServerPort: 8788, mcpTokenEnc: null,
-  mcpAlwaysAllow: false, notesAi: true, sentinelPreload: false, sentinelAuto: false, sentinelPtt: '', sentinelInterrupt: false, sentinelStopWords: false, sentinelHideInApp: true, sentinelNameOnly: true, sentinelSensitivity: 'normal',
+  mcpAlwaysAllow: false, notesAi: true, sentinelPreload: false, sentinelAuto: false, sentinelPtt: '', sentinelInterrupt: false, sentinelStopWords: false, sentinelHideInApp: false, sentinelNameOnly: true, sentinelSensitivity: 'normal',
   sentinelModel: '', // empty = the default model; a fast model makes voice answers start sooner,
   sentinelPos: null,
   micDeviceId: '',
@@ -554,7 +554,7 @@ const sentinelOn = () => sentinelInfo.state && sentinelInfo.state !== 'off';
 const widgetInfo = () => (lock.isLocked() ? { state: sentinelInfo.state, locked: true } : sentinelInfo); // locked: no text of the conversation in the widget
 // the floating widget duplicates the in-app voice UI, so it hides while the main window is up front
 const appInFront = () => {
-  if (getSettings().sentinelHideInApp === false) return false;
+  if (getSettings().sentinelHideInApp !== true) return false;
   try { return !!(win && !win.isDestroyed() && win.isVisible() && !win.isMinimized() && win.isFocused()); } catch { return false; }
 };
 let frontTimer = null;
@@ -892,7 +892,7 @@ async function executeRun({ requestId, model: model0, messages, project, system,
       schedule: unattended || restrict ? null : { list: () => scheduler.list(), save: (j) => scheduler.save({ ...j, projectId: j.projectId !== undefined ? j.projectId : (project?.id || null) }), remove: (id) => scheduler.remove(id) },
       lockApp: unattended || restrict ? null : () => lock.lock('ai'),
       appShot: unattended || restrict ? null : appScreenshot, withArtemisVisible: unattended || restrict ? null : withArtemisVisible,
-      notes: settings.notesAi !== false ? notesStore : null,
+      notes: settings.notesAi !== false ? notesAi : null,
       library: settings.notesAi !== false ? library : null,
       term: settings.shellEnabled && !restrict && !unattended && process.platform !== 'win32' ? termApi : null,
       browser: settings.browserTools !== false && !restrict && !unattended ? browser.agent(requestId) : null,
@@ -914,7 +914,7 @@ async function executeRun({ requestId, model: model0, messages, project, system,
           try { globalShortcut.register('CommandOrControl+Shift+Escape', stopAll); } catch {}
           // the widget stays visible to you but out of the screenshots the model takes (like the floating panel)
           try { const sw = sentinelWidget && sentinelWidget.window; if (sw) sw.setContentProtection(true); } catch {}
-          if (viaWidget) { try { if (sentinelWidget) sentinelWidget.send('sentinel:cmd', 'expand'); } catch {} } else floater?.open();
+          if (viaWidget) { try { if (sentinelWidget) syncSentinel(); } catch {} } else floater?.open(); // the widget is shown, but stays compact (no auto-expand)
           quick?.hide();
           // You were working in Artemis: it steps aside (minimizes) so the screen behind it can be seen, and comes back at the end.
           // You were somewhere else (e.g. talking to Sentinel from another app): the window is never moved or brought forward;
@@ -1414,6 +1414,17 @@ const library = createLibrary({ getRoot: () => getSettings().filesFolder || path
 // ---------- notes (markdown knowledge base) ----------
 const { createNotes } = require('./notes');
 const notesStore = createNotes({ getRoot: () => getSettings().notesFolder || (fs.existsSync(path.join(app.getPath('documents'), 'Ares Notes')) ? path.join(app.getPath('documents'), 'Ares Notes') : path.join(app.getPath('documents'), 'Artemis Notes')) });
+// Notes changed outside the Notes page (the AI, Sentinel, a connector, the phone): tell the window so the list and an open note update without a reload.
+let notesTimer = null; const notesTouched = new Set();
+const notifyNotes = (p) => {
+  if (p) notesTouched.add(String(p));
+  clearTimeout(notesTimer);
+  notesTimer = setTimeout(() => { const paths = [...notesTouched]; notesTouched.clear(); try { if (win && !win.isDestroyed()) win.webContents.send('notes:changed', paths); } catch {} }, 100);
+};
+const notesAi = { ...notesStore };
+for (const k of ['write', 'create', 'createFolder', 'rename', 'move', 'remove', 'saveAsset']) {
+  notesAi[k] = (...a) => { const r = notesStore[k](...a); notifyNotes(k === 'create' || k === 'createFolder' ? '' : a[0]); if (r && r.path) notifyNotes(r.path); return r; };
+}
 function openTermWindow(id, float) {
   const old = termWindows.get(id);
   if (old && !old.isDestroyed()) { old.show(); old.focus(); return old; }
@@ -1464,7 +1475,7 @@ const mcpServer = createMcpServer({
   getToken: () => (getSettings().mcpServerEnabled ? getSecret('mcpToken') : ''),
   log: (lvl, msg) => logger[lvl === 'warn' ? 'warn' : 'info']('mcp-server', msg),
   tools: () => buildArtemisTools({
-    control: remote.control, getSettings, applySettings: applyOutsideSettings, notes: notesStore, term: termApi, lockNow: () => lock.lock('mcp'),
+    control: remote.control, getSettings, applySettings: applyOutsideSettings, notes: notesAi, term: termApi, lockNow: () => lock.lock('mcp'),
     skills: () => skills.list(null).map((x) => ({ name: x.name, description: x.description, enabled: x.enabled })), confirm: confirmOutside,
     imagesDir: IMAGES_DIR,
     files: {
@@ -1560,7 +1571,7 @@ app.whenReady().then(() => {
       const c = list.find((x) => x.id === chatId);
       if (c) { const id = () => Math.random().toString(36).slice(2, 10); c.messages.push({ id: id(), role: 'user', content: user, via: 'telegram' }, { id: id(), role: 'assistant', via: 'telegram', steps: [{ text: assistant, toolCalls: [] }] }); c.updatedAt = Date.now(); writeJson('chats', list); }
     },
-    notes: notesStore,
+    notes: notesAi,
     providersApi: {
       list: () => [...readProviders().map((p) => ({ key: p.id, name: p.name, on: p.enabled !== false }))],
       set: (key, on) => {

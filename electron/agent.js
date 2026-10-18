@@ -1017,9 +1017,21 @@ async function runAgent(opts) {
         // Some models (DeepSeek, Qwen) answer a tool result with nothing but hidden reasoning: that is not "done", ask them to carry on.
         if (!String(result.text || '').trim() && emptyRetries < 2 && history.some((m) => m.role === 'tool')) {
           emptyRetries++;
-          history.push({ role: 'user', content: '(Your last reply was empty. Carry on with the task: call the next tool, or write your answer now.)' });
+          // a model that cannot read the screenshot often answers with nothing: replace it with a note so it can finish in text
+          let blinded = false;
+          if (emptyRetries === 1) {
+            for (let i = history.length - 1; i >= 0 && !isRealUser(history[i]); i--) {
+              const m = history[i];
+              if (isShotMsg(m) && hasImage(m)) { history[i] = { ...m, content: m.content.map((p) => (p && p.type === 'image_url' ? { type: 'text', text: '[screenshot not shown to you; the user can see it in the chat]' } : p)) }; blinded = true; }
+            }
+          }
+          history.push({ role: 'user', content: blinded
+            ? '(Your last reply was empty. The screenshot is shown to the user in the chat, you do not need to read it. Finish the task now and write your answer, including the results you already have.)'
+            : '(Your last reply was empty. Carry on with the task: call the next tool, or write your answer now.)' });
           continue;
         }
+        // still nothing after the retries: say so instead of ending the run with no answer at all
+        if (!String(result.text || '').trim() && history.some((m) => m.role === 'tool')) send({ type: 'notice', text: 'The model stopped without an answer. It may not support this kind of tool result (for example screenshots); try again or pick another model.' });
         return;
       }
       if (opts.shouldStop) { const why = opts.shouldStop(); if (why) { send({ type: 'notice', text: `Stopped: ${why}` }); return; } }

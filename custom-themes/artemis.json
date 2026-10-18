@@ -1,0 +1,23 @@
+{
+  "id": "artemis",
+  "name": "Artemis",
+  "group": "Comunity",
+  "dark": true,
+  "preview": ["#1a1a2e", "#FFBF00", "#4dd0e1"],
+  "vars": {
+    "--theme-bg": "#1a1a2e",
+    "--theme-side": "#161625",
+    "--theme-panel": "#1f1f35",
+    "--theme-user": "#272740",
+    "--theme-code": "#161625",
+    "--theme-border": "#CD7F32",
+    "--theme-text": "#FFF8DC",
+    "--theme-muted": "#9CA3AF",
+    "--theme-accent": "#FFBF00",
+    "--theme-accent-text": "#1a1a2e",
+    "--theme-hover": "rgba(255,191,0,.10)",
+    "--theme-active": "rgba(255,191,0,.18)",
+    "--theme-add": "rgba(76,208,225,.18)",
+    "--theme-del": "rgba(239,83,80,.18)"
+  }
+}

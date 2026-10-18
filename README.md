@@ -25,16 +25,19 @@ Chats, notes and memory are plain files on your disk. Every line of code is open
 - **Computer control (macOS)**: screenshots, mouse and keyboard, with one shortcut to stop.
 - **Integrated browser** with its own saved logins, driven by the agent.
 - **Terminal**: runs commands in your real shell and reads an integrated terminal.
-- **Sub-agents and Brains**: up to four role agents in parallel; named personalities that each use their own model, or a council that votes.
+- **Sub-agents**: up to four role agents in parallel (Researcher, Coder, Writer, Reviewer), plus your own agents written as Markdown files.
+- **Brains**: named personalities (Lancelot, Galahad, Percival) that each answer with their own model, or a council that votes on who answers and which skills and agents to use.
 - **Skills**: reusable `SKILL.md` folders (same layout as [agentskills.io](https://agentskills.io)), per user or per project, learned and improved with use.
 - **Scheduled tasks**: once, every N minutes, daily, weekdays, weekly or monthly, with a cheap default model for scheduled runs. Make.com scenarios by asking.
 - **Memory and notes**: durable facts across chats; Markdown notes with folders, search, `[[wiki links]]` and a graph.
-- **Voice (Sentinel)**: wake word or push-to-talk, speech recognition on your machine, local voices (Piper, Kokoro, Chatterbox or any OpenAI-compatible speech endpoint).
+- **Voice (Sentinel)**: wake word or push-to-talk, speech recognition on your machine, local voices (Piper, Kokoro, Chatterbox or any OpenAI-compatible speech endpoint), and a floating widget that stays on screen.
+- **Themes**: built-in light and dark, plus community themes as plain JSON files (see [`custom-themes/`](custom-themes/README.md)).
 - **App lock and voice recognition**: password, recovery code, Touch ID, offline speaker recognition, escalating lockdown with a Telegram alert.
 - **Telegram**: send tasks from your phone to the same agent.
 - **MCP both ways**: use MCP servers as connectors, or let Claude Code and other clients drive Artemis through its local MCP server.
 - **Any model**: OpenRouter, OpenAI, the Anthropic API, Cloudflare, Ollama, LM Studio or any OpenAI-compatible server, with per-model prices and daily and monthly spend limits.
 - **Quick window, command palette, tabs and split view, find in chats and notes.**
+- **Notes stay in sync**: a note written by the AI, Sentinel, a connector or your phone appears in the Notes list and open editor right away.
 
 ## Screenshots
 
@@ -53,6 +56,19 @@ Chats, notes and memory are plain files on your disk. Every line of code is open
     <td><img src="docs/images/quick-window.png" alt="Quick window from the tray" width="440"><br><sub>Quick window from any app</sub></td>
   </tr>
 </table>
+
+## Documentation
+
+The wiki explains how to use every feature, step by step. Start at [docs/wiki/Home.md](docs/wiki/Home.md).
+
+| Topic | Pages |
+| --- | --- |
+| Set up | [Getting Started](docs/wiki/Getting-Started.md) · [Providers and Models](docs/wiki/Providers-and-Models.md) · [Usage Limits](docs/wiki/Usage-Limits.md) · [Appearance](docs/wiki/Appearance.md) |
+| Everyday use | [Chat and Projects](docs/wiki/Chat-and-Projects.md) · [Files and Attachments](docs/wiki/Files-and-Attachments.md) · [Notes](docs/wiki/Notes.md) · [Memory](docs/wiki/Memory.md) · [Quick Window and Shortcuts](docs/wiki/Quick-Window-and-Shortcuts.md) |
+| Agents and automation | [Sub-Agents](docs/wiki/Sub-Agents.md) · [Brains](docs/wiki/Brains.md) · [Skills](docs/wiki/Skills.md) · [Scheduled Tasks](docs/wiki/Scheduled-Tasks.md) · [Make](docs/wiki/Make.md) |
+| Tools and control | [Tools and Approvals](docs/wiki/Tools-and-Approvals.md) · [Terminal](docs/wiki/Terminal.md) · [Browser](docs/wiki/Browser.md) · [Computer Control](docs/wiki/Computer-Control.md) |
+| Voice and integrations | [Sentinel Voice](docs/wiki/Sentinel-Voice.md) · [Phone (Telegram)](docs/wiki/Phone-Telegram.md) · [MCP](docs/wiki/MCP.md) |
+| Security and help | [Security and App Lock](docs/wiki/Security-and-App-Lock.md) · [Troubleshooting](docs/wiki/Troubleshooting.md) |
 
 ## Install
 
@@ -99,8 +115,10 @@ Only the macOS arm64 build is packaged. Computer control, Touch ID and the macOS
 - **Usage**: tokens and cost per model, with daily and monthly limits (prices are set per model in Settings → Providers).
 
 ### Agents, Brains, skills and automations
+Full guides: [Sub-Agents](docs/wiki/Sub-Agents.md), [Brains](docs/wiki/Brains.md), [Skills](docs/wiki/Skills.md), [Scheduled Tasks](docs/wiki/Scheduled-Tasks.md).
+
 - **Sub-agents**: the `delegate` tool runs role agents in parallel (max 4 at once, 12 runs per task). Built-in roles: Athena (Researcher), Hephaestus (Coder), Calliope (Writer), Themis (Reviewer, read-only). Write your own as Markdown files with frontmatter: user agents in `<userData>/agents/<slug>.md`, project agents in `<project>/.artemis/agents/<slug>.md`. Sub-agents never get shell, computer control, file deletion or memory.
-- **Brains**: named personalities (Lancelot, Galahad and Gawain by default), each with its own model. Talk to one, or let the council vote on who answers and which skills or agents to use. Files live in `<userData>/brains/<slug>.md`.
+- **Brains**: named personalities (Lancelot, Galahad and Percival by default), each with its own model. Talk to one, or let the council vote on who answers and which skills or agents to use. Files live in `<userData>/brains/<slug>.md`.
 - **Skills**: folders with a `SKILL.md` (frontmatter `name`, `description`; body: instructions). User skills in `<userData>/skills/<slug>/`, project skills in `<project>/.artemis/skills/<slug>/`. Artemis can learn a new skill from a task and improve it later.
 - **Scheduled tasks**: recurring or one-off prompts that run in the background (once, every N minutes, daily, weekdays, weekly, monthly). Choose the project, the model (or a default small model for all scheduled tasks in Settings → General), whether edits are allowed, and whether the result goes to your phone. Scheduled tasks always run, even while the app is locked.
 - **Make.com**: create and manage scenarios by asking (needs your Make API token).
@@ -113,6 +131,7 @@ Only the macOS arm64 build is packaged. Computer control, Touch ID and the macOS
 - **Safety**: terminal and computer ask for approval **once per task**. While the computer is controlled the window minimizes and a small always-on-top panel shows progress; press **Cmd/Ctrl+Shift+Esc** (or Stop) to abort. Web pages, files and screenshots are treated as untrusted. Each tool group can be turned off in Settings.
 
 ### Voice (Sentinel) and phone
+- **Sentinel widget**: a small always-on-top window that shows what Sentinel is doing. It stays visible while Artemis is open (turn on "Hide the widget while Artemis is open" in Settings → Voice to change that) and stays compact while the computer is controlled. Click it to expand.
 - **Sentinel**: say "Wake up" (recognised offline on your computer) or use push-to-talk. Spoken commands work hands-free (for example "Artemis, lock"), and replies can be spoken through local voice servers (Piper, Kokoro, Chatterbox, or any OpenAI-compatible `/audio/speech` endpoint).
 - **Telegram**: pair a private chat and talk to the same agent from your phone (same memory and projects). Ask for a screenshot of your desktop. Artemis keeps running in the tray for this.
 

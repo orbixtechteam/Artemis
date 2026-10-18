@@ -428,7 +428,7 @@ export function VoiceTab({ s, setS, providers, chatGroups = [], pttError = '' })
         <SwitchRow label="Stop words" description="Say “stop”, “enough” or “be quiet” while Artemis is thinking or speaking to cancel it. Off by default: room noise can be mistaken for a stop word and cancel an answer. Push-to-talk always interrupts."
           checked={s.sentinelStopWords === true} onChange={(v) => setS((x) => ({ ...x, sentinelStopWords: v }))} />
         <SwitchRow label="Hide the widget while Artemis is open" description="The floating Sentinel widget disappears when the Artemis window is in front and comes back when you switch to another app or minimize it."
-          checked={s.sentinelHideInApp !== false} onChange={(v) => setS((x) => ({ ...x, sentinelHideInApp: v }))} />
+          checked={s.sentinelHideInApp === true} onChange={(v) => setS((x) => ({ ...x, sentinelHideInApp: v }))} />
         <Row label="Sentinel model" description="Voice answers start sooner with a small, fast model. Sentinel chats use it instead of the default model; short spoken answers rarely need a big one.">
           <Select value={s.sentinelModel || ''} onChange={(e) => setS((x) => ({ ...x, sentinelModel: e.target.value }))}>
             <option value="">Same as the default model</option>

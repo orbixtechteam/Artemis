@@ -1,4 +1,4 @@
-// "Brains": named personalities (Lancelot, Galahad, Gawain by default) that can each use their own model.
+// "Brains": named personalities (Lancelot, Galahad, Percival by default) that can each use their own model.
 // You can talk to one brain, or let the council (all brains) vote on who answers and which skills/agents to use.
 // Brain files: <userData>/brains/<slug>.md with frontmatter (name, role, description, model) and the personality as the body.
 const fs = require('fs');

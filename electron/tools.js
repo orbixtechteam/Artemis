@@ -1101,7 +1101,15 @@ async function runTool(name, args, ctx) {
       }
       case 'notes_read': {
         if (!ctx.notes) throw new Error('Notes are not available here.');
-        const r = ctx.notes.read(args.path, { max: MAX_RESULT });
+        let r;
+        try { r = ctx.notes.read(args.path, { max: MAX_RESULT }); } catch (e) {
+          // a project file asked for as a note (e.g. TODO.md just written with write_file): read the file instead of failing
+          if (!/not found/i.test(e.message) || !root) throw e;
+          let abs; try { abs = resolveSafe(root, args.path); } catch { throw e; }
+          if (!fs.existsSync(abs) || fs.statSync(abs).isDirectory() || fs.statSync(abs).size > files.LARGE_TEXT_BYTES) throw e;
+          const t = files.decodeText(fs.readFileSync(abs)).text;
+          return { ok: true, text: `(No note "${args.path}"; this is the project file with that name. Use read_file / edit_file for it.)\n` + (t.length > MAX_RESULT ? t.slice(0, MAX_RESULT) + `\n…[truncated, ${t.length} characters total]` : t) };
+        }
         return { ok: true, text: r.text + (r.truncated ? `\n…[truncated, ${r.length} characters total]` : '') };
       }
       case 'notes_write':

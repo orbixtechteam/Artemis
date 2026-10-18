@@ -319,10 +319,10 @@ function ToolCard({ tc, onDecide }) {
           <button onClick={() => openPreview({ project: true, path: tc.args.path, action: 'phone' })}>Send to phone</button>
         </div>
       )}
+      {tc.image && !awaiting && <img className="shot" src={tc.image} alt="screenshot" />}
       {open && !awaiting && (
         <div className="tool-body">
           <Preview tc={tc} />
-          {tc.image && <img className="shot" src={tc.image} alt="screenshot" />}
           {tc.result != null && <pre className="plain">{tc.result.length > 4000 ? tc.result.slice(0, 4000) + '\n…' : tc.result}</pre>}
         </div>
       )}

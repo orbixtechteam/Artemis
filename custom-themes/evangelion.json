@@ -1,0 +1,23 @@
+{
+  "id": "evangelion",
+  "name": "Evangelion",
+  "group": "Anime",
+  "dark": true,
+  "preview": ["#000000", "#765898", "#e6770b"],
+  "vars": {
+    "--theme-bg": "#000000",
+    "--theme-side": "#0a0a0a",
+    "--theme-panel": "#1a1a1a",
+    "--theme-user": "#2a2a2a",
+    "--theme-code": "#0a0a0a",
+    "--theme-border": "#765898",
+    "--theme-text": "#ffffff",
+    "--theme-muted": "#cccccc",
+    "--theme-accent": "#765898",
+    "--theme-accent-text": "#ffffff",
+    "--theme-hover": "rgba(118,88,152,.15)",
+    "--theme-active": "rgba(118,88,152,.25)",
+    "--theme-add": "rgba(82,208,83,.20)",
+    "--theme-del": "rgba(211,41,15,.20)"
+  }
+}

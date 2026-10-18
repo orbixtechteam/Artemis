@@ -91,6 +91,7 @@ contextBridge.exposeInMainWorld('api', {
   themesDelete: (file) => ipcRenderer.invoke('themes:delete', file),
   themesReveal: () => ipcRenderer.invoke('themes:reveal'),
   onThemeChanged: (cb) => sub('theme:changed', cb),
+  onNotesChanged: (cb) => sub('notes:changed', cb),
   onSkillsChanged: (cb) => sub('skills:changed', cb),
   profileGet: () => ipcRenderer.invoke('profile:get'),
   profilePickAvatar: () => ipcRenderer.invoke('profile:pick-avatar'),

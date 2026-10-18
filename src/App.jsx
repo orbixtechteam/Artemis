@@ -130,7 +130,9 @@ export default function App() {
     refreshNotes();
     const f = () => refreshNotes();
     window.addEventListener('focus', f);
-    return () => window.removeEventListener('focus', f);
+    // a note written by the AI, Sentinel, a connector or the phone: refresh the list and reload an open editor
+    const off = api.onNotesChanged ? api.onNotesChanged(() => { refreshNotes(); setNoteRev((n) => n + 1); }) : null;
+    return () => { window.removeEventListener('focus', f); off && off(); };
   }, [refreshNotes]);
   const openNote = (p) => { stick.current = true; setNotePath(p); setModal(null); setView('note'); };
   const termSeq = useRef(0);
@@ -980,7 +982,7 @@ export default function App() {
       case 'agent:usage': patch((m) => patchAgent(m, ev.parent, ev.idx, (a) => ({ ...a, prompt: ev.prompt, completion: ev.completion }))); break;
       case 'agent:done': patch((m) => patchAgent(m, ev.parent, ev.idx, (a) => ({ ...a, status: ev.ok ? 'done' : 'error', error: ev.error, prompt: ev.prompt ?? a.prompt, completion: ev.completion ?? a.completion, tools: a.tools.map((x) => (x.status === 'running' ? { ...x, status: ev.ok ? 'done' : 'cancelled' } : x)) }))); break;
       case 'tool:approval': patch((m) => patchTool(m, ev.id, (t) => ({ ...t, status: 'awaiting', session: ev.session, category: ev.category, agent: ev.agent, summary: ev.summary }))); actionsRef.current.askVoiceApproval?.(ev, st.chatId); break;
-      case 'tool:result': if (voiceApproval.current && voiceApproval.current.id === ev.id) voiceApproval.current = null; if (ev.ok && /^notes_(write|append|edit)$/.test(ev.name || '')) { refreshNotes(); setNoteRev((n) => n + 1); } patch((m) => patchTool(m, ev.id, (t) => ({ ...t, status: ev.denied ? 'denied' : ev.ok ? 'done' : 'error', result: ev.text, image: ev.image, endedAt: now }))); break;
+      case 'tool:result': if (voiceApproval.current && voiceApproval.current.id === ev.id) voiceApproval.current = null; patch((m) => patchTool(m, ev.id, (t) => ({ ...t, status: ev.denied ? 'denied' : ev.ok ? 'done' : 'error', result: ev.text, image: ev.image, endedAt: now }))); break;
       case 'artifact':
         setChats((cs) => cs.map((c) => {
           if (c.id !== st.chatId) return c;

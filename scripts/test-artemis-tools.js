@@ -126,7 +126,8 @@ const post = (port, body, { token = 'tok', host, origin, method = 'POST', path =
   const rd = await by('fs_read_file').run({ path: 'a.txt' });
   assert.ok(String(rd).includes('hello'), 'read works without naming the only project');
   await assert.rejects(() => by('fs_read_file').run({ project: 'Nope', path: 'a.txt' }), /unknown project/);
-  await assert.rejects(() => by('fs_read_file').run({ path: '../../etc/hosts' }), /./, 'cannot leave the project folder');
+  await assert.rejects(() => by('fs_write_file').run({ project: 'Demo', path: '../escape.txt', content: 'x' }), /./, 'cannot write outside the project folder');
+  assert.ok(!fs.existsSync(path.join(dir, '..', 'escape.txt')), 'nothing written outside');
   assert.ok(keys.includes('fs:write') && asked.includes('Let an outside app change your files?'), 'a write uses the write prompt');
   // reading outside the project: allowed after approval, with its own read prompt and key
   const other = fs.mkdtempSync(path.join(os.tmpdir(), 'artemis-out-'));

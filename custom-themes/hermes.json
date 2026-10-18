@@ -1,0 +1,23 @@
+{
+  "id": "hermes-blue",
+  "name": "Hermes Blue",
+  "group": "comunity",
+  "dark": true,
+  "preview": ["#2535b5", "#ffffff", "#e2b255"],
+  "vars": {
+    "--theme-bg": "#2535b5",
+    "--theme-side": "#161f80",
+    "--theme-panel": "#1d2a9c",
+    "--theme-user": "#3447d4",
+    "--theme-code": "#0b1050",
+    "--theme-border": "#5562cf",
+    "--theme-text": "#ffffff",
+    "--theme-muted": "#b9c0ee",
+    "--theme-accent": "#ffffff",
+    "--theme-accent-text": "#2535b5",
+    "--theme-hover": "rgba(255,255,255,.10)",
+    "--theme-active": "rgba(255,255,255,.18)",
+    "--theme-add": "rgba(76,208,225,.18)",
+    "--theme-del": "rgba(239,83,80,.18)"
+  }
+}
