@@ -49,7 +49,7 @@ Artemis works through tools: files, web, memory, notes, terminal, computer contr
 
 ## Web search and page fetch
 
-- `web_search` uses DuckDuckGo, tries Bing second, and falls back to a search model on your provider.
+- `web_search` needs a search engine chosen in Settings → Tools: the Brave Search API (your own key) or an AI search model on one of your providers. Artemis does not scrape DuckDuckGo or Bing.
 - `web_fetch` reads one page. It refuses local and private network addresses.
 - Text from web pages is treated as untrusted data; Artemis does not follow instructions found there.
 

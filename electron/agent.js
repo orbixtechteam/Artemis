@@ -786,7 +786,7 @@ async function runAgent(opts) {
   const ctx = {
     root: opts.root, autoApprove: opts.autoApprove, autoAll: !!opts.autoAll, approve: opts.approve, signal,
     memory: opts.memoryEnabled ? opts.memoryApi : null, runState: {}, // runState: counters that must outlive the per-call copies of ctx
-    session: new Set(), send, media: opts.media || null, mcp: opts.mcp || null, computer: opts.computer || null, phone: opts.phone || null, schedule: opts.schedule && !opts.isSub ? opts.schedule : null, notes: opts.notes && !opts.isSub ? opts.notes : null, library: opts.library && !opts.isSub ? opts.library : null, term: opts.term && !opts.isSub ? opts.term : null, browser: opts.browser && !opts.isSub ? opts.browser : null, searchFallback: opts.searchFallback,
+    session: new Set(), send, media: opts.media || null, mcp: opts.mcp || null, computer: opts.computer || null, phone: opts.phone || null, schedule: opts.schedule && !opts.isSub ? opts.schedule : null, notes: opts.notes && !opts.isSub ? opts.notes : null, library: opts.library && !opts.isSub ? opts.library : null, term: opts.term && !opts.isSub ? opts.term : null, browser: opts.browser && !opts.isSub ? opts.browser : null, searchFallback: opts.searchFallback, searchVia: opts.searchVia,
     allowPrivateFetch: opts.allowPrivateFetch, userData: opts.userData || '', fullAccess: opts.fullFileAccess === true && !opts.isSub, userLocation: opts.userLocation || '', activeConnectors: new Set(), activeGroups, groupsAvailable, mcpLazy: !!opts.mcp && opts.mcpLazy === true && !opts.isSub,
     lockApp: opts.lockApp && !opts.isSub ? opts.lockApp : null,
     appShot: opts.appShot && !opts.isSub ? opts.appShot : null, withArtemisVisible: opts.withArtemisVisible && !opts.isSub ? opts.withArtemisVisible : null,

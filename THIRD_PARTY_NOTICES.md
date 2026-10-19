@@ -1,6 +1,6 @@
 # Third-party notices
 
-Artemis is released under the [MIT license](LICENSE). It uses the open-source software and models below. Each project keeps its own license; the full texts ship with the packages in `node_modules` and in the built app.
+Artemis is released under the [GNU AGPL-3.0](LICENSE). It uses the open-source software and models below. Each project keeps its own license; the full texts ship with the packages in `node_modules` and in the built app.
 
 ## Libraries in the app
 

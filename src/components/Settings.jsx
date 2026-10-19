@@ -372,9 +372,9 @@ export function SettingsModal({ settings, groups = [], projects = [], providers 
                   checked={!!s.autoApproveEdits} onChange={put('autoApproveEdits')} />
                 <SwitchRow label="Memory" checked={!!s.memoryEnabled} onChange={put('memoryEnabled')} />
                 <SwitchRow label="Web search and page fetch" checked={!!s.webEnabled} onChange={put('webEnabled')} />
-                <Row label="Search engine" description="Built-in scrapes DuckDuckGo and Bing, which often block it. Brave Search API is a real search API with your own key. An AI search model (for example perplexity/sonar through OpenRouter) returns an answer with sources.">
+                <Row label="Search engine" description="Web search needs one of these. Brave Search API is a real search API with your own key. An AI search model (for example perplexity/sonar through OpenRouter) returns an answer with sources. Nothing is scraped.">
                   <Select value={s.searchEngine || (s.searchProvider ? 'provider' : '')} onChange={(e) => setS((x) => ({ ...x, searchEngine: e.target.value }))}>
-                    <option value="">Built-in (DuckDuckGo, Bing)</option>
+                    <option value="">Not set (web search is off)</option>
                     <option value="brave">Brave Search API</option>
                     <option value="provider">AI search model</option>
                   </Select>

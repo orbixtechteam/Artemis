@@ -15,7 +15,7 @@
     "openai-compatible",
     "open-source"
   ],
-  "license": "MIT",
+  "license": "AGPL-3.0-only",
   "author": "Orbix Lab",
   "main": "electron/main.js",
   "scripts": {

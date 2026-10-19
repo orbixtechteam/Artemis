@@ -867,6 +867,7 @@ async function executeRun({ requestId, model: model0, messages, project, system,
   };
   logger.info('chat', `Run started · ${model}${brain ? ' · brain: ' + brain : ''}${source ? ' · ' + source : ''}`, { chat: chatId, messages: Array.isArray(messages) ? messages.length : 0, incognito: !!incognito });
   const settings = getSettings();
+  logger.info('chat', `Web search engine: ${settings.searchEngine === 'brave' ? (getSecret('braveKey') ? 'Brave (key saved)' : 'Brave (NO KEY saved)') : settings.searchProvider ? 'AI search model' : 'none'}`);
   const route = providersLib.resolve(model, readProviders(), getProviderKey);
   if (route.error) { send({ type: 'error', message: route.error }); send({ type: 'done' }); return; }
   const key = route.key;
@@ -931,7 +932,7 @@ async function executeRun({ requestId, model: model0, messages, project, system,
       baseUrl: runRoute.baseUrl, key: runRoute.key, model: runRoute.model, noToolCalls: !!runRoute.noTools, messages: runRoute.noTools ? stashImages(messages) : messages, maxTokens: maxTokens || settings.maxTokens, reasoningEffort: effort === 'auto' ? '' : (effort || settings.reasoningEffort || ''),
       custom: system, personality: require('./personality').text(settings), userName: settings.profileName || '', userAbout: settings.profileAbout || '', userLocation: settings.profileLocation || '', project, root: fileRoot, defaultRoot: !root,
       webEnabled: settings.webEnabled, shellEnabled: settings.shellEnabled && !restrict,
-      searchVia: (() => { if (settings.searchEngine === 'brave') { const k = getSecret('braveKey'); return k ? (q, sig) => require('./web').braveSearch({ key: k, query: q, signal: sig }) : null; } if (settings.searchEngine === 'builtin' || !settings.searchProvider) return null; const r = providersLib.resolve(`prov:${settings.searchProvider}:x`, readProviders(), getProviderKey); if (r.error) return null; return (q, sig) => require('./web').endpointSearch({ baseUrl: r.baseUrl, key: r.key, query: q, signal: sig, model: settings.searchModel || 'perplexity/sonar' }); })(),
+      searchVia: (() => { if (settings.searchEngine === 'brave') { const k = getSecret('braveKey'); return k ? (q, sig) => require('./web').braveSearch({ key: k, query: q, signal: sig }) : async () => { throw new Error('Brave Search is selected but no key is saved. Open Settings → Tools → Search engine and paste the Brave key'); }; } if (!settings.searchProvider) return null; const r = providersLib.resolve(`prov:${settings.searchProvider}:x`, readProviders(), getProviderKey); if (r.error) return null; return (q, sig) => require('./web').endpointSearch({ baseUrl: r.baseUrl, key: r.key, query: q, signal: sig, model: settings.searchModel || 'perplexity/sonar' }); })(),
       computer: settings.computerEnabled && !restrict && process.platform === 'darwin' ? computer : null,
       schedule: unattended || restrict ? null : { list: () => scheduler.list(), save: (j) => scheduler.save({ ...j, projectId: j.projectId !== undefined ? j.projectId : (project?.id || null) }), remove: (id) => scheduler.remove(id) },
       lockApp: unattended || restrict ? null : () => lock.lock('ai'),

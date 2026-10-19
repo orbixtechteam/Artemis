@@ -4,7 +4,7 @@
 
 **An open-source AI agent that lives on your computer.** It reads your files, runs your commands, browses the web and remembers what you tell it. You pick the model. You keep the data. You press approve.
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 ![Version](https://img.shields.io/badge/version-1.2.0-orange.svg)
 ![Platform](https://img.shields.io/badge/macOS-Apple%20silicon-lightgrey.svg)
 ![Electron](https://img.shields.io/badge/Electron-React%20%2B%20Vite-47848f.svg)
@@ -126,7 +126,7 @@ Full guides: [Sub-Agents](docs/wiki/Sub-Agents.md), [Brains](docs/wiki/Brains.md
 - **Make.com**: create and manage scenarios by asking (needs your Make API token).
 
 ### Web, terminal, browser and computer control
-- **Web**: `web_search` (DuckDuckGo, with Bing as a second try and a search model on your endpoint as a fallback) and `web_fetch` (blocks local and private addresses).
+- **Web**: `web_search` (through the Brave Search API with your key, or an AI search model on one of your providers; pick one in Settings → Tools) and `web_fetch` (blocks local and private addresses).
 - **Browser**: an integrated browser with tabs and its own persistent session (cookies and logins stay). The agent drives it with `browser_*` tools. It is separate from your everyday browser.
 - **Terminal**: `run_command` runs in your real shell, and an integrated PTY terminal can be read by the agent. A small blocklist stops obvious disasters (sudo, `rm -rf /`, shutdown…) but it is **not a sandbox**.
 - **Computer (macOS only)**: screenshots, mouse and keyboard. Grant **Screen Recording** and **Accessibility** to the app that launches Artemis (Terminal/iTerm/Electron) in System Settings → Privacy & Security. Check with `pnpm selftest:computer`.
@@ -162,7 +162,7 @@ Artemis contains no analytics, crash reporting or auto-update code. It only talk
 
 - your model providers (whatever you add) and, if set up, Make.com;
 - the Telegram API, only when the bot is on;
-- `web_search` and `web_fetch` (DuckDuckGo, Bing), and the integrated browser, wherever you go;
+- `web_search` (Brave Search API or an AI search model) and `web_fetch`, and the integrated browser, wherever you go;
 - `get_location` (one request to ipwho.is or ipapi.co), only after you approve it;
 - model downloads you start yourself: the speaker model from GitHub releases and the Sentinel speech model;
 - Google OAuth endpoints, if you add a Google connector;
@@ -214,7 +214,7 @@ Issues and small pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING),
 
 ## License
 
-[MIT](LICENSE) © 2026 Orbix Lab. Third-party licenses are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES).
+[AGPL-3.0](LICENSE) © 2026 Orbix Lab. You can use, modify and share Artemis, including commercially; changes you distribute, or offer to users over a network, must be released under the same license with their source. Versions released before this change stay available under the MIT license they were published with. Third-party licenses are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES).
 
 ## Upgrading from Ares
 

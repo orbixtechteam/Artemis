@@ -14,8 +14,6 @@ const { pruneImages } = require('../electron/agent');
   // web: html -> text, ddg parsing, SSRF guard
   const { title, text } = web.htmlToText('<html><head><title>T &amp; Co</title><script>x()</script></head><body><p>Hello <a href="https://a.com/x">link</a></p><li>one</li></body></html>');
   assert.strictEqual(title, 'T & Co'); assert(text.includes('Hello link (https://a.com/x)') && text.includes('- one') && !text.includes('x()'));
-  const ddg = '<a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fp">Ex &amp; One</a><a class="result__snippet">snip</a>';
-  assert.deepStrictEqual(web.parseDdg(ddg), [{ title: 'Ex & One', url: 'https://example.com/p', snippet: 'snip' }]);
   for (const h of ['localhost', '127.0.0.1', '10.1.2.3', '192.168.0.1', '169.254.169.254', '172.20.0.1', '[::1]']) assert(web.isPrivateHost(h), h);
   assert(!web.isPrivateHost('example.com') && !web.isPrivateHost('8.8.8.8'));
   await assert.rejects(web.webFetch('http://127.0.0.1:1/'), /private|blocked/i);
@@ -24,13 +22,11 @@ const { pruneImages } = require('../electron/agent');
   await new Promise((r) => srv.listen(0, '127.0.0.1', r));
   const page = await web.webFetch(`http://127.0.0.1:${srv.address().port}/`, { allowPrivate: true });
   assert(page.includes('Title: Hi') && page.includes('body text'));
-  const ddgSrv = http.createServer((q, r) => { r.writeHead(200, { 'content-type': 'text/html' }); r.end(ddg); });
-  await new Promise((r) => ddgSrv.listen(0, '127.0.0.1', r));
-  const sr = await web.webSearch('x', { ddgUrl: `http://127.0.0.1:${ddgSrv.address().port}/` });
-  assert(sr.includes('https://example.com/p'));
-  const sf = await web.webSearch('x', { ddgUrl: 'http://127.0.0.1:1/', bingUrl: 'http://127.0.0.1:1/', fallback: async () => 'fallback answer' });
+  const sf = await web.webSearch('x', { fallback: async () => 'fallback answer' });
   assert(sf.includes('fallback answer'));
-  srv.close(); ddgSrv.close();
+  const noEngine = await web.webSearch('x', {});
+  assert(/not set up/.test(noEngine) && /Settings/.test(noEngine), 'no engine chosen: the agent is told to ask the user to set one up, nothing is scraped');
+  srv.close();
 
   // SSRF: address classes, DNS answers, every redirect hop
   for (const h of ['100.64.0.1', '100.127.255.254', '0.0.0.0', '[::]', '[::ffff:127.0.0.1]', '[::ffff:7f00:1]', '[fd12::1]', '[fc00::1]', '[fe80::1]', '[64:ff9b::a00:1]', 'intranet', 'printer.local', '224.0.0.1', '198.18.0.1'])
@@ -311,16 +307,6 @@ const { pruneImages } = require('../electron/agent');
   assert(names({ webEnabled: true }).includes('web_search') && !names({}).includes('web_search'));
   assert(names({ computerEnabled: true }).includes('computer') && names({ shellEnabled: true }).includes('run_command'));
 
-  // Bing is the second try when DuckDuckGo gives nothing; its wrapped links are unwrapped
-  const real = 'https://example.org/a?b=1';
-  const wrapped = 'https://www.bing.com/ck/a?!&&p=x&u=a1' + Buffer.from(real).toString('base64').replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_') + '&ntb=1';
-  const bingHtml = `<ol><li class="b_algo" data-id><h2><a href="${wrapped.replace(/&/g, '&amp;')}" h="ID=1">Bing &amp; One</a></h2><div class="b_caption"><p>bing snip</p></div></li><li class="b_algo"><h2><a href="https://example.net/x">Two</a></h2></li></ol>`;
-  assert.deepStrictEqual(web.parseBing(bingHtml), [{ title: 'Bing & One', url: real, snippet: 'bing snip' }, { title: 'Two', url: 'https://example.net/x', snippet: '' }]);
-  const bingSrv = require('http').createServer((q, r) => { r.setHeader('content-type', 'text/html'); r.end(bingHtml); });
-  await new Promise((r) => bingSrv.listen(0, '127.0.0.1', r));
-  const sb = await web.webSearch('x', { ddgUrl: 'http://127.0.0.1:1/', bingUrl: `http://127.0.0.1:${bingSrv.address().port}/` });
-  bingSrv.close();
-  assert(/Bing & One/.test(sb) && sb.includes(real), sb);
   // memory diagnostics: processes are grouped by what they are
   {
     const { groupMetrics, summaryLines, createMemory } = require('../electron/memory');
@@ -417,10 +403,25 @@ import('../src/lib/clip.mjs').then(({ stripFences, codeOnly }) => {
   srv.close();
   assert.strictEqual(n, 3, 'the model is called exactly 3 times, then the run stops');
   assert(events.some((e) => e.type === 'chunk' && /failed 3 times in a row/.test(e.text)), 'the user is told');
+  // the main agent (not only its sub-agents) uses the chosen search engine for web_search
+  { let m = 0;
+    const s2 = http.createServer((req, res) => { let bb = ''; req.on('data', (c) => (bb += c)); req.on('end', () => {
+      m++; res.writeHead(200, { 'content-type': 'text/event-stream' });
+      const ev = m === 1 ? [{ choices: [{ delta: { tool_calls: [{ index: 0, id: 's1', function: { name: 'web_search', arguments: JSON.stringify({ query: 'rebellion to tyrants' }) } }] }, finish_reason: null }] }, { choices: [{ delta: {}, finish_reason: 'tool_calls' }] }]
+        : [{ choices: [{ delta: { content: 'done' }, finish_reason: 'stop' }] }];
+      for (const e of ev) res.write(`data: ${JSON.stringify(e)}\n\n`); res.write('data: [DONE]\n\n'); res.end();
+    }); });
+    await new Promise((r) => s2.listen(0, r));
+    const evs2 = []; let asked = '';
+    await runAgent({ baseUrl: `http://127.0.0.1:${s2.address().port}`, key: 'k', model: 'm', maxTokens: 50, root, toolsEnabled: true, webEnabled: true, autoApprove: true, send: (e) => evs2.push(e), approve: async () => true, searchVia: async (q) => { asked = q; return '1. CHOSEN ENGINE\n   https://e.example\n   hit'; }, messages: [{ role: 'user', content: 'search' }] });
+    s2.close();
+    assert.strictEqual(asked, 'rebellion to tyrants', 'the chosen engine got the query');
+    assert(evs2.some((e) => e.type === 'tool:result' && /CHOSEN ENGINE/.test(e.text || '')), 'its answer reached the model');
+  }
   const web = require('../electron/web');
   const viaText = await web.webSearch('x', { via: async () => 'ANSWER\nSources:\n1. https://e.com' });
   assert(/^ANSWER/.test(viaText), 'a search provider answers first');
-  const broken = await web.webSearch('x', { via: async () => { throw new Error('HTTP 401'); }, ddgUrl: 'http://127.0.0.1:1/', bingUrl: 'http://127.0.0.1:1/' });
+  const broken = await web.webSearch('x', { via: async () => { throw new Error('HTTP 401'); } });
   assert(/not working/.test(broken) && /HTTP 401/.test(broken), 'a failing provider ends with a clear message');
   let seenTok = '', seenUrl = '';
   const bsrv = require('http').createServer((q, r) => {

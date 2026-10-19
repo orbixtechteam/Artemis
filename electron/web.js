@@ -203,91 +203,25 @@ async function webFetch(url, { signal, maxChars = 40000, allowPrivate = false, l
   return `URL: ${u.href}\n\n${clipped}`;
 }
 
-function parseDdg(html) {
-  const results = [];
-  const linkRe = /<a[^>]+class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
-  const snipRe = /<a[^>]+class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/a>/gi;
-  const snippets = [];
-  let m;
-  while ((m = snipRe.exec(html))) snippets.push(decodeEntities(m[1].replace(/<[^>]+>/g, '')).trim());
-  let i = 0;
-  while ((m = linkRe.exec(html))) {
-    let href = decodeEntities(m[1]);
-    if (href.startsWith('//')) href = 'https:' + href;
-    try {
-      const u = new URL(href);
-      if ((u.hostname === 'duckduckgo.com' || u.hostname.endsWith('.duckduckgo.com')) && u.searchParams.get('uddg')) href = u.searchParams.get('uddg');
-    } catch {}
-    if (!/^https?:/.test(href)) { i++; continue; }
-    results.push({ title: decodeEntities(m[2].replace(/<[^>]+>/g, '')).trim(), url: href, snippet: snippets[i] || '' });
-    i++;
-  }
-  return results;
-}
-
-/** Bing wraps result links as bing.com/ck/a?...&u=a1<base64url of the real URL>; give back the real URL. */
-function bingTarget(href) {
-  try {
-    const u = new URL(href);
-    if (/(^|\.)bing\.com$/.test(u.hostname) && u.pathname.startsWith('/ck/')) {
-      const v = u.searchParams.get('u') || '';
-      if (/^a1/.test(v)) { const d = Buffer.from(v.slice(2).replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'); if (/^https?:\/\//.test(d)) return d; }
-    }
-  } catch {}
-  return href;
-}
-function parseBing(html) {
-  const results = [];
-  const blocks = String(html).split(/<li[^>]+class="[^"]*\bb_algo\b[^"]*"[^>]*>/i).slice(1);
-  for (const b of blocks) {
-    const m = /<h2[^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i.exec(b);
-    if (!m) continue;
-    const url = bingTarget(decodeEntities(m[1]));
-    if (!/^https?:/.test(url)) continue;
-    const sn = /<p[^>]*>([\s\S]*?)<\/p>/i.exec(b);
-    results.push({ title: decodeEntities(m[2].replace(/<[^>]+>/g, '')).trim(), url, snippet: sn ? decodeEntities(sn[1].replace(/<[^>]+>/g, '')).trim() : '' });
-  }
-  return results;
-}
-
-async function webSearch(query, { signal, max = 8, fallback, via, ddgUrl = 'https://html.duckduckgo.com/html/', bingUrl = 'https://www.bing.com/search' } = {}) {
-  let results = [], failure = null;
-  if (via) { // a search provider chosen in Settings (for example perplexity/sonar through OpenRouter) goes first; the scraped engines are only the backup
-    try { const text = await via(query, signal); if (text && String(text).trim()) return text; failure = 'the search provider returned nothing'; }
-    catch (e) { if (e.name === 'AbortError' && signal?.aborted) throw e; failure = `the search provider failed (${e.message})`; }
-  }
-  try {
-    const res = await fetch(ddgUrl, {
-      method: 'POST',
-      headers: { 'user-agent': UA, 'content-type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ q: query }).toString(),
-      signal: withTimeout(signal, 15000)
-    });
-    const html = await res.text();
-    if (!res.ok) failure = (failure ? failure + '; ' : '') + `HTTP ${res.status}`;
-    else if (/anomaly|bots use duckduckgo/i.test(html) && !/result__a/.test(html)) failure = (failure ? failure + '; ' : '') + 'DuckDuckGo blocked the request';
-    else results = parseDdg(html);
-  } catch (e) {
-    if (e.name === 'AbortError' && signal?.aborted) throw e;
-    failure = (failure ? failure + '; ' : '') + e.message;
-  }
-  if (!results.length) { // DuckDuckGo refuses scripts now and then: Bing's plain result page is the second try
-    try {
-      const res = await fetch(bingUrl + '?setlang=en&q=' + encodeURIComponent(query), { headers: { 'user-agent': UA, 'accept-language': 'en-US,en;q=0.9' }, signal: withTimeout(signal, 15000) });
-      if (res.ok) results = parseBing(await res.text());
-    } catch (e) { if (e.name === 'AbortError' && signal?.aborted) throw e; }
-  }
-  if (results.length) {
-    return results.slice(0, max).map((r, n) => `${n + 1}. ${r.title}\n   ${r.url}\n   ${r.snippet}`).join('\n\n');
+/**
+ * web_search. Artemis does not scrape search pages (DuckDuckGo, Bing): a search engine has to be chosen in Settings → Tools,
+ * either the Brave Search API (your own key) or an AI search model on one of your providers. `via` is that engine; `fallback` is an older search-model hook.
+ */
+async function webSearch(query, { signal, fallback, via } = {}) {
+  let failure = null;
+  if (via) {
+    try { const text = await via(query, signal); if (text && String(text).trim()) return text; failure = 'the search engine returned nothing'; }
+    catch (e) { if (e.name === 'AbortError' && signal?.aborted) throw e; failure = `the search engine failed (${e.message})`; }
   }
   if (fallback) {
-    const text = await fallback(query, signal);
-    if (text) return `(fallback search)\n${text}`;
+    try { const text = await fallback(query, signal); if (text) return `(fallback search)\n${text}`; }
+    catch (e) { if (e.name === 'AbortError' && signal?.aborted) throw e; failure = (failure ? failure + '; ' : '') + e.message; }
   }
-  return failure ? `Web search is not working right now (${failure}). Do not repeat the search with other words. Tell the user, and ask for a link or the exact page if you need one. In Settings → Tools the user can pick a search provider.` : 'No results.';
+  if (!via && !fallback) return 'Web search is not set up. Do not repeat the search with other words. Tell the user to open Settings → Tools → Search engine and choose Brave Search API (with a key) or an AI search model, and ask for a link or the exact page if you need one.';
+  return `Web search is not working right now (${failure || 'no answer'}). Do not repeat the search with other words. Tell the user, and ask for a link or the exact page if you need one.`;
 }
 
-/** Brave Search API (https://api.search.brave.com): the key goes in the X-Subscription-Token header. Returns the same numbered list as the scraped engines. */
+/** Brave Search API (https://api.search.brave.com): the key goes in the X-Subscription-Token header. Returns a numbered list: title, address and a short description. */
 async function braveSearch({ key, query, signal, max = 8, url = 'https://api.search.brave.com/res/v1/web/search' }) {
   const res = await fetch(`${url}?q=${encodeURIComponent(query)}&count=${Math.min(20, Math.max(1, max))}`, {
     headers: { accept: 'application/json', 'x-subscription-token': String(key || '').trim() },
@@ -319,4 +253,4 @@ async function endpointSearch({ baseUrl, key, query, signal, model = 'perplexity
   return text + cites;
 }
 
-module.exports = { webFetch, webSearch, endpointSearch, braveSearch, htmlToText, parseDdg, parseBing, isPrivateHost, assertPublic, decodeBody };
+module.exports = { webFetch, webSearch, endpointSearch, braveSearch, htmlToText, isPrivateHost, assertPublic, decodeBody };

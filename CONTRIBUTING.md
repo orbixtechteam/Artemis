@@ -45,4 +45,4 @@ You are welcome to use AI tools, but you are responsible for what you submit: re
 
 See [`agents.md`](agents) for an architecture overview.
 
-By contributing you agree that your work is released under the MIT license.
+By contributing you agree that your work is released under the GNU Affero General Public License v3.0 (AGPL-3.0), the license of this project.
