@@ -8,7 +8,7 @@ Sentinel is Artemis's hands-free voice mode. You say "Wake up" or press a push-t
 2. Under **Dictation**, pick a **Speech-to-text provider**. It needs an endpoint that supports `/audio/transcriptions` (Whisper), such as OpenAI or Groq. Add the provider under **Settings → Providers** first. Then pick a **Speech-to-text model** (for example `whisper-1`, `gpt-4o-mini-transcribe` or `whisper-large-v3-turbo`).
 3. Under **Reading voice**, pick a **Voice engine** and press **Test voice** (see [Voice engines](#voice-engines)).
 4. Turn Sentinel on with the shield button next to the mic, or with the **Sentinel on/off** shortcut (default `Cmd/Ctrl+Shift+A`) from any app. The first time, the offline **Voice model** (about 40 MB) is downloaded.
-5. Say **"Wake up"**. The phrase is recognized on your computer by a small offline model, without AI or internet.
+5. Say **"Wake up"** (or the phrase you chose under **Wake phrase**). The phrase is recognized on your computer by a small offline model, without AI or internet.
 6. Speak your request. Artemis answers in the chat, reads the answer aloud and keeps listening for your next sentence.
 7. Say **"bye bye"**, or stay silent for 10 seconds, to end the conversation. Sentinel then waits for "Wake up" again.
 
@@ -28,6 +28,7 @@ While Sentinel is on, a small always-on-top widget shows what it is doing: liste
   - *Compact*: the pill, with the current state and the last sentence.
   - *Expanded*: a mini chat with the full messages, tool steps and a message box. Click **Bigger: read the full messages** on the pill, or say "expand".
   - *Viewer*: shows an artifact or a file from the conversation inside the widget, with copy, download and open buttons.
+- **A mini app that also works without Sentinel.** Open the widget with the Quick chat shortcut or the tray icon (see [Quick Window and Shortcuts](Quick-Window-and-Shortcuts.md)) and type: with Sentinel off the message goes to the same chat, the answer, steps and approvals are shown in the widget, and nothing is read aloud (no microphone is used). Bouncing dots show while the answer is on its way.
 - **Size.** The expanded card and the viewer each have a size you pick: **S**, **M** or **L** (the size button in the widget). The viewer is also capped to a share of the screen.
 - **Buttons.** Mute the microphone, stop and wait for "Wake up" again, turn Sentinel off, see what is happening in the Logs, and **Open this chat in the app**.
 - **Computer control.** When Artemis controls the computer while Sentinel is on, the widget shows the run instead of the separate step panel. It stays compact unless you expand it, and it is kept out of the screenshots the model takes.
@@ -53,6 +54,15 @@ Short sentences that match a command run right away instead of going to the chat
 | "yes" / "no" | Approves or denies a pending approval |
 
 Long sentences (more than about 10 words) are treated as questions, not commands.
+
+## Wake engines
+
+Settings → Voice → Sentinel mode → **Wake engine** chooses how the wake phrase is spotted. Both run on your computer, with no AI and no internet once their files are downloaded.
+
+- **Phrase list (Vosk, English words).** The default. It knows English words only, so the phrase must be one or more English words ("Wake up" by default, or whatever you type under **Wake phrase**).
+- **Trained model (openWakeWord).** A small model trained for one phrase, which can be in any language, including a word of your own. Pick it, press **Download** once for the shared engine files (about 2.4 MB), then pick a **Wake model**: **Import…** a `.onnx` file you trained, or download the ready-made "Hey Mycroft" model to try the engine. Training a model of your own is done outside Artemis: the [openWakeWord](https://github.com/dscripka/openWakeWord) project has a Colab notebook that makes one from a phrase in about an hour. Sentinel does not start with this engine until a model is picked. **Sensitivity** is the score a model needs to count as hearing the phrase (0.5 is the project's advice): lower it if the phrase is missed, raise it if other sounds wake Sentinel.
+
+With a trained model the **Wake phrase** field is only used to cut the phrase out of what you said, so type it the way you say it. The first couple of seconds after Sentinel starts are a warm-up in which a trained model cannot hear the phrase yet. The Vosk voice model is not loaded with this engine unless **Stop words** is on.
 
 ## Voice engines
 
@@ -80,7 +90,8 @@ Pick one under **Settings → Voice → Reading voice → Voice engine**. Each e
 | Natural pacing | Voice → Reading voice | Off, Subtle or Expressive pauses between sentences. |
 | Thinking out loud | Voice → Reading voice | Lets spoken answers start with "Hmm," or "Well,". |
 | Start Sentinel when Artemis opens | Voice → Sentinel mode | Turns Sentinel on at launch. The microphone stays on while Sentinel is on. |
-| Only react when I say "Artemis" | Voice → Sentinel mode | Inside a conversation, a sentence counts only if it starts with "Artemis" or follows Artemis's answer within a few seconds. |
+| Wake engine | Voice → Sentinel mode | Phrase list (Vosk, English words) or a trained model (openWakeWord, any language). See [Wake engines](#wake-engines). |
+| Wake phrase | Voice → Sentinel mode | The phrase that starts a conversation. Default "Wake up". Use 1 to 3 English words that are easy to say and not common in speech: the offline model only knows English words, so if Sentinel does not react to a phrase, try another. |
 | Push-to-talk only | Voice → Sentinel mode | Listens only while you use the push-to-talk key. |
 | Microphone sensitivity | Voice → Sentinel mode | High (quiet room), Normal, or Low (noisy room, speak close). |
 | Load the voice model in the background | Voice → Sentinel mode | Makes turning Sentinel on instant, at the cost of CPU and memory right after launch. |
@@ -101,7 +112,10 @@ Pick one under **Settings → Voice → Reading voice → Voice engine**. Each e
 
 - The wake word and stop words are recognized offline. Your sentences are sent to the speech-to-text provider you picked.
 - The microphone stays on while Sentinel is on. Mute it from the widget or say "mute".
-- To accept only your own voice, set up voice recognition in [Security and App Lock](Security-and-App-Lock.md).
+- To accept only your own voice, set up voice recognition in [Security and App Lock](Security-and-App-Lock.md). Once your voice is enrolled, Sentinel checks it on every sentence you say, in and after the wake phrase.
+- Another voice inside a conversation is ignored in silence (no answer, no lock). If another voice says the wake phrase, that is an access attempt: Artemis says "Unauthorized access." and, with **Lock when another voice is heard** on, locks the app.
+- Speech too short to recognise a voice is ignored while your voice is enrolled. Say a whole phrase, for example "mute the mic" rather than just "mute".
+- Voice approvals ("Allow? …") are answered with "yes, allow it" or "no, deny it", and only your voice counts for them.
 
 ## See also
 

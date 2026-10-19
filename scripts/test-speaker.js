@@ -122,11 +122,21 @@ const { createLock } = require('../electron/lock.js');
   const mine = wavOf(voice('A', 3.1, 7)); const theirs = wavOf(voice('B', 3.1, 7)); const tiny = wavOf(voice('A', 0.5, 7));
   // nothing is asked of the voice while the lock and owner-only are off
   assert.deepStrictEqual(await gate.verify(theirs), { ok: true, skipped: 'not-needed' });
+  // Sentinel asks for the check itself (always): a stranger who says the wake phrase is refused with the fixed line even though no lock setting asks for the check
+  await lock.setConfig({ voiceThreshold: 0.5 });
+  { const r = await gate.verify(theirs, { always: true, phase: 'wake' }); assert.ok(!r.ok && r.reason === 'mismatch' && r.say === 'Unauthorized access.', JSON.stringify(r)); }
+  { const r = await gate.verify(tiny, { always: true }); assert.deepStrictEqual(r, { ok: false, reason: 'short' }, 'Sentinel does not act on speech too short to recognise'); }
   // owner-only: the owner passes, others get the fixed line, short speech is let through (not a failed attempt)
   await lock.setConfig({ voiceOnly: true, voiceThreshold: 0.5 });
   { const own = await gate.verify(mine); assert.ok(own.ok && own.match && !own.unlocked, JSON.stringify(own)); }
   { const r = await gate.verify(theirs); assert.ok(!r.ok && r.reason === 'mismatch' && r.say === 'Unauthorized access.' && !r.lockdown, JSON.stringify(r)); }
   assert.deepStrictEqual(await gate.verify(tiny), { ok: true, skipped: 'short' });
+  // inside an open conversation another voice is ignored in silence: no spoken line, no failed attempt, no lock; the owner still passes. A spoken yes/no is held to the same rule
+  for (let i = 0; i < 5; i++) { const r = await gate.verify(theirs, { always: true, phase: 'session' }); assert.ok(!r.ok && r.reason === 'mismatch' && !r.say && !r.lockdown && !r.locked, JSON.stringify(r)); }
+  assert.ok(!lock.isLocked(), 'a stranger talking inside a conversation never locks the app');
+  { const r = await gate.verify(mine, { always: true, phase: 'session', strict: true }); assert.ok(r.ok && r.match, JSON.stringify(r)); }
+  { const r = await gate.verify(theirs, { always: true, phase: 'session', strict: true }); assert.ok(!r.ok && !r.say, JSON.stringify(r)); }
+  assert.deepStrictEqual(await gate.verify(tiny, { always: true, phase: 'session', strict: true }), { ok: false, reason: 'short' });
   // the third unrecognised voice locks down and raises the alert; the owner in between resets the count
   await gate.verify(mine); assert.ok(!(await gate.verify(theirs)).lockdown); assert.ok(!(await gate.verify(theirs)).lockdown);
   { const r = await gate.verify(theirs); assert.ok(r.lockdown && r.lockdown.kind === 'voice' && r.lockdown.attempts === 3 && r.say); assert.strictEqual(alerts.length, 1); assert.ok(lock.isLocked(), 'a lockdown locks the app'); }

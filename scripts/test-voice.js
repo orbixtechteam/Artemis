@@ -192,9 +192,6 @@ const assert = require('assert');
   assert.deepStrictEqual(R('tr', 'system'), ['system', '']); assert.deepStrictEqual(R('en', 'system'), ['system', '']);
   // Sentinel: speech in other scripts is not noise, and the name is found in other languages
   assert(!c.looksLikeNoise('Привет, как дела?') && !c.looksLikeNoise('こんにちは') && !c.looksLikeNoise('Bugün hava nasıl?') && c.looksLikeNoise('uh'));
-  assert.strictEqual(c.afterName('Artemis, bugün hava nasıl?'), 'bugün hava nasıl?');
-  assert.strictEqual(c.afterName('Артемис, как дела?'), 'как дела?');
-  assert.strictEqual(c.afterName('Artemisia is a plant'), null);
   assert(L.kokoroVoiceFits('bf_emma', 'en') && !L.kokoroVoiceFits('af_heart', 'es') && !L.kokoroVoiceFits('', 'es'));
 
   // ---- per-language engine map: lang + map + main engine -> { engine, url, voice } ----

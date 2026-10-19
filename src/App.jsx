@@ -6,7 +6,7 @@ import { speak, stopSpeaking, createSpeaker, prepareVoice, ttsConfig } from './l
 import { normLang, detectTextLang, replyLangHint } from './lib/lang.mjs';
 import { Sentinel, preloadSentinel } from './lib/sentinel.js';
 import { startMemoryLog, shotsToShrink, applyThumbs, thumbnail } from './lib/memory.js';
-import { afterWake, afterName, stripWake, looksLikeNoise, spokenPart, takePieceItems, VOICE_HINT, EMOTION_HINT, THINKING_HINT } from './lib/sentinel-core.mjs';
+import { afterWake, stripWake, wakeLabel, wakeEngine, looksLikeNoise, spokenPart, takePieceItems, VOICE_HINT, EMOTION_HINT, THINKING_HINT } from './lib/sentinel-core.mjs';
 import { stripTags } from './lib/tts-emotion.mjs';
 import { parseCommand, parseApproval, parseChoice, findChats, confirmText, usageText, statusText } from './lib/sentinel-commands.mjs';
 import { widgetView } from './lib/sentinel-view.mjs';
@@ -568,6 +568,8 @@ export default function App() {
       canStopWords: () => (settingsRef.current || {}).sentinelStopWords === true, // off by default: the stop-word listener mistakes room noise for "stop"
       getMinRms: () => ({ high: 0.008, low: 0.026 }[(settingsRef.current || {}).sentinelSensitivity] || 0.012),
       getPttOnly: () => (settingsRef.current || {}).sentinelPttOnly === true,
+      getWake: () => (settingsRef.current || {}).sentinelWake,
+      getEngine: () => wakeEngine(settingsRef.current || {}),
       onBarge: () => { actionsRef.current.voiceCmd && actionsRef.current.voiceCmd({ type: 'stop' }); }, // "stop" said while Artemis thinks or speaks
       onUtterance: async (wav) => {
         const s = settingsRef.current || {};
@@ -576,10 +578,12 @@ export default function App() {
         let guest = false;
         if (window.api.speakerVerify) {
           let spk = null;
-          try { spk = await window.api.speakerVerify(wav); } catch (e) { log('error', 'sentinel', 'Voice check failed: ' + ((e && e.message) || e)); spk = { ok: false, reason: 'error' }; }
+          try { spk = await window.api.speakerVerify(wav, { phase: sn.session ? 'session' : 'wake', strict: !!voiceApproval.current }); } catch (e) { log('error', 'sentinel', 'Voice check failed: ' + ((e && e.message) || e)); spk = { ok: false, reason: 'error' }; }
           if (!sn.running) return;
           if (spk && !spk.ok) {
             log('info', 'sentinel', `Voice check refused the sentence (${spk.reason}${typeof spk.score === 'number' ? ', score ' + spk.score.toFixed(2) : ''})`);
+            // a spoken yes/no is waiting and the voice is not the owner's: it counts for nothing, keep listening for the owner
+            if (voiceApproval.current) { sn.session = true; sn.listen({ noSpeechMs: 15000 }); return; }
             if (spk.say) { sn.speaking(); const back = () => { if (sn.running) sn.resume(); }; if (!speak(spk.say, { language: 'en', onEnd: back })) back(); } else sn.resume();
             return;
           }
@@ -589,26 +593,12 @@ export default function App() {
         const out = await window.api.voiceTranscribe({ audio: wav, mime: 'audio/wav', language: s.voiceLanguage && s.voiceLanguage !== 'auto' ? s.voiceLanguage : '', });
         if (!sn.running) return;
         if (!out.ok) { log('error', 'sentinel', 'Speech-to-text failed: ' + out.error); flashSent(out.error); sn.next(); return; }
-        // First sentence after "Wake up": it must start with the phrase. After that the conversation goes on without it.
         const inSession = !!sn.session;
         const viaPtt = !!sn.pttUtter; sn.pttUtter = false; // said while holding the push-to-talk key: it is meant for Artemis, no name needed
-        let text;
-        if (!viaPtt && inSession && (settingsRef.current || {}).sentinelNameOnly !== false) {
-          // Other people may be talking nearby. Inside a conversation a sentence counts only if it begins with "Artemis" (or "Wake up"),
-          // or follows Artemis' reply within a few seconds. Everything else is ignored, and after a few in a row the conversation ends.
-          const named = afterName(out.text);
-          const follow = sn.utterStart - sn.lastReplyEnd <= 6000;
-          if (named !== null) text = named;
-          else if (follow) text = stripWake(out.text);
-          else {
-            sn.ignored = (sn.ignored || 0) + 1;
-            log('info', 'sentinel', `Ignored (not said to Artemis, ${sn.ignored}): "${out.text}"`);
-            if (sn.ignored >= 3) { sn.ignored = 0; sn.resume(); } else sn.next();
-            return;
-          }
-          sn.ignored = 0;
-        } else text = (inSession || viaPtt) ? stripWake(out.text) : afterWake(out.text);
-        if (text === null) { log('info', 'sentinel', `Ignored (the speech did not start with "Wake up"): "${out.text}"`); sn.resume(); return; }
+        // The first sentence after the wake phrase must start with it; after that the conversation goes on without it. Other voices were already dropped by the voice check above.
+        // With a trained wake word model the phrase was already recognised by the model (its spelling in speech-to-text is not known), so the transcript is not checked for it, only cleaned of it.
+        const text = (inSession || viaPtt || sn.useOww) ? stripWake(out.text, s.sentinelWake) : afterWake(out.text, s.sentinelWake);
+        if (text === null) { log('info', 'sentinel', `Ignored (the speech did not start with the wake phrase): "${out.text}"`); sn.resume(); return; }
         log('info', 'sentinel', `Heard: "${out.text}"${text ? '' : ' (nothing after the wake phrase)'}`);
         sn.session = true;
         if (!text) { sn.next(); return; }
@@ -637,24 +627,36 @@ export default function App() {
   const voiceAsk = useRef(null);     // { kind: 'delete' | 'choice', ... }: a spoken question of Sentinel's own is waiting for the answer
   const sentLatest = useRef(sent); sentLatest.current = sent;
   const widgetPush = useRef({ t: 0, timer: 0 });
+  const widgetChat = useRef(false);   // the widget is used as a text-only mini app (Sentinel is off): its chat is shown in the widget all the same
   const pushWidget = () => {
     const w = widgetPush.current; w.t = performance.now(); w.timer = 0;
     const s1 = sentLatest.current;
-    const c = s1.state !== 'off' ? chatsRef.current.find((x) => x.id === sentChat.current) : null;
+    const c = s1.state !== 'off' || widgetChat.current ? chatsRef.current.find((x) => x.id === sentChat.current) : null;
     let view = null;
     if (c) {
       const v = widgetView(c);
       const same = (a, b) => String(a || '').replace(/\s+/g, ' ').trim().slice(0, 80) === String(b || '').replace(/\s+/g, ' ').trim().slice(0, 80);
       const fresh = !!voiceSentText.current && same(v.heard, voiceSentText.current);
       view = fresh ? v : { ...v, answer: '', activity: '', images: [], error: '', artifacts: [], running: false };
+      view = { ...view, busy: isRunning(c.id) }; // the model is answering (also with Sentinel off): the widget shows the dots and a Stop button
     }
-    window.api.sentinelState({ state: s1.state, info: s1.info, err: s1.err, heard: s1.heard || '', said: s1.said || '', muted: !!(sentRef.current && sentRef.current.muted), view });
+    const payload = { state: s1.state, info: s1.info, err: s1.err, heard: s1.heard || '', said: s1.said || '', muted: !!(sentRef.current && sentRef.current.muted), view };
+    // Identical to the last push → nothing to send (a streaming chat re-renders far more often than the widget's content changes).
+    // The signature is cheap on purpose: images (data URLs up to 1.5 MB) count by length and ends, never by their whole text.
+    let sig = '';
+    try {
+      sig = JSON.stringify(payload, (k, v) => (typeof v === 'string' && v.length > 400 ? v.length + ':' + v.slice(0, 60) + v.slice(-60) : v));
+    } catch { sig = ''; }
+    if (sig && sig === w.sig) return;
+    w.sig = sig;
+    window.api.sentinelState(payload);
   };
   useEffect(() => {
     if (!window.api.sentinelState) return;
     const w = widgetPush.current;
-    if (sent.state === 'off') { if (w.offSent !== sent) { w.offSent = sent; clearTimeout(w.timer); w.timer = 0; pushWidget(); } return; } // off: chat changes are not the widget's business
-    if (performance.now() - w.t >= 100) { clearTimeout(w.timer); pushWidget(); } else if (!w.timer) w.timer = setTimeout(pushWidget, 100 - (performance.now() - w.t));
+    if (sent.state === 'off' && !widgetChat.current) { if (w.offSent !== sent) { w.offSent = sent; clearTimeout(w.timer); w.timer = 0; pushWidget(); } return; } // off: chat changes are not the widget's business
+    const gap = 100; // ms between pushes
+    if (performance.now() - w.t >= gap) { clearTimeout(w.timer); pushWidget(); } else if (!w.timer) w.timer = setTimeout(pushWidget, gap - (performance.now() - w.t));
   }, [sent, chats, sentMuted]);
   useEffect(() => () => clearTimeout(widgetPush.current.timer), []);
   /**
@@ -713,7 +715,9 @@ export default function App() {
     }
     if (what === 'send') { // typed in the widget: the same as saying it
       const text = String(arg || '').trim(); const sn = sentRef.current;
-      if (!text || !sn || !sn.running || !actionsRef.current.sendVoice) return false;
+      if (!text) return false;
+      if (!sn || !sn.running) return actionsRef.current.widgetText(text); // Sentinel is off: the widget is a text chat (Quick chat), no microphone and no voice
+      if (!actionsRef.current.sendVoice) return false;
       stopSpeaking(); setSent((p) => ({ ...p, heard: text, said: '' }));
       log('info', 'sentinel', 'Message typed in the widget');
       actionsRef.current.sendVoice(text);
@@ -841,6 +845,7 @@ export default function App() {
   window.__micId = (settings && settings.micDeviceId) || '';
   window.__speakerId = (settings && settings.speakerDeviceId) || '';
   window.__tts = ttsConfig(settings);
+  window.__wakeWord = wakeLabel(settings && settings.sentinelWake); // shown in the Sentinel pill and tooltips
   useEffect(() => { setPanel(null); }, [currentId]);
   useEffect(() => {
     // http(s) links open straight in the in-app browser (⌘/Ctrl-click in a message opens the system browser instead, see Markdown.jsx)
@@ -1457,7 +1462,7 @@ export default function App() {
     log('info', 'sentinel', `Asking for approval by voice: ${what}`);
     voiceStream.current = null; sn.speaking();
     const go = () => listenApproval();
-    if (!speak(`Allow? ${what}. Say yes or no.`, { language: (settingsRef.current || {}).voiceLanguage, onEnd: go })) go();
+    if (!speak(`Allow? ${what}. Say: yes, allow it. Or: no, deny it.`, { language: (settingsRef.current || {}).voiceLanguage, onEnd: go })) go();
   };
   actionsRef.current.sendVoice = (text, o) => {
     const sn = sentRef.current;
@@ -1476,7 +1481,7 @@ export default function App() {
       pend.tries += 1;
       if (pend.tries >= 2) { voiceApproval.current = null; decide(pend.id, false); log('info', 'sentinel', 'Approval by voice: no clear answer, denied'); sn && sn.thinking(); return; }
       sn && sn.speaking(); const again = () => listenApproval();
-      if (!speak('Say yes to allow, or no to deny.', { language: (settingsRef.current || {}).voiceLanguage, onEnd: again })) again();
+      if (!speak('Say: yes, allow it. Or: no, deny it.', { language: (settingsRef.current || {}).voiceLanguage, onEnd: again })) again();
       return;
     }
     const ask = voiceAsk.current;
@@ -1484,6 +1489,18 @@ export default function App() {
     const cmd = parseCommand(text, { brains, models: voiceModels(), projects });
     if (cmd) { runVoiceCommand({ ...cmd, text }); return; }
     actionsRef.current.voiceToChat(text);
+  };
+  // The widget without Sentinel: a typed message goes to the same chat, the answer is shown in the widget and is not read aloud.
+  actionsRef.current.widgetText = (text) => {
+    if (!settingsRef.current?.hasApiKey) { flashSent('Add a provider in Settings first.'); return false; }
+    let c = sentinelChat(false);
+    if (isRunning(c.id)) c = sentinelChat(true); // still answering the last one: this goes to a new chat
+    widgetChat.current = true; voiceSentText.current = text;
+    setSent((p) => ({ ...p, heard: text, said: '' }));
+    if (currentRef.current !== c.id) select(c.id);
+    log('info', 'sentinel', `Message typed in the widget (Sentinel is off), chat "${c.title}"`);
+    if (!sendTo(c, text, [], {})) { flashSent('Could not send: this chat is busy or has no API key.'); return false; }
+    return true;
   };
   // A message for Sentinel's chat. The chat is selected in the main window, which is not brought forward.
   actionsRef.current.voiceToChat = (text, { shown, guest } = {}) => {

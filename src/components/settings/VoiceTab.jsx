@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Select from '../Select.jsx';
 import { dropSentinelModel } from '../../lib/sentinel.js';
+import { normWake, wakeLabel } from '../../lib/sentinel-core.mjs';
 import { LANGS, listVoices, rankVoice, speak, stopSpeaking, ttsConfig, pickVoice } from '../../lib/voice.js';
 import { VOICE_LANGS, KOKORO_VOICES, kokoroVoiceFits, langName, LANG_ENGINES, LANG_NOTES, PIPER_LANG_URL, PIPER_VOICES, VOICE_TEST_SAMPLES, langMapFrom, normLangEntry, okUrl, routeLang } from '../../lib/lang.mjs';
 import { listDevices, unlockLabels } from '../../lib/audio-devices.js';
@@ -76,7 +77,7 @@ function PttRecorder({ s, setS, pttError }) {
   const shown = rec ? (rec.mods.length ? modsLabel(rec.mods) + ' …' : 'Press a combination…') : pttLabel(combo);
   return (
     <Row label="Push-to-talk shortcut"
-      description={<>Talk to Sentinel without “Wake up”; it turns Sentinel on if needed. Click the box and press a combination: ⌘, ⌥ or ⌃ (optionally with ⇧) plus a key, e.g. ⌥ Space. Esc cancels.{' '}
+      description={<>Talk to Sentinel without the wake phrase; it turns Sentinel on if needed. Click the box and press a combination: ⌘, ⌥ or ⌃ (optionally with ⇧) plus a key, e.g. ⌥ Space. Esc cancels.{' '}
         {!(rec && rec.err) && !legacy && combo ? 'In Artemis: hold it to talk, let go to send. From any app: press once to talk, again to send.' : null}</>}
       error={(rec && rec.err ? rec.err + '.' : legacy ? `“${pttLabel(combo)}” is a single key, not a combination: it can type text and does not work from other apps. It still works for now; record a combination to replace it (${PTT_COMBO_HINT}).` : '') + (pttError ? ' ' + pttError : '')}>
       <div className="pref-inline">
@@ -306,6 +307,65 @@ function LanguageVoices({ s, setS, engine, voices }) { // eslint-disable-line no
   );
 }
 
+/** Settings → Voice → Sentinel mode: which engine spots the wake phrase, and (for a trained model) its files, the model and how sensitive it is. */
+function WakeEngine({ s, setS }) {
+  const [st, setSt] = useState(null);
+  const [prog, setProg] = useState(null); // { pct, detail } while something downloads
+  const [msg, setMsg] = useState('');
+  const refresh = () => window.api.wakewordStatus().then(setSt).catch(() => {});
+  useEffect(() => {
+    refresh();
+    const off = window.api.onWakewordProgress ? window.api.onWakewordProgress((p) => setProg(p)) : null;
+    return () => { try { off && off(); } catch {} };
+  }, []);
+  const oww = s.sentinelEngine === 'oww';
+  const run = async (fn) => {
+    setMsg(''); setProg({ pct: 0, detail: 'Starting…' });
+    try { const r = await fn(); if (r && r.ok === false && !r.canceled) setMsg(r.error || 'That did not work.'); return r; }
+    catch (e) { setMsg((e && e.message) || String(e)); return null; }
+    finally { setProg(null); refresh(); }
+  };
+  const models = (st && st.models) || [];
+  const picked = s.sentinelOwwModel || '';
+  const ready = !!(st && st.features && st.features.ready);
+  const busy = !!prog;
+  const filesText = !st ? 'Checking…' : st.runtime && st.runtime.ok === false ? st.runtime.error : prog ? `Downloading… ${prog.pct || 0}%${prog.detail ? ' (' + prog.detail + ')' : ''}` : ready ? `Installed (${(st.features.size / 1048576).toFixed(1)} MB).` : 'Not downloaded yet (about 2.4 MB).';
+  return (
+    <>
+      <Row label="Wake engine" description="How Sentinel spots the wake phrase. “Phrase list” (Vosk) knows English words only. “Trained model” (openWakeWord) listens for one phrase it was trained on, in any language, so it can be a word of your own. A change applies the next time Sentinel starts.">
+        <Select value={oww ? 'oww' : 'vosk'} onChange={(e) => setS((x) => ({ ...x, sentinelEngine: e.target.value }))}>
+          <option value="vosk">Phrase list (Vosk, English words)</option>
+          <option value="oww">Trained model (openWakeWord, any language)</option>
+        </Select>
+      </Row>
+      {oww && (
+        <>
+          <Row label="Engine files" description={filesText} error={msg}>
+            {!ready && st && !(st.runtime && st.runtime.ok === false) ? <button type="button" className="pref-btn" disabled={busy} onClick={() => run(() => window.api.wakewordDownload())}>Download</button> : null}
+          </Row>
+          <Row label="Wake model" description={picked && !models.some((m) => m.id === picked) ? 'The model you picked is not installed any more. Pick another one or import it again.' : 'A small .onnx file trained for one phrase. Import yours (the openWakeWord project has a notebook that trains one in about an hour), or download a ready-made one to try the engine. Sentinel does not start with this engine until a model is picked.'}>
+            <div className="pref-inline">
+              <Select value={picked} onChange={(e) => setS((x) => ({ ...x, sentinelOwwModel: e.target.value }))}>
+                <option value="">Pick a model…</option>
+                {picked && !models.some((m) => m.id === picked) ? <option value={picked}>{picked} (missing)</option> : null}
+                {models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </Select>
+              <button type="button" className="pref-btn" disabled={busy} onClick={async () => { const r = await run(() => window.api.wakewordImport()); if (r && r.ok && r.id) setS((x) => ({ ...x, sentinelOwwModel: r.id })); }}>Import…</button>
+              {models.some((m) => m.id === picked) ? <button type="button" className="pref-btn" disabled={busy} onClick={async () => { const r = await run(() => window.api.wakewordRemove(picked)); if (r && r.ok) setS((x) => ({ ...x, sentinelOwwModel: '' })); }}>Remove</button> : null}
+              {((st && st.presets) || []).filter((p) => !p.installed).map((p) => (
+                <button key={p.id} type="button" className="pref-btn" disabled={busy} onClick={async () => { const r = await run(() => window.api.wakewordPreset(p.id)); if (r && r.ok) setS((x) => ({ ...x, sentinelOwwModel: p.id })); }}>Get “{p.label}”</button>
+              ))}
+            </div>
+          </Row>
+          <Row label="Sensitivity" description="The score a model needs to count as hearing the phrase (0.5 is the project's advice). Lower it if the phrase is missed, raise it if other sounds wake Sentinel.">
+            <Slider value={Number.isFinite(Number(s.sentinelOwwThreshold)) && s.sentinelOwwThreshold !== '' && s.sentinelOwwThreshold != null ? Number(s.sentinelOwwThreshold) : 0.5} min={0.2} max={0.95} step={0.05} onChange={(v) => setS((x) => ({ ...x, sentinelOwwThreshold: v }))} aria-label="Wake word threshold" />
+          </Row>
+        </>
+      )}
+    </>
+  );
+}
+
 export function VoiceTab({ s, setS, providers, chatGroups = [], pttError = '' }) {
   const sel = s.voiceSttProvider || '';
   const [model, setModel] = useState(null);
@@ -407,13 +467,15 @@ export function VoiceTab({ s, setS, providers, chatGroups = [], pttError = '' })
       </Group>
       <LanguageVoices s={s} setS={setS} engine={engine} voices={voices} />
       <AudioDevices s={s} setS={setS} />
-      <Group title="Sentinel mode" footer={<>Turn it on with the shield button next to the mic{sentinelKey ? ` (or ${sentinelKey} from any app)` : ''}. Artemis then listens for the phrase “Wake up”, like “Hey Siri”. The phrase is recognised on your computer by a small offline model, without AI or internet. After you say it, Artemis keeps listening: it answers in the chat, reads the answer aloud and waits for your next sentence, until you say “bye bye” or stay silent for 10 seconds. Your sentence is transcribed with the speech-to-text provider above.</>}>
+      <Group title="Sentinel mode" footer={<>Turn it on with the shield button next to the mic{sentinelKey ? ` (or ${sentinelKey} from any app)` : ''}. Artemis then listens for the wake phrase (“{wakeLabel(s.sentinelWake)}” unless you change it below), like “Hey Siri”. The phrase is recognised on your computer by a small offline model, without AI or internet. After you say it, Artemis keeps listening: it answers in the chat, reads the answer aloud and waits for your next sentence, until you say “bye bye” or stay silent for 10 seconds. Your sentence is transcribed with the speech-to-text provider above.</>}>
         <SwitchRow label="Start Sentinel when Artemis opens" description="Needs the voice model below. The microphone stays on while Sentinel is on."
           checked={!!s.sentinelAuto} onChange={(v) => setS((x) => ({ ...x, sentinelAuto: v }))} />
-        <SwitchRow label="Only react when I say “Artemis”" description="Inside a conversation, a sentence counts only if it starts with “Artemis” or follows Artemis' answer within a few seconds. Other people talking nearby, or you talking to someone else, is ignored."
-          checked={s.sentinelNameOnly !== false} onChange={(v) => setS((x) => ({ ...x, sentinelNameOnly: v }))} />
+        <Row label="Wake phrase" description="The phrase that starts a conversation (default “Wake up”). Use 1 to 3 English words that are easy to say and not common in speech; the offline recogniser only knows English words. If Sentinel does not react to it, try another one. With a trained model (below) type the phrase the way you say it: it is only used to cut it out of what you said. A change applies the next time Sentinel waits for it.">
+          <input className="pref-input" value={s.sentinelWake ?? 'wake up'} onChange={(e) => setS((x) => ({ ...x, sentinelWake: e.target.value }))} onBlur={(e) => setS((x) => ({ ...x, sentinelWake: normWake(e.target.value) }))} placeholder="wake up" spellCheck={false} maxLength={40} aria-label="Wake phrase" />
+        </Row>
+        <WakeEngine s={s} setS={setS} />
         <PttRecorder s={s} setS={setS} pttError={pttError} />
-        <SwitchRow label="Push-to-talk only" description="Sentinel listens only while you use the push-to-talk key: it does not wait for “Wake up” and does not keep listening after it answers."
+        <SwitchRow label="Push-to-talk only" description="Sentinel listens only while you use the push-to-talk key: it does not wait for the wake phrase and does not keep listening after it answers."
           error={s.sentinelPttOnly === true && !s.sentinelPtt ? 'Set a push-to-talk shortcut above first, otherwise there is no way to talk to it.' : ''}
           checked={s.sentinelPttOnly === true} onChange={(v) => setS((x) => ({ ...x, sentinelPttOnly: v }))} />
         <Row label="Microphone sensitivity" description="Lower it if voices from further away or from other people are picked up. Speak closer to the microphone, or use headphones.">

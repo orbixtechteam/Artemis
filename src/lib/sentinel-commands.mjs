@@ -168,8 +168,8 @@ function parseControls(t, { brains = [], projects = [] } = {}) {
  * brains: [{ slug, name }] so a brain can be picked by name ("talk to Galahad").
  * Returns { type, value?, label?, page? }.
  */
-const YES = /^(yes|yeah|yep|yup|sure|ok|okay|approve|approved|allow|allowed|go ahead|do it|go on|proceed|confirm|sounds good|allow it|approve it|yes please|please do)$/;
-const NO = /^(no|nope|nah|deny|denied|decline|reject|do not|dont|don t|do not do it|dont do it|stop|cancel|never mind|nevermind|no thanks|no don t)$/;
+const YES = /^(yes|yeah|yep|yup|sure|ok|okay|approve|approved|allow|allowed|go ahead|do it|go on|proceed|confirm|sounds good|allow it|approve it|yes please|please do|yes allow it|yes allow|yes approve it|yes go ahead|yes do it)$/;
+const NO = /^(no|nope|nah|deny|denied|decline|reject|do not|dont|don t|do not do it|dont do it|stop|cancel|never mind|nevermind|no thanks|no don t|no deny it|no deny|no do not do it|no dont do it)$/;
 
 /** While an approval is waiting: "yes / approve / allow" or "no / deny / cancel". */
 export function parseApproval(text) {
