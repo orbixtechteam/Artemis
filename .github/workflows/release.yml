@@ -1,0 +1,30 @@
+name: release
+# Pushing a tag like 1.4.0 (the same number as "version" in package.json) builds the macOS app and attaches the .dmg to a GitHub Release.
+# The app's Settings → General → Updates looks at the latest release of this repository.
+on:
+  push:
+    tags: ['[0-9]+.[0-9]+.[0-9]+', 'v[0-9]+.[0-9]+.[0-9]+']
+permissions:
+  contents: write
+jobs:
+  mac:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - name: Check the tag matches package.json
+        run: test "${GITHUB_REF_NAME#v}" = "$(node -p "require('./package.json').version")"
+      - run: pnpm build
+      - run: pnpm exec electron-builder --mac --publish never
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release/*.dmg
+          generate_release_notes: true

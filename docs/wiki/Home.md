@@ -17,6 +17,7 @@ New here? Start with [Getting Started](Getting-Started.md).
 - [Files and Attachments](Files-and-Attachments.md): file tools, Excel, Word, PDF, Files library, import
 - [Notes](Notes.md): Markdown notes, `[[wiki links]]`, graph
 - [Memory](Memory.md)
+- [Updates](Updates.md): automatic updates from GitHub Releases
 - [Quick Window and Shortcuts](Quick-Window-and-Shortcuts.md): tray, command palette, tabs, split view
 
 ## Agents and automation

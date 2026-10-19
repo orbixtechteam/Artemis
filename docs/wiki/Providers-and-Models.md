@@ -91,7 +91,7 @@ Things to know:
 ## Limits and safety
 
 - Keys and tokens are encrypted with the OS keychain (Electron `safeStorage`). If the OS offers no encryption (some Linux setups) they are stored in plain text in the app data folder.
-- Artemis only contacts the providers you add. There is no analytics or auto-update code.
+- Artemis only contacts the providers you add. There is no analytics. The only other request is the update check against GitHub Releases, which you can turn off in Settings → General → Updates.
 
 ## See also
 

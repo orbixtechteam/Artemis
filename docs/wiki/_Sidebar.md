@@ -5,6 +5,7 @@
 - [Providers and Models](Providers-and-Models.md)
 - [Usage Limits](Usage-Limits.md)
 - [Appearance](Appearance.md)
+- [Updates](Updates.md)
 
 **Everyday use**
 - [Chat and Projects](Chat-and-Projects.md)

@@ -121,6 +121,28 @@ function createNotes({ getRoot }) {
     return res.sort((a, b) => b.score - a.score).slice(0, limit);
   }
 
+  /** The same search without blocking the app: the files are read a few at a time and the event loop breathes in between. isStale() stops it when a newer query came in. */
+  async function searchAsync(query, { limit = 30, isStale = () => false } = {}) {
+    const q = String(query || '').trim().toLowerCase();
+    if (!q) return [];
+    const terms = q.split(/\s+/).filter(Boolean);
+    const res = []; let n = 0;
+    for (const f of list()) {
+      if (f.dir) continue;
+      if (++n % 15 === 0) { await new Promise((r) => setImmediate(r)); if (isStale()) return []; }
+      let text = '';
+      try { text = fs.readFileSync(safe(f.path), 'utf8'); } catch { continue; }
+      const low = text.toLowerCase(), title = f.name.toLowerCase();
+      if (!terms.every((t) => low.includes(t) || title.includes(t))) continue;
+      let score = 0;
+      for (const t of terms) { if (title.includes(t)) score += 10; const m = low.split(t).length - 1; score += Math.min(m, 10); }
+      const idx = low.indexOf(terms[0]);
+      const snippet = idx >= 0 ? text.slice(Math.max(0, idx - 60), idx + 140).replace(/\s+/g, ' ').trim() : text.slice(0, 160).replace(/\s+/g, ' ');
+      res.push({ path: f.path, name: f.name, score, snippet });
+    }
+    return res.sort((a, b) => b.score - a.score).slice(0, limit);
+  }
+
   // Link graph: every note, plus an edge per [[link]] / ![[embed]]. Links to notes that don't exist become "ghost" nodes.
   const LINK_RE = /!?\[\[([^\]\n|]+)(?:\|[^\]\n]*)?\]\]/g;
   function graph() {
@@ -175,7 +197,7 @@ function createNotes({ getRoot }) {
     return { url: `data:${mime};base64,${fs.readFileSync(abs).toString('base64')}` };
   }
 
-  return { root, list, read, write, create, createFolder, rename, move, remove, search, graph, saveAsset, readAsset };
+  return { root, list, read, write, create, createFolder, rename, move, remove, search, searchAsync, graph, saveAsset, readAsset };
 }
 
 module.exports = { createNotes };

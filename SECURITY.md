@@ -16,7 +16,7 @@ Only the latest release receives security fixes.
 - API keys and tokens are encrypted with the OS keychain (Electron `safeStorage`). Where the OS has no encryption they are stored in plain text in the app data folder.
 - The optional MCP server listens on 127.0.0.1 only, requires a bearer token and rejects requests that carry an `Origin` header.
 - The app lock (password, recovery code, Touch ID) and voice recognition protect the Artemis window and its actions. They are not disk encryption, and a replayed or cloned voice can fool the speaker model; use Touch ID for sensitive approvals.
-- Artemis contains no analytics, crash reporting or auto-update code. Which features contact the internet is listed in the README under "Privacy, data and network access".
+- Artemis contains no analytics or crash reporting. Its only update code asks GitHub for the latest release (Settings → General → Updates, can be turned off). Which features contact the internet is listed in the README under "Privacy, data and network access".
 - Releases are unsigned.
 
 ## In scope

@@ -158,7 +158,7 @@ Ollama and LM Studio are in the provider list. A few things to know:
 
 Data is stored locally as JSON under `userData`. API keys and tokens are encrypted with the OS keychain (Electron `safeStorage`); connector secrets in `mcp.json` are encrypted the same way. If the OS offers no encryption (some Linux setups) they are stored in plain text in that folder. If `chats.json` (or projects/memory) cannot be read, it is set aside as `chats.json.corrupt-<time>` instead of being overwritten, and `chats.json.bak` keeps a copy at most 10 minutes old.
 
-Artemis contains no analytics, crash reporting or auto-update code. It only talks to the internet when you use a feature that needs it:
+Artemis contains no analytics or crash reporting. It only talks to the internet when you use a feature that needs it, or to ask GitHub for the latest release (Settings → General → Updates; the first switch there turns it off, see [Updates](docs/wiki/Updates.md)):
 
 - your model providers (whatever you add) and, if set up, Make.com;
 - the Telegram API, only when the bot is on;

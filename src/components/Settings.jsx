@@ -11,6 +11,7 @@ import { LimitsTab } from './settings/LimitsTab.jsx';
 import { AccessTab } from './settings/AccessTab.jsx';
 import { SecurityTab } from './settings/SecurityTab.jsx';
 import { VoiceTab } from './settings/VoiceTab.jsx';
+import { UpdatesGroup } from './settings/UpdatesGroup.jsx';
 import { MakeTab } from './settings/MakeTab.jsx';
 import { AgentsTab } from './settings/AgentsTab.jsx';
 import { BrainsTab } from './settings/BrainsTab.jsx';
@@ -297,6 +298,7 @@ export function SettingsModal({ settings, groups = [], projects = [], providers 
                   checked={s.closeToTray !== false} onChange={put('closeToTray')} />
                 <SwitchRow label="Start Artemis when I log in" checked={!!s.launchAtLogin} onChange={put('launchAtLogin')} />
               </Group>
+              <UpdatesGroup s={s} put={put} />
               <Group title="Import">
                 <ImportRow />
               </Group>

@@ -95,3 +95,7 @@ Earlier builds were called Ares and kept data in `~/.ares`, `Documents/Ares Note
 ## Artemis does not quit, or the Sentinel widget freezes
 
 Quitting closes every window and ends the app after at most a few seconds, even if a background step hangs. If the widget still freezes, note what Sentinel was doing (speaking, answering with images, expanded view) and send the log from **Settings → Logs**.
+
+## An update does not install
+
+Open Settings → General → **Updates**: it shows the state and the reason. Artemis must sit in a folder it can write to (Applications), and a development run never installs. The installer's log is `install.log` in the `updates` folder of the Artemis data folder. If it fails, **Release notes** opens the release so you can download the build yourself. See [Updates](Updates.md).

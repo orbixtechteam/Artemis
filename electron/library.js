@@ -164,7 +164,28 @@ function createLibrary({ getRoot, files }) {
     return res.sort((a, b) => b.score - a.score || b.mtime - a.mtime).slice(0, limit);
   }
 
-  return { root, abs: safe, list, ingest, addBuffer, read, readLines, write, replace, rename, remove, del, search, describe };
+  /** The same search without blocking the app (see notes.searchAsync). */
+  async function searchAsync(query, { limit = 30, isStale = () => false } = {}) {
+    const terms = String(query || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
+    if (!terms.length) return [];
+    const res = []; let n = 0;
+    for (const f of list()) {
+      if (++n % 15 === 0) { await new Promise((r) => setImmediate(r)); if (isStale()) return []; }
+      const name = f.name.toLowerCase();
+      let body = '', raw = '';
+      if (f.text && f.size <= MAX_SEARCH_BYTES) { try { raw = fs.readFileSync(safe(f.path), 'utf8'); body = raw.toLowerCase(); } catch {} }
+      if (!terms.every((t) => name.includes(t) || body.includes(t))) continue;
+      let score = 0;
+      for (const t of terms) { if (name.includes(t)) score += 10; if (body) score += Math.min(body.split(t).length - 1, 10); }
+      let snippet = '';
+      const at = body ? body.indexOf(terms.find((t) => body.includes(t)) || '') : -1;
+      if (at >= 0) snippet = raw.slice(Math.max(0, at - 50), at + 120).replace(/\s+/g, ' ').trim();
+      res.push({ ...f, score, snippet });
+    }
+    return res.sort((a, b) => b.score - a.score || b.mtime - a.mtime).slice(0, limit);
+  }
+
+  return { root, abs: safe, list, ingest, addBuffer, read, readLines, write, replace, rename, remove, del, search, searchAsync, describe };
 }
 
 module.exports = { createLibrary };

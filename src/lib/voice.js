@@ -214,7 +214,10 @@ export function stopSpeaking() {
 }
 
 /** Get the voice ready before there is anything to say (the audio output, and the server's model), e.g. while the model is still thinking. */
+// Who started the voice: the Logs name the caller and the first words, so an unexpected reading can be traced (Settings → Logs, source "voice").
+const callerOf = () => { try { return String(new Error().stack || '').split('\n').slice(3, 7).map((l) => l.trim().replace(/^at\s+/, '').replace(/\(?(?:file|app|http)[^)]*\/([^/)]+)\)?$/, '$1')).join(' < '); } catch { return ''; } };
 export function prepareVoice() {
+  log('info', 'voice', 'Voice prepared (warming the voice server) by: ' + callerOf());
   if (!useServer()) return;
   try { audio(); } catch {}
   try { api.voiceWarm && api.voiceWarm().catch(() => {}); } catch {}
@@ -232,6 +235,7 @@ const AHEAD = 1;
  * creating the speaker to the first sound.
  */
 export function createSpeaker({ language = 'auto', fixedLang = '', onIdle, onStart, onChunk, onError, onFirstAudio } = {}) {
+  log('info', 'voice', 'Reader created by: ' + callerOf());
   stopSpeaking();
   const run = ++serverRun; const t0 = performance.now();
   const alive = () => run === serverRun;
@@ -423,6 +427,7 @@ export function createSpeaker({ language = 'auto', fixedLang = '', onIdle, onSta
 
 /** Reads a finished text: short first piece so the voice starts at once, the next pieces made while it plays. */
 export function speak(text, { language = 'auto', fixedLang = '', onEnd, onError, onChunk, onFirstAudio } = {}) {
+  log('info', 'voice', `Reading aloud "${String(text || '').replace(/\s+/g, ' ').trim().slice(0, 60)}" by: ${callerOf()}`);
   const clean = speakable(text);
   if (!clean) { stopSpeaking(); onEnd?.(); return false; }
   const sp = createSpeaker({ language, fixedLang, onIdle: onEnd, onChunk, onError, onFirstAudio });

@@ -25,7 +25,8 @@ module.exports = function registerNotesIpc({ ipcMain, dialog, shell, notesStore,
   ipcMain.handle('notes:rename', notesSafe((p, n) => notesStore.rename(p, n)));
   ipcMain.handle('notes:move', notesSafe((p, f) => notesStore.move(p, f)));
   ipcMain.handle('notes:delete', notesSafe((p) => { notesStore.remove(p); return {}; }));
-  ipcMain.handle('notes:search', notesSafe((q) => ({ results: notesStore.search(q) })));
+  let noteSeq = 0; // a newer query makes an older one stop
+  ipcMain.handle('notes:search', notesSafe(async (q) => { const my = ++noteSeq; return { results: await notesStore.searchAsync(q, { isStale: () => my !== noteSeq }) }; }));
   ipcMain.handle('notes:graph', notesSafe(() => notesStore.graph()));
   // a file dropped into a note stays next to the note and is also kept in the Files library
   ipcMain.handle('notes:saveAsset', notesSafe((p, n, b) => {

@@ -56,7 +56,7 @@ export default function CommandPalette({ open, onClose, chats = [], actions = []
     const t = setTimeout(async () => {
       const r = await window.api.notesSearch(q).catch(() => null); if (!live) return; setHits(r && r.ok ? r.results.slice(0, 6) : []);
       const f = await window.api.libSearch(q).catch(() => null); if (!live) return; setFhits(f && f.ok ? (f.results || []).slice(0, 6) : []);
-    }, 180);
+    }, 300);
     return () => { live = false; clearTimeout(t); };
   }, [q, open]);
 

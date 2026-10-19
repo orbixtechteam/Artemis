@@ -21,7 +21,7 @@ const SAFE_SETTINGS = {
   reflectModel: (v) => String(v).slice(0, 200),
   titleModel: (v) => String(v).slice(0, 200), scheduleModel: (v) => String(v).slice(0, 200), autoTitles: Boolean,
   toolsEnabled: Boolean, memoryEnabled: Boolean, webEnabled: Boolean, notesAi: Boolean, autoLearn: Boolean, skillsEnabled: Boolean,
-  connectorsEnabled: Boolean, chatSearchEnabled: Boolean, delegateEnabled: Boolean, closeToTray: Boolean,
+  connectorsEnabled: Boolean, chatSearchEnabled: Boolean, delegateEnabled: Boolean, closeToTray: Boolean, updateAuto: Boolean, updateDownload: Boolean, updateInstall: Boolean,
   voiceAutoRead: Boolean, voiceLanguage: (v) => String(v).slice(0, 12),
   ttsEngine: (v) => { if (!['system', 'openai', 'piper', 'chatterbox'].includes(v)) throw new Error('ttsEngine must be system, openai (Kokoro), chatterbox or piper'); return v; },
   ttsUrl: (v) => { v = String(v).trim().replace(/\/+$/, ''); if (!/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(v)) throw new Error('ttsUrl must be a local address such as http://localhost:8880'); return v; },

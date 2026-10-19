@@ -237,6 +237,7 @@ const DEFAULT_SETTINGS = {
   defaultBrain: '',
   makeZone: 'eu1.make.com',
   launchAtLogin: false,
+  updateAuto: true, updateDownload: true, updateInstall: true, // Settings → General → Updates (electron/updater.js)
   skillsEnabled: true,
   autoLearn: true,
   delegateEnabled: true,
@@ -287,6 +288,14 @@ const lock = createLock({
 });
 lockGuard = (ch) => lock.guard(ch);
 const speaker = createSpeaker({ fs, path, dir: () => path.join(app.getPath('userData'), 'speaker'), safeStorage, log: (lv, m) => logger[lv === 'warn' ? 'warn' : 'info']('speaker', m) });
+const { createUpdater } = require('./updater');
+const updater = createUpdater({
+  fs, path, dir: () => path.join(app.getPath('userData'), 'updates'), fetch: (...a) => fetch(...a), spawn: (...a) => require('child_process').spawn(...a),
+  version: app.getVersion(), isPackaged: app.isPackaged, exePath: app.getPath('exe'), getSettings: () => getSettings(),
+  send: (s) => { try { if (win && !win.isDestroyed()) win.webContents.send('update:status', s); rebuildTray && rebuildTray(); } catch {} },
+  notify: (v) => { try { if (Notification.isSupported()) { const n = new Notification({ title: `Artemis ${v} is ready`, body: 'It installs when you quit Artemis, or press Restart and update in Settings → General → Updates.' }); n.on('click', () => showMain('update notification')); n.show(); } } catch {} },
+  log: (lv, msg) => logger[lv === 'warn' ? 'warn' : 'info']('update', msg === undefined ? lv : msg)
+});
 const wakeword = createWakeWord({ fs, path, dir: () => path.join(app.getPath('userData'), 'wakeword'), log: (lv, msg) => logger[lv === 'warn' ? 'warn' : 'info']('wakeword', msg === undefined ? lv : msg) });
 const voiceGate = createVoiceGate({ lock, speaker, log: (lv, m) => logger[lv === 'warn' ? 'warn' : 'info']('speaker', m) });
 
@@ -1204,6 +1213,7 @@ const menuAccel = (a) => (normAccel(a) ? String(a).trim() : undefined);
  * With "paletteFromQuickShortcut" on and the Artemis window in front it opens the command palette instead (the old behaviour).
  */
 function onQuickChatShortcut() {
+  logger.info('shortcut', 'Quick chat shortcut pressed' + (appFocused() ? ' (Artemis in front)' : ''));
   if (lock.isLocked()) return; // locked: no Quick window
   quick.toggle(appFocused() && !quick.isVisible() ? 'search' : 'chat'); // inside Artemis the shortcut opens Search (to jump somewhere); from another app it opens the chat
 }
@@ -1330,6 +1340,7 @@ function createTray() {
     { type: 'separator' },
     { label: sentinelOn() ? 'Turn Sentinel off' : 'Turn Sentinel on (say "Wake up")', click: () => win?.webContents.send('sentinel:action', 'toggle') },
     { label: lock.isLocked() ? 'Locked' : 'Lock Artemis', enabled: lock.enabled() && !lock.isLocked(), click: () => lock.lock('tray') },
+    ...(updater.ready && updater.canInstall() ? [{ label: `Restart to update to ${updater.ready.version}`, click: () => { if (updater.restartNow()) { quitting = true; app.quit(); } } }] : []),
     { label: 'Stop all running tasks', click: () => stopAll() },
     { type: 'separator' },
     { label: 'Quit Artemis', click: () => { quitting = true; app.quit(); } }
@@ -1571,6 +1582,7 @@ app.on('before-quit', (e) => {
     return;
   }
   flushUsage();
+  try { updater.installOnQuit(); } catch (e) { logger.warn('update', 'Install on quit failed: ' + e.message); }
   try { mcpServer.stop(); } catch {} try { sentinelWidget && sentinelWidget.destroy(); } catch {}
   // Every other window goes now: a hidden or always-on-top one must not keep the app alive.
   for (const w of BrowserWindow.getAllWindows()) { try { if (!w.isDestroyed()) w.destroy(); } catch {} }
@@ -1587,6 +1599,7 @@ app.whenReady().then(() => {
   { const th = getSettings().theme; nativeTheme.themeSource = th === 'light' || th === 'notion' ? 'light' : th === 'system' ? 'system' : 'dark'; }
   // the app page's CSP is a meta tag in index.html; the integrated browser has its own session (electron/browser.js)
   buildAppMenu();
+  try { updater.start(); } catch (e) { logger.warn('update', 'Could not start the update checks: ' + e.message); }
   try {
     protocol.handle('artifact', (req) => {
       const html = staged.get(new URL(req.url).pathname.slice(1));
@@ -1684,7 +1697,7 @@ app.whenReady().then(() => {
 });
 app.on('will-quit', () => {
   // each step on its own: one that throws must not skip the rest
-  for (const f of [() => terminals.closeAll(), () => scheduler.stop(), () => unregisterShortcuts(), () => globalShortcut.unregisterAll(), () => remote?.stop(), () => wakeword.stop(), () => { const r = mcp.close(); if (r && r.catch) r.catch(() => {}); }]) { try { f(); } catch {} }
+  for (const f of [() => terminals.closeAll(), () => scheduler.stop(), () => unregisterShortcuts(), () => globalShortcut.unregisterAll(), () => remote?.stop(), () => wakeword.stop(), () => updater.stop(), () => { const r = mcp.close(); if (r && r.catch) r.catch(() => {}); }]) { try { f(); } catch {} }
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 
@@ -1819,6 +1832,7 @@ require('./ipc/library')({ ipcMain, BrowserWindow, dialog, shell, files, library
 require('./ipc/perm')({ ipcMain, permissions });
 require('./ipc/lock')({ ipcMain, lock, speaker, voiceGate, lockAuthWaiting, snapWaiting, logger, testAlert: testLockAlert });
 require('./ipc/wakeword')({ ipcMain, wakeword, dialog, getWin: () => win });
+require('./ipc/update')({ ipcMain, updater, shell, app, getWin: () => win });
 require('./ipc/media')({ ipcMain, mediaDir, mediaGen, shell });
 require('./ipc/usage')({ ipcMain, getUsage, setUsage });
 require('./ipc/providers')({ ipcMain, encStr, getProviderKey, providersLib, publicProviders, readProviderKeys, readProviders, writeJson });

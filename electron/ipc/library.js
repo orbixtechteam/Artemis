@@ -5,7 +5,8 @@ module.exports = function registerLibraryIpc({ ipcMain, BrowserWindow, dialog, s
 
   ipcMain.handle('library:root', () => library.root());
   ipcMain.handle('library:list', safe(() => ({ items: library.list() })));
-  ipcMain.handle('library:search', safe((q) => ({ results: library.search(q) })));
+  let libSeq = 0; // a newer query makes an older one stop (typing in the search box sends one per pause)
+  ipcMain.handle('library:search', safe(async (q) => { const my = ++libSeq; return { results: await library.searchAsync(q, { isStale: () => my !== libSeq }) }; }));
   // pick files in a dialog and store them
   ipcMain.handle('library:add', async (e) => {
     try {
