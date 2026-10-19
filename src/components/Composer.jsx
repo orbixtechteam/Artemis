@@ -176,7 +176,7 @@ export function ChatPills({ brains = [], brain, onBrain, councilPick, onRevote, 
   );
 }
 
-export default function Composer({ streaming, onSend, onStop, queue = [], queueHeld = false, onQueue, onUnqueue, onSendNow, disabledReason, placeholder, model, onModel, groups = [], projectId, projects = [], onProject, incognito, settings = {}, chatId, perm = 'auto', onPerm, agents = 'on', onAgents, tools = 'on', onTools, onUsageDetails = () => {}, onOpenSettings = () => {}, sentinel, onSentinel, onCompact, canCompact, compacting, brains = [], brain = '', onBrain, councilPick, onRevote }) {
+export default function Composer({ streaming, onSend, onStop, queue = [], queueHeld = false, onQueue, onUnqueue, onSendNow, onSendNowText, disabledReason, placeholder, model, onModel, groups = [], projectId, projects = [], onProject, incognito, settings = {}, chatId, perm = 'auto', onPerm, agents = 'on', onAgents, tools = 'on', onTools, onUsageDetails = () => {}, onOpenSettings = () => {}, sentinel, onSentinel, onCompact, canCompact, compacting, brains = [], brain = '', onBrain, councilPick, onRevote }) {
   const sKey = useSentinelKey();
   const [text, setText] = useState(() => (drafts.get(chatId) || {}).text || '');
   const [micErr, setMicErr] = useState('');
@@ -420,12 +420,17 @@ export default function Composer({ streaming, onSend, onStop, queue = [], queueH
             if (slashOpen && e.key === 'Escape') { e.preventDefault(); setSlashOff(true); return; }
             // Esc stops the answer (unless a tool approval is waiting: then Esc is "Deny", handled by the approval card)
             if (e.key === 'Escape' && streaming && onStop && !document.querySelector('.approve[data-pending="1"]')) { e.preventDefault(); onStop(); return; }
+            // Cmd/Ctrl+Enter while an answer is being written = "Send now": stop the answer and send this (or the first queued message) at once
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.nativeEvent.isComposing && streaming && !parsing) {
+              if (hasInput && onSendNowText) { e.preventDefault(); const good = atts.filter((a) => a.kind !== 'error' && !a.pending); const qm = liveMentions(text, mentions); drafts.delete(chatId); onSendNowText(text.trim(), good, qm.length ? { mentions: qm } : undefined); setText(''); setAtts([]); setMentions([]); return; }
+              if (!hasInput && queue.length && onSendNow) { e.preventDefault(); onSendNow(queue[0].id); return; }
+            }
             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(true); return; }
             if (!e.nativeEvent.isComposing) onKeyBackspace(e); // Backspace right after a token removes the whole token
           }}
         />
         </div>
-        {focused && !text && <div className="kbd-hints" aria-hidden="true"><kbd>↵</kbd> send · <kbd>⇧↵</kbd> newline{streaming ? <> · <kbd>Esc</kbd> stop</> : null}</div>}
+        {focused && !text && <div className="kbd-hints" aria-hidden="true"><kbd>↵</kbd> send · <kbd>⇧↵</kbd> newline{streaming ? <> · <kbd>⌘↵</kbd> send now · <kbd>Esc</kbd> stop</> : null}</div>}
         {micErr && <div className="mic-err" onClick={() => setMicErr('')}>{micErr}</div>}
         <div className="composer-bar">
           <button className="icon-btn" title="Attach any file. Text, code, Excel, CSV, Word, PDF, ZIP and images are read; other files (audio, video, apps) are passed with their name and location. You can also drag or paste files here." aria-label="Attach any file. Text, code, Excel, CSV, Word, PDF, ZIP and images are read; other files (audio, video, apps) are passed with their name and location. You can also drag or paste files here." onClick={pick}><Icon name="paperclip" size={18} /></button>

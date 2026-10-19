@@ -16,7 +16,7 @@
     "open-source"
   ],
   "license": "MIT",
-  "author": "Orbix Labs",
+  "author": "Orbix Lab",
   "main": "electron/main.js",
   "scripts": {
     "dev": "concurrently -k -n vite,electron \"vite\" \"wait-on tcp:5173 && cross-env ELECTRON_DEV=1 electron .\"",
@@ -55,7 +55,7 @@
     "wait-on": "^8.0.0"
   },
   "build": {
-    "copyright": "Copyright © 2026 Orbix Labs",
+    "copyright": "Copyright © 2026 Orbix Lab",
     "appId": "dev.orbixlabs.artemis",
     "productName": "Artemis",
     "asarUnpack": [

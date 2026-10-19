@@ -27,11 +27,11 @@ function placeAt(cur, side, wa, margin = 12) {
   return fitBounds(b, { width: cur.width, height: cur.height }, wa, 0);
 }
 
-const SIZES = { compact: { width: 300, maxH: 380 }, expanded: { width: 420, maxH: 560 }, viewer: { width: 720, maxH: 640 } };
+const SIZES = { compact: { width: 300, maxH: 380 }, expanded: { width: 590, maxH: 425 }, viewer: { width: 720, maxH: 640 } };
 // The expanded card (mini chat) and the viewer (an artifact or a file) have a fixed size the user picks: S, M or L.
 // The viewer is also capped to a share of the screen (frac), so a big preset never covers a small screen.
 const PRESETS = {
-  expanded: { S: { width: 360, height: 440 }, M: { width: 420, height: 560 }, L: { width: 520, height: 700 } },
+  expanded: { S: { width: 480, height: 360 }, M: { width: 590, height: 425 }, L: { width: 760, height: 580 } },
   viewer: { S: { width: 560, height: 480, frac: 0.5 }, M: { width: 720, height: 640, frac: 0.6 }, L: { width: 960, height: 820, frac: 0.85 } }
 };
 const MIN_H = 48;
@@ -54,8 +54,10 @@ function sizeFor(mode, size, h, wa) {
   return { width: SIZES.compact.width, height: Math.max(MIN_H, Math.min(SIZES.compact.maxH, Math.round(Number(h) || MIN_H))) };
 }
 
-function createSentinelWidget({ BrowserWindow, screen, isDev, getPos, setPos }) {
+function createSentinelWidget({ BrowserWindow, screen, isDev, getPos, setPos, getSizes, setSizes }) {
   let w = null; let moveTimer = null; let selfMoveUntil = 0;
+  let curMode = 'compact'; let grip = null;
+  const userSize = (() => { const o = (getSizes && getSizes()) || {}; const r = {}; for (const m of ['expanded', 'viewer']) if (o[m] && o[m].width > 0 && o[m].height > 0) r[m] = { width: Math.round(o[m].width), height: Math.round(o[m].height) }; return r; })();
   const WIDTH = SIZES.compact.width;
   const alive = () => !!w && !w.isDestroyed();
   const areaOf = (b) => screen.getDisplayNearestPoint({ x: Math.round(b.x + (b.width || 0) / 2), y: Math.round(b.y + (b.height || 0) / 2) }).workArea;
@@ -97,6 +99,29 @@ function createSentinelWidget({ BrowserWindow, screen, isDev, getPos, setPos }) 
     const go = () => { if (alive() && !w.isVisible()) w.showInactive(); };
     if (w.webContents.isLoading()) w.webContents.once('did-finish-load', go); else go();
   }
+  /** Shows the widget and gives it the keyboard (the shortcut / tray open it to type or search, not just to look at it). */
+  function focus() {
+    if (!alive()) create();
+    const go = () => { if (!alive()) return; try { w.show(); w.focus(); } catch {} };
+    if (w.webContents.isLoading()) w.webContents.once('did-finish-load', go); else go();
+  }
+  /** Like send, but waits for the page when the window was just created. */
+  function sendWhenReady(channel, payload) {
+    if (!alive()) return;
+    const go = () => { if (alive()) w.webContents.send(channel, payload); };
+    if (w.webContents.isLoading()) w.webContents.once('did-finish-load', () => setTimeout(go, 80)); else go();
+  }
+  /** Quick chat / Search opened from the shortcut: the widget starts in the middle of the screen the mouse is on, near the top, at its chat size. */
+  function center() {
+    if (!alive()) create();
+    const wa = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
+    const mine = userSize.expanded || PRESETS.expanded.M;
+    const width = Math.round(Math.min(mine.width, wa.width - 8)), height = Math.round(Math.min(mine.height, wa.height - 8));
+    selfMoveUntil = Date.now() + 700;
+    w.setResizable(true);
+    w.setBounds({ x: Math.round(wa.x + (wa.width - width) / 2), y: Math.round(wa.y + Math.min(wa.height * 0.16, Math.max(4, wa.height - height - 4))), width, height });
+    w.setResizable(false);
+  }
   function hide() { if (alive()) w.hide(); }
   function destroy() { if (alive()) w.destroy(); w = null; }
   function send(channel, payload) { if (alive() && !w.webContents.isLoading()) w.webContents.send(channel, payload); }
@@ -105,16 +130,42 @@ function createSentinelWidget({ BrowserWindow, screen, isDev, getPos, setPos }) 
     if (cur.x === b.x && cur.y === b.y && cur.width === b.width && cur.height === b.height) return;
     selfMoveUntil = Date.now() + 700;
     w.setResizable(true);
-    try { w.setBounds(b, process.platform === 'darwin'); } catch { w.setBounds(b); } // animated on macOS
+    w.setBounds(b); // not animated: the growing animation showed a half-sized card with cut-off content
     w.setResizable(false);
   }
   /** The page reports how tall its content is, its mode (the compact pill, the expanded chat or the viewer) and the S / M / L size. */
   function resize(h, mode, size) {
     if (!alive()) return;
+    if (mode === true) mode = 'expanded';
+    curMode = mode === 'expanded' || mode === 'viewer' ? mode : 'compact';
+    if (grip && Date.now() - grip.t < 4000) return; // the user is dragging the corner right now (a drag whose end was lost does not block the widget for ever)
+    grip = null;
     const cur = w.getBounds();
     const wa = areaOf(cur);
-    apply(fitBounds(cur, sizeFor(mode, size, h, wa), wa));
+    const mine = userSize[curMode];
+    apply(fitBounds(cur, mine ? { width: Math.min(mine.width, wa.width - 8), height: Math.min(mine.height, wa.height - 8) } : sizeFor(mode, size, h, wa), wa));
   }
+  /** The corner handle: the user drags to make the widget as big or small as they want; the size is remembered per mode. */
+  function gripStart() { if (!alive() || curMode === 'compact') return; grip = { b: w.getBounds(), t: Date.now() }; }
+  function gripMove(dx, dy) {
+    if (!alive() || !grip) return;
+    grip.t = Date.now();
+    const wa = areaOf(grip.b);
+    const width = Math.round(Math.max(300, Math.min(wa.width - 8, grip.b.width + dx)));
+    const height = Math.round(Math.max(180, Math.min(wa.height - 8, grip.b.height + dy)));
+    const x = Math.min(grip.b.x, wa.x + wa.width - width - 4), y = Math.min(grip.b.y, wa.y + wa.height - height - 4);
+    selfMoveUntil = Date.now() + 700;
+    w.setResizable(true); w.setBounds({ x, y, width, height }); w.setResizable(false);
+  }
+  function gripEnd() {
+    if (!alive() || !grip) return;
+    const b = w.getBounds(); grip = null;
+    userSize[curMode] = { width: b.width, height: b.height };
+    if (setSizes) setSizes({ ...userSize });
+    if (setPos) setPos(b);
+  }
+  /** Back to the S / M / L presets (the size button was clicked). */
+  function gripReset(mode) { if (mode === 'expanded' || mode === 'viewer') { delete userSize[mode]; if (setSizes) setSizes({ ...userSize }); } }
   /** "Move the widget left": to that edge of the screen it is on. */
   function moveTo(side) {
     if (!alive()) return false;
@@ -124,7 +175,7 @@ function createSentinelWidget({ BrowserWindow, screen, isDev, getPos, setPos }) 
     if (setPos) setPos(b);
     return true;
   }
-  return { show, hide, destroy, send, resize, moveTo, isVisible: () => alive() && w.isVisible(), get window() { return alive() ? w : null; } };
+  return { show, focus, hide, destroy, send, sendWhenReady, resize, moveTo, center, gripStart, gripMove, gripEnd, gripReset, isVisible: () => alive() && w.isVisible(), get window() { return alive() ? w : null; } };
 }
 
 module.exports = { createSentinelWidget, fitBounds, placeAt, sizeFor, SIZES, PRESETS };

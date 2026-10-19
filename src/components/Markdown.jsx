@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import { splitThink } from '../lib/think.mjs';
 import { stripTags } from '../lib/tts-emotion.mjs';
+import { codeOnly } from '../lib/clip.mjs';
 
 export function CodeBlock({ children }) {
   const ref = useRef(null);
@@ -12,7 +13,7 @@ export function CodeBlock({ children }) {
   const cls = child?.props?.className || '';
   const lang = (cls.match(/language-([\w-]+)/) || [])[1] || 'code';
   const copy = () => {
-    navigator.clipboard.writeText(ref.current?.innerText || '');
+    navigator.clipboard.writeText(codeOnly(ref.current?.innerText || ''));
     setCopied(true);
     setTimeout(() => setCopied(false), 1200);
   };

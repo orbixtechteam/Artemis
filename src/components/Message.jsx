@@ -12,6 +12,7 @@ import { speak, stopSpeaking } from '../lib/voice.js';
 import { createFollower } from '../lib/follow.js';
 import { Icon, FILE_ICON } from './Icons.jsx';
 import { stepParts, thoughtLabel, lastThinkLine } from '../lib/think.mjs';
+import { stripFences } from '../lib/clip.mjs';
 
 function CopyButton({ getText }) {
   const [done, setDone] = useState(false);
@@ -218,7 +219,7 @@ function MessageView({ m, live, chatId, h, canDelete = true, artifacts }) {
       {m.error && <ErrorCard text={m.error} onAction={live ? undefined : onAction} />}
       {!live && (
         <div className="actions">
-          <CopyButton getText={() => assistantText(m)} />
+          <CopyButton getText={() => stripFences(assistantText(m))} />
           <ReadButton msgId={m.id} getText={() => assistantText(m, true)} />
           <button onClick={() => h && h.regenerate && h.regenerate(chatId, m)}>Regenerate</button>
           {onDelete && <DeleteButton onDelete={onDelete} />}

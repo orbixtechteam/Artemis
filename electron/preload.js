@@ -99,6 +99,7 @@ contextBridge.exposeInMainWorld('api', {
   profileReveal: () => ipcRenderer.invoke('profile:reveal'),
   sentinelState: (i) => ipcRenderer.send('sentinel:state', i),
   sentinelLevel: (v) => ipcRenderer.send('sentinel:level', v),
+  sentinelGrip: (kind, a, b) => ipcRenderer.send('sentinel:grip', kind, a, b),
   sentinelResize: (h, mode, size) => ipcRenderer.send('sentinel:resize', h, mode === true ? 'expanded' : mode || 'compact', size || 'M'),
   sentinelAsk: (what, arg) => ipcRenderer.invoke('sentinel:ask', what, arg),
   sentinelAnswer: (id, value) => ipcRenderer.send('sentinel:answer', id, value),

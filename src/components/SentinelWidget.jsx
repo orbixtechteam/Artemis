@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import SentinelPill from './SentinelPill.jsx';
+import QuickChat from '../QuickChat.jsx';
+import CommandPalette from './CommandPalette.jsx';
 import { Icon } from './Icons.jsx';
 import Markdown from './Markdown.jsx';
 import { CodeView } from './SidePanel.jsx';
@@ -234,6 +236,14 @@ export default function SentinelWidget() {
   const [pinned, setPinned] = useState(() => store('sn-pin') === '1');
   const [viewer, setViewer] = useState(null); // { type: 'artifact', id } | { type: 'file', file } | { type: 'image', img }
   const [hover, setHover] = useState(false);
+  // Quick chat / Quick search live here too: the widget has two tabs, Chat (Cmd+1) and Search (Cmd+2); the shortcut, tray and menu open it (electron/main.js openWidgetTab)
+  const [tab, setTab] = useState('chat');
+  const [quickOpen, setQuickOpen] = useState(false); // opened by the shortcut / tray: it stays until you close it
+  const [snap, setSnap] = useState({ chats: [], actions: [] });
+  const [nonce, setNonce] = useState(0);
+  const [focusNonce, setFocusNonce] = useState(0);
+  const keepRef = useRef(false); const openedAt = useRef(0);
+  const live = useRef({}); // the latest values for handlers that were set up once
   const [front, setFront] = useState(false); // the main window is up front: no automatic opening or closing, the widget stays as it is
   const frontRef = useRef(false); frontRef.current = front;
   const [draft, setDraft] = useState('');
@@ -252,6 +262,11 @@ export default function SentinelWidget() {
     const o2 = api.onSentinelLevel((v) => window.dispatchEvent(new CustomEvent('sentinel-level', { detail: v })));
     const o4 = api.onSentinelFront && api.onSentinelFront((f) => setFront(!!f));
     const o3 = api.onSentinelCmd && api.onSentinelCmd((c) => {
+      if (c && typeof c === 'object') {
+        if (c.quick === 'close') { setQuickOpen(false); setOpen(false); setViewer(null); }
+        else if (c.tab) live.current.openTab(c.tab, !!c.toggle);
+        return;
+      }
       if (c === 'expand') setOpen(true);
       else if (c === 'collapse') { setOpen(false); setViewer(null); setPinned(false); store('sn-pin', '0'); }
       else if (c === 'pin') pin(true);
@@ -261,6 +276,28 @@ export default function SentinelWidget() {
   }, []);
   const v = info.view || {};
   const msgs = v.messages || [];
+  const closeQuick = () => { setQuickOpen(false); setOpen(false); setViewer(null); api.sentinelWidget && api.sentinelWidget('hide-quick'); };
+  const switchTab = (t) => {
+    setTab(t); setViewer(null);
+    if (t === 'search') { setNonce((n) => n + 1); api.paletteGet && api.paletteGet().then((x) => setSnap(x || { chats: [], actions: [] })).catch(() => {}); }
+    else { setFocusNonce((n) => n + 1); setTimeout(() => input.current && input.current.focus(), 60); }
+  };
+  const openTab = (t, toggle) => {
+    const L = live.current;
+    if (toggle && L.open && L.tab === t && L.quickOpen) { closeQuick(); return; }
+    openedAt.current = Date.now(); setQuickOpen(true); setOpen(true); switchTab(t);
+  };
+  live.current = { ...live.current, openTab, open, tab, quickOpen, on: info.state !== 'off' && info.state !== 'loading', closeQuick };
+  useEffect(() => { if (!open) setTab('chat'); }, [open]); // the next automatic opening shows the conversation, not a leftover Search
+  useEffect(() => { // Cmd+1 / Cmd+2 switch the tab; leaving the window closes a Quick chat / Search that was opened by the shortcut (not while a task runs or a file dialog is open)
+    const key = (e) => {
+      if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || !live.current.open) return;
+      if (e.key === '1') { e.preventDefault(); switchTab('chat'); } else if (e.key === '2') { e.preventDefault(); switchTab('search'); }
+    };
+    const blur = () => { const L = live.current; if (L.quickOpen && !L.on && !keepRef.current && Date.now() - openedAt.current > 500) L.closeQuick(); };
+    window.addEventListener('keydown', key); window.addEventListener('blur', blur);
+    return () => { window.removeEventListener('keydown', key); window.removeEventListener('blur', blur); };
+  }, []);
   const answer = v.answer || info.said || '';
   const err = v.error || info.err || '';
   const on = info.state !== 'off' && info.state !== 'loading';
@@ -269,7 +306,7 @@ export default function SentinelWidget() {
   const sig = `${info.heard}|${v.approval ? v.approval.id : ''}|${(v.images || []).length}|${err}|${(v.artifacts || []).length}`;
   const lastSig = useRef('');
   useEffect(() => { if (sig !== lastSig.current) { const was = lastSig.current; lastSig.current = sig; if (has && was !== '' && sig.replace(/\|/g, '') && !frontRef.current) { setOpen(true); stuck.current = true; } } }, [sig, has]);
-  useEffect(() => { if (info.state === 'off') { setOpen(false); setViewer(null); } }, [info.state]);
+  useEffect(() => { if (info.state === 'off' && !live.current.quickOpen) { setOpen(false); setViewer(null); } }, [info.state]);
   // A new artifact made while the widget is open is shown right away; an update to the one on screen refreshes it (rev).
   const arts = useMemo(() => { const m = new Map(); for (const x of msgs) for (const a of x.artifacts || []) m.set(a.id, a); return m; }, [msgs]);
   const known = useRef(null);
@@ -281,13 +318,22 @@ export default function SentinelWidget() {
     if (fresh.length && open && !(viewer && viewer.type === 'file')) { setViewer({ type: 'artifact', id: fresh[fresh.length - 1] }); setOpen(true); }
   }, [arts, on]);
   // Closes by itself once Artemis is done talking and nothing needs you (not while you type or look at something).
-  const busy = !!draft.trim() || typing || !!viewer || sending;
+  const busy = !!draft.trim() || typing || !!viewer || sending || quickOpen || tab === 'search';
   const quiet = (info.state === 'idle' || info.state === 'listening') && !v.approval && !v.running && !pinned && !hover && !busy;
   useEffect(() => { if (!open || !quiet || front) return undefined; const t = setTimeout(() => setOpen(false), IDLE_MS); return () => clearTimeout(t); }, [open, quiet, front, answer, msgs.length]);
-  const big = open && on;
+  const big = open && (on || quickOpen);
   const mode = big ? (viewer ? 'viewer' : 'expanded') : 'compact';
   const size = mode === 'compact' ? 'M' : sizes[mode];
-  const cycleSize = () => { const next = SIZES[(SIZES.indexOf(size) + 1) % SIZES.length]; store(`sn-size-${mode}`, next); setSizes((s) => ({ ...s, [mode]: next })); };
+  const gripDown = (e) => {
+    e.preventDefault(); e.stopPropagation();
+    const sx = e.screenX, sy = e.screenY; const t = e.currentTarget;
+    try { t.setPointerCapture(e.pointerId); } catch {}
+    api.sentinelGrip('start');
+    const mv = (ev) => api.sentinelGrip('move', ev.screenX - sx, ev.screenY - sy);
+    const up = () => { t.removeEventListener('pointermove', mv); t.removeEventListener('pointerup', up); t.removeEventListener('pointercancel', up); api.sentinelGrip('end'); };
+    t.addEventListener('pointermove', mv); t.addEventListener('pointerup', up); t.addEventListener('pointercancel', up);
+  };
+  const cycleSize = () => { api.sentinelGrip('reset', mode); const next = SIZES[(SIZES.indexOf(size) + 1) % SIZES.length]; store(`sn-size-${mode}`, next); setSizes((s) => ({ ...s, [mode]: next })); };
   // Follow the end of the chat unless the user scrolled up to read.
   useEffect(() => { const el = scroller.current; if (el && stuck.current) el.scrollTop = el.scrollHeight; }, [msgs, answer, open, viewer, v.activity, v.approval]);
   const onScroll = () => { const el = scroller.current; if (el) stuck.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24; };
@@ -309,11 +355,11 @@ export default function SentinelWidget() {
   const shown = msgs.length ? msgs : (info.heard ? [{ id: 'h', role: 'user', text: info.heard }, ...(answer ? [{ id: 'a', role: 'assistant', text: answer, tools: [], images: v.images || [], artifacts: v.artifacts || [], files: [] }] : [])] : []);
   return (
     <div ref={box} className={`sw-box${big ? ' open' : ''}`} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
-      <SentinelPill floating noTalk expanded={big} canExpand={on} onToggle={() => { setOpen(!big); if (big) setViewer(null); }} state={info.state} info={info.info} err={big ? '' : info.err} heard={info.heard} said={answer}
-        muted={!!info.muted} onMute={act(info.muted ? 'unmute' : 'mute')} onStop={act('stop')} onSkip={act('skip')} onDismiss={act('dismiss')} onSettings={act('settings')} onLogs={act('logs')} />
+      {on && <SentinelPill floating noTalk expanded={big} canExpand={on} onToggle={() => { setOpen(!big); if (big) setViewer(null); }} state={info.state} info={info.info} err={big ? '' : info.err} heard={info.heard} said={answer}
+        muted={!!info.muted} onMute={act(info.muted ? 'unmute' : 'mute')} onStop={act('stop')} onSkip={act('skip')} onDismiss={act('dismiss')} onSettings={act('settings')} onLogs={act('logs')} />}
       {big && (
         <div className={`swc${viewer ? ' viewing' : ''}`} role="region" aria-label="Sentinel conversation">
-          {viewer ? (
+          {viewer && tab === 'chat' ? (
             <SizeButton.Provider value={<button className="sn-btn swc-size" title={`Size: ${size} (click to change)`} aria-label="Change the viewer size" onClick={cycleSize}>{size}</button>}>
             {viewer.type === 'artifact' ? <ArtifactViewer id={viewer.id} rev={viewRev} onBack={back} />
               : viewer.type === 'file' ? <FileViewer file={viewer.file} onBack={back} />
@@ -322,11 +368,22 @@ export default function SentinelWidget() {
           ) : (
             <>
               <div className="swc-head">
-                <span className="swc-title" title={v.title || ''}>{v.title || 'Sentinel'}</span>
+                <div className="swc-tabs" role="tablist">
+                  <button role="tab" aria-selected={tab === 'chat'} className={tab === 'chat' ? 'on' : ''} title={v.title || ''} onClick={() => switchTab('chat')}>Chat <kbd>⌘1</kbd></button>
+                  <button role="tab" aria-selected={tab === 'search'} className={tab === 'search' ? 'on' : ''} onClick={() => switchTab('search')}>Search <kbd>⌘2</kbd></button>
+                </div>
+                <div className="swc-grip" aria-hidden="true" title="Drag to move" />
                 <button className="sn-btn swc-size" title={`Size: ${size} (click to change)`} aria-label="Change the widget size" onClick={cycleSize}>{size}</button>
                 <button className={`sn-btn${pinned ? ' on' : ''}`} title={pinned ? 'Unpin: close by itself again' : 'Pin: keep this open'} aria-label={pinned ? 'Unpin' : 'Pin open'} aria-pressed={pinned} onClick={() => pin(!pinned)}><Icon name="pin" size={12} /></button>
                 <button className="sn-btn" title="Open this chat in the app" aria-label="Open this chat in the app" onClick={act('show')}><Icon name="external" size={12} /></button>
               </div>
+              {tab === 'search' ? (
+                <CommandPalette key={nonce} embedded open chats={snap.chats} onClose={() => (quickOpen || !on ? closeQuick() : setOpen(false))}
+                  actions={(snap.actions || []).map((a) => ({ ...a, run: () => { api.paletteRun({ kind: 'action', id: a.id }); closeQuick(); } }))}
+                  onOpenChat={(id) => { api.paletteRun({ kind: 'chat', id }); closeQuick(); }} onOpenNote={(pth) => { api.paletteRun({ kind: 'note', path: pth }); closeQuick(); }} onOpenFile={(pth) => { api.paletteRun({ kind: 'file', path: pth }); closeQuick(); }} />
+              ) : !on ? (
+                <QuickChat embedded focusNonce={focusNonce} onClose={closeQuick} onKeepOpen={(k) => { keepRef.current = !!k; }} />
+              ) : (<>
               <div className="swm-list" ref={scroller} onScroll={onScroll} onClickCapture={linkClick}>
                 {shown.length === 0 && <p className="dim swm-empty">Say “Wake up” or type a message below.</p>}
                 {shown.map((m, i) => <MemoBubble key={m.id || i} m={m} onOpen={openItem} last={i === shown.length - 1} />)}
@@ -362,10 +419,12 @@ export default function SentinelWidget() {
                   : <button className={`sn-btn${info.state === 'listening' ? ' on' : ''}`} title="Talk (tap again to send)" aria-label="Talk" onClick={act('ptt')}><Icon name="mic" size={12} /></button>}
                 <button className="sn-btn primary" title="Send" aria-label="Send" disabled={!draft.trim() || sending} onClick={send}><Icon name="send" size={12} /></button>
               </div>
+              </>)}
             </>
           )}
         </div>
       )}
+      {big && <div className="sw-grip" title="Drag to resize" aria-label="Resize the widget" onPointerDown={gripDown} />}
     </div>
   );
 }

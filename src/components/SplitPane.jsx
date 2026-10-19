@@ -34,7 +34,7 @@ export default function SplitPane({ chat, busy, settings, projects, brains, brai
         })}
       </section>
       {follow.unseen && <div className="jump-anchor"><button type="button" className="jump-latest" onClick={follow.jump} aria-label="Jump to latest message"><Icon name="arrowUp" size={14} className="flip" /> Jump to latest</button></div>}
-      <Composer key={chat.id} chatId={chat.id} streaming={busy} onSend={h.onSend} onStop={h.onStop} queue={h.queue} queueHeld={h.queueHeld} onQueue={h.onQueue} onUnqueue={h.onUnqueue} onSendNow={h.onSendNow} model={chat.model} onModel={(m) => h.update({ model: m })} groups={groups}
+      <Composer key={chat.id} chatId={chat.id} streaming={busy} onSend={h.onSend} onStop={h.onStop} queue={h.queue} queueHeld={h.queueHeld} onQueue={h.onQueue} onUnqueue={h.onUnqueue} onSendNow={h.onSendNow} onSendNowText={h.onSendNowText} model={chat.model} onModel={(m) => h.update({ model: m })} groups={groups}
         incognito={chat.incognito} settings={settings} onUsageDetails={h.onUsageDetails} onOpenSettings={h.onOpenSettings}
         onCompact={h.onCompact} canCompact={h.canCompact} compacting={h.compacting} />
     </section>

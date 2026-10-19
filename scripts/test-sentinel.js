@@ -126,9 +126,9 @@ const assert = require('assert');
     assert.deepStrictEqual(sizeFor('compact', 'M', 120, big), { width: 300, height: 120 }); // the pill follows its content
     assert.deepStrictEqual(sizeFor('compact', 'L', 9000, big), { width: 300, height: 380 });
     assert.deepStrictEqual(sizeFor('compact', 'M', 0, big), { width: 300, height: 48 });
-    assert.deepStrictEqual(sizeFor('expanded', 'M', 50, big), { width: 420, height: 560 }); // the chat has a fixed size
-    assert.deepStrictEqual(sizeFor(true, 'S', 50, big), { width: 360, height: 440 });
-    assert.deepStrictEqual(sizeFor('expanded', 'nope', 50, big), { width: 420, height: 560 });
+    assert.deepStrictEqual(sizeFor('expanded', 'M', 50, big), { width: 590, height: 425 }); // the chat has a fixed size
+    assert.deepStrictEqual(sizeFor(true, 'S', 50, big), { width: 480, height: 360 });
+    assert.deepStrictEqual(sizeFor('expanded', 'nope', 50, big), { width: 590, height: 425 });
     assert.deepStrictEqual(sizeFor('viewer', 'M', 50, big), { width: 720, height: 640 }); // the viewer is bigger
     const vs = sizeFor('viewer', 'M', 50, small); assert.ok(vs.width <= 1280 * 0.6 && vs.width >= 420 && vs.height <= 775 * 0.8, JSON.stringify(vs)); // at most 60% of a small screen
     const vl = sizeFor('viewer', 'L', 50, small); assert.ok(vl.width > vs.width && vl.width <= 1280 * 0.85 && vl.height <= 775 * 0.9);

@@ -7,6 +7,9 @@ import { toApiMessages, uid } from './lib/history.js';
 import { AttachmentChip, Thinking, ThinkBlock, thinkMode } from './components/Message.jsx';
 import { addThinking, stepParts } from './lib/think.mjs';
 import CommandPalette from './components/CommandPalette.jsx';
+import Select from './components/Select.jsx';
+import ModelPicker from './components/ModelPicker.jsx';
+import { modelGroups, defaultModel } from './lib/models.js';
 import { filesToAttachments, installDropGuard, onWindowDrop } from './lib/attach.js';
 
 const api = window.api;
@@ -30,7 +33,10 @@ function reduce(m, ev) {
 
 const settle = (msgs) => msgs.map((m) => (m.steps ? { ...m, steps: m.steps.map((s) => ({ ...s, toolCalls: s.toolCalls.map((t) => (t.status === 'running' || t.status === 'awaiting' ? { ...t, status: 'cancelled' } : t)) })) } : m));
 
-export default function QuickChat() {
+/** The Quick chat. Alone it is the old Quick window; with `embedded` it is the Chat tab inside the Sentinel widget (the widget owns the window, the tabs and the Search tab). */
+export default function QuickChat({ embedded = false, onClose, onKeepOpen, focusNonce = 0 } = {}) {
+  const keep = (on) => { if (embedded) { if (onKeepOpen) onKeepOpen(on); } else api.quickKeepOpen(on); };
+  const close = () => { if (embedded) { if (onClose) onClose(); } else api.quickHide(); };
   const [settings, setSettings] = useState(null);
   const [msgs, setMsgs] = useState([]);
   const [text, setText] = useState('');
@@ -40,6 +46,21 @@ export default function QuickChat() {
   const [mode, setMode] = useState('chat'); // 'chat' or 'search' (Cmd+1 / Cmd+2, or the Quick chat / Quick search shortcut)
   const [snap, setSnap] = useState({ chats: [], actions: [] });
   const [nonce, setNonce] = useState(0);
+  const [brains, setBrains] = useState([]);
+  const [providers, setProviders] = useState([]);
+  const lsGet = (k) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } };
+  const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+  const [picked, setPicked] = useState(() => { const v = lsGet('quick-brain'); return v ? (v === 'none' ? '' : v) : null; }); // null = not chosen here: the default brain from Settings
+  const brain = picked !== null ? picked : ((settings && settings.defaultBrain) || '');
+  const [modelPick, setModelPick] = useState(() => lsGet('quick-model'));
+  const setBrain = (v) => { setPicked(v); lsSet('quick-brain', v || 'none'); const b = brains.find((x) => x.slug === v); if (b && b.model) { setModelPick(b.model); lsSet('quick-model', b.model); } };
+  const setModel = (v) => { setModelPick(v); lsSet('quick-model', v); };
+  useEffect(() => {
+    const load = () => { api.brainsList().then(setBrains).catch(() => {}); api.providersList().then((r) => setProviders((r && r.providers) || [])).catch(() => {}); };
+    load();
+    const off = api.onBrainsChanged && api.onBrainsChanged(load);
+    return () => { try { off && off(); } catch {} };
+  }, [focusNonce]);
   const reqRef = useRef(null);
   const asstRef = useRef(null);
   const inputRef = useRef(null);
@@ -47,6 +68,10 @@ export default function QuickChat() {
   const idRef = useRef(uid());
 
   useEffect(() => {
+    if (embedded) { // the widget paints the theme and owns the window: only the settings are needed here
+      api.getSettings().then(setSettings);
+      return undefined;
+    }
     document.documentElement.classList.add('quick');
     // the window lives on after the first open: repaint the theme every time it is shown, otherwise a theme changed in the main window never reaches it
     const paint = (s) => { applyTextSize(s.textSize); document.documentElement.dataset.thinking = s.showThinking || 'collapsed'; return loadThemes(api).then((t) => applyTheme(s.theme, t)); };
@@ -65,7 +90,7 @@ export default function QuickChat() {
     if (ev.requestId !== reqRef.current) return;
     if (ev.type === 'done') {
       setMsgs((ms) => settle(ms));
-      reqRef.current = null; setRunning(false); api.quickKeepOpen(false);
+      reqRef.current = null; setRunning(false); keep(false);
       return;
     }
     setMsgs((ms) => ms.map((m) => (m.id === asstRef.current ? reduce(m, ev) : m)));
@@ -79,9 +104,11 @@ export default function QuickChat() {
   }, []);
   useEffect(() => { const off1 = installDropGuard(), off2 = onWindowDrop((fl) => addFiles(fl)); return () => { off1(); off2(); }; }, []);
   useEffect(() => { const el = listRef.current; if (el) el.scrollTop = el.scrollHeight; }, [msgs]);
-  useEffect(() => { if (api.quickMode) api.quickMode(mode); }, [mode]); // main needs the tab to decide whether a shortcut switches tabs or hides the window
-  useEffect(() => { api.quickResize(mode === 'search' || msgs.length > 0 ? true : atts.length > 0 ? 'chips' : false); }, [mode, msgs.length > 0, atts.length > 0]);
+  useEffect(() => { if (!embedded && api.quickMode) api.quickMode(mode); }, [mode]); // main needs the tab to decide whether a shortcut switches tabs or hides the window
+  useEffect(() => { if (!embedded) api.quickResize(mode === 'search' || msgs.length > 0 ? true : atts.length > 0 ? 'chips' : false); }, [mode, msgs.length > 0, atts.length > 0]);
+  useEffect(() => { if (embedded && focusNonce) setTimeout(() => inputRef.current?.focus(), 30); }, [focusNonce]);
   useEffect(() => {
+    if (embedded) return undefined; // the widget handles Cmd+1 / Cmd+2
     const h = (e) => {
       if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
       if (e.key === '1') { e.preventDefault(); setMode('chat'); setTimeout(() => inputRef.current?.focus(), 0); }
@@ -91,6 +118,8 @@ export default function QuickChat() {
     return () => window.removeEventListener('keydown', h);
   }, []);
 
+  const groups = modelGroups(modelPick || (settings && settings.model), providers);
+  const activeModel = modelPick || (settings ? defaultModel(settings, providers) : '');
   const send = () => {
     const t = text.trim();
     const good = atts.filter((a) => a.kind !== 'error');
@@ -101,17 +130,17 @@ export default function QuickChat() {
     const requestId = uid();
     reqRef.current = requestId; asstRef.current = asst.id;
     const history = [...msgs, user];
-    setMsgs([...history, asst]); setText(''); setAtts([]); setRunning(true); api.quickKeepOpen(true);
-    api.chat({ requestId, model: settings.model, messages: toApiMessages(history), system: settings.systemPrompt, project: null, maxTokens: settings.maxTokens });
+    setMsgs([...history, asst]); setText(''); setAtts([]); setRunning(true); keep(true);
+    api.chat({ requestId, model: activeModel, messages: toApiMessages(history), system: settings.systemPrompt, project: null, maxTokens: settings.maxTokens, brain: brain && (brain === 'council' || brains.some((b) => b.slug === brain)) ? brain : '', brainPick: '' });
   };
   const addFiles = async (list) => {
     const parsed = await filesToAttachments(list);
     if (parsed.length) setAtts((a) => [...a, ...parsed]);
   };
   const pick = async () => {
-    api.quickKeepOpen(true); // the file dialog steals focus; do not hide the window meanwhile
+    keep(true); // the file dialog steals focus; do not hide the window meanwhile
     try { const r = await api.pickFiles(); if (r.length) setAtts((a) => [...a, ...r]); }
-    finally { if (!reqRef.current) api.quickKeepOpen(false); setTimeout(() => inputRef.current?.focus(), 0); }
+    finally { if (!reqRef.current) keep(false); setTimeout(() => inputRef.current?.focus(), 0); }
   };
   const onPaste = (e) => {
     const fl = [...(e.clipboardData?.files || [])];
@@ -126,29 +155,29 @@ export default function QuickChat() {
   const handoff = () => {
     const first = msgs.find((m) => m.role === 'user');
     api.quickHandoff({ id: idRef.current, title: (first?.content || 'Quick chat').slice(0, 48), model: settings.model, projectId: null, messages: settle(msgs), updatedAt: Date.now() });
-    reset(); api.quickHide();
+    reset(); close();
   };
   const onKey = (e) => {
-    if (e.key === 'Escape') { api.quickHide(); return; }
+    if (e.key === 'Escape') { close(); return; }
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(); }
   };
 
   if (!settings) return null;
   return (
     <div
-      className={`quick-card ${drag ? 'dropping' : ''}`}
+      className={`quick-card${embedded ? ' embedded' : ''} ${drag ? 'dropping' : ''}`}
       onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
       onDragLeave={() => setDrag(false)}
       onDrop={(e) => { e.preventDefault(); e.stopPropagation(); setDrag(false); addFiles([...e.dataTransfer.files]); }}
     >
-      <div className="quick-grip drag" title="Drag to move"><i />
+      {!embedded && <div className="quick-grip drag" title="Drag to move"><i />
         <div className="quick-tabs nodrag">
           <button className={mode === 'chat' ? 'on' : ''} onClick={() => { setMode('chat'); setTimeout(() => inputRef.current?.focus(), 0); }}>Chat <kbd>⌘1</kbd></button>
           <button className={mode === 'search' ? 'on' : ''} onClick={() => { setMode('search'); setNonce((n) => n + 1); }}>Search <kbd>⌘2</kbd></button>
         </div>
-      </div>
-      {mode === 'search' ? (
-        <CommandPalette key={nonce} embedded open chats={snap.chats} onClose={() => api.quickHide()}
+      </div>}
+      {!embedded && mode === 'search' ? (
+        <CommandPalette key={nonce} embedded open chats={snap.chats} onClose={() => close()}
           actions={snap.actions.map((a) => ({ ...a, run: () => api.paletteRun({ kind: 'action', id: a.id }) }))}
           onOpenChat={(id) => api.paletteRun({ kind: 'chat', id })} onOpenNote={(p) => api.paletteRun({ kind: 'note', path: p })} onOpenFile={(p) => api.paletteRun({ kind: 'file', path: p })} />
       ) : (<>
@@ -168,8 +197,20 @@ export default function QuickChat() {
             <button className="icon-btn nodrag" title="Open in the main window" aria-label="Open in the main window" onClick={handoff}><Icon name="external" size={16} /></button>
           </>
         )}
-        <button className="icon-btn nodrag" title="Close (Esc)" aria-label="Close (Esc)" onClick={() => api.quickHide()}><Icon name="x" size={16} /></button>
+        <button className="icon-btn nodrag" title="Close (Esc)" aria-label="Close (Esc)" onClick={() => close()}><Icon name="x" size={16} /></button>
       </div>
+      {settings.hasApiKey && (brains.length > 0 || groups.length > 0) && (
+        <div className="quick-pills nodrag">
+          {brains.length > 0 && (
+            <Select className="pill-select brain" title="Brain mode: who answers. Council: the brains vote on who answers." value={brain} onChange={(e) => setBrain(e.target.value)}>
+              <option value="">No brain</option>
+              <option value="council">Council (vote)</option>
+              {brains.map((b) => <option key={b.slug} value={b.slug}>{b.name}{b.role ? ` · ${b.role.replace(/^The /, '')}` : ''}</option>)}
+            </Select>
+          )}
+          {groups.length > 0 && <ModelPicker value={activeModel} groups={groups} onChange={setModel} className="model" up={false} align="left" />}
+        </div>
+      )}
       {atts.length > 0 && (
         <div className="quick-chips">{atts.map((a, i) => <AttachmentChip key={i} a={a} onRemove={() => setAtts(atts.filter((_, j) => j !== i))} />)}</div>
       )}

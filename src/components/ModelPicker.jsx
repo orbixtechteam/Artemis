@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from './Icons.jsx';
 
 /** Dropdown with a search box. groups: [{ label, items: [[id, name], ...] }]. */
@@ -9,6 +9,8 @@ export default function ModelPicker({ value, groups = [], onChange, emptyLabel =
   const ref = useRef(null);
   const input = useRef(null);
   const list = useRef(null);
+  const pop = useRef(null);
+  const [shift, setShift] = useState({ x: 0, flip: false });
 
   useEffect(() => {
     if (!open) return;
@@ -18,6 +20,17 @@ export default function ModelPicker({ value, groups = [], onChange, emptyLabel =
   }, [open]);
   useEffect(() => { if (open) { setQ(''); setSel(0); setTimeout(() => input.current?.focus(), 0); } }, [open]);
 
+  // keep the list on the screen: slide it sideways when it would run past an edge, and open it the other way when there is no room below / above
+  useLayoutEffect(() => {
+    if (!open) { setShift({ x: 0, flip: false }); return; }
+    const el = pop.current, wrap = ref.current; if (!el || !wrap) return;
+    const r = el.getBoundingClientRect(), b = wrap.getBoundingClientRect(), vw = window.innerWidth, vh = window.innerHeight, m = 8;
+    let x = 0;
+    if (r.right > vw - m) x = vw - m - r.right;
+    if (r.left + x < m) x = m - r.left;
+    const room = up ? b.top : vh - b.bottom, other = up ? vh - b.bottom : b.top;
+    setShift({ x: Math.round(x), flip: r.height + 14 > room && other > room });
+  }, [open]);
   const flat = useMemo(() => {
     const all = [];
     if (emptyLabel) all.push({ id: '', name: emptyLabel, group: '' });
@@ -49,7 +62,7 @@ export default function ModelPicker({ value, groups = [], onChange, emptyLabel =
         <span className="mp-label">{label}</span><Icon name="chevronDown" size={13} />
       </button>
       {open && (
-        <div className={`mp-pop ${up ? 'up' : 'down'} ${align}`}>
+        <div ref={pop} className={`mp-pop ${(shift.flip ? !up : up) ? 'up' : 'down'} ${align}`} style={shift.x ? { transform: `translateX(${shift.x}px)` } : undefined}>
           <input ref={input} className="mp-search" placeholder="Search models…" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onKey} />
           <div className="mp-list" ref={list}>
             {shown.length === 0 && <div className="muted small mp-none">No model matches "{q}".</div>}

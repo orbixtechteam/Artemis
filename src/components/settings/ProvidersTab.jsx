@@ -18,7 +18,12 @@ export function ProviderEditor({ initial, presets, onDone, onProviders }) {
   const [hdrText, setHdrText] = useState(headersToText(initial.headers));
   const [rtSort, setRtSort] = useState((initial.routing && initial.routing.sort) || '');
   const [rtOrder, setRtOrder] = useState(((initial.routing && initial.routing.order) || []).join(', '));
-  const current = () => ({ ...p, models: textToModels(text, p.models), headers: textToHeaders(hdrText), routing: { sort: rtSort, order: rtOrder } });
+  const [rtOnly, setRtOnly] = useState(((initial.routing && initial.routing.only) || []).join(', '));
+  const [rtIgnore, setRtIgnore] = useState(((initial.routing && initial.routing.ignore) || []).join(', '));
+  const [rtZdr, setRtZdr] = useState(!!(initial.routing && initial.routing.zdr));
+  const [rtDeny, setRtDeny] = useState(!!(initial.routing && initial.routing.denyCollection));
+  const [rtNoFb, setRtNoFb] = useState(!!(initial.routing && initial.routing.noFallbacks));
+  const current = () => ({ ...p, models: textToModels(text, p.models), headers: textToHeaders(hdrText), routing: { sort: rtSort, order: rtOrder, only: rtOnly, ignore: rtIgnore, zdr: rtZdr, denyCollection: rtDeny, noFallbacks: rtNoFb } });
 
   const test = async (fill) => {
     setBusy(fill ? 'fetch' : 'test'); setMsg(null);
@@ -90,6 +95,15 @@ export function ProviderEditor({ initial, presets, onDone, onProviders }) {
             <Row stacked label="Preferred servers (optional)" description="Comma-separated OpenRouter server slugs, lowercase (for example morph, relace). They are tried first, other servers stay as the fallback. Use this or a routing choice above, not both.">
               <input value={rtOrder} onChange={(e) => setRtOrder(e.target.value)} placeholder="morph, relace" spellCheck={false} />
             </Row>
+            <SwitchRow label="Zero data retention only" description="Only servers that do not store your prompts (OpenRouter zdr). If no such server serves the model, the request fails instead of going elsewhere." checked={rtZdr} onChange={setRtZdr} />
+            <SwitchRow label="Deny data collection" description="Only servers that do not collect your data or train on it (data_collection: deny)." checked={rtDeny} onChange={setRtDeny} />
+            <Row stacked label="Allow only these servers (optional)" description="Comma-separated OpenRouter server slugs. Nothing else is used, and there is no fallback.">
+              <input value={rtOnly} onChange={(e) => setRtOnly(e.target.value)} placeholder="together, fireworks" spellCheck={false} />
+            </Row>
+            <Row stacked label="Never use these servers (optional)" description="Comma-separated slugs to block, for example deepseek to keep requests away from DeepSeek's own API.">
+              <input value={rtIgnore} onChange={(e) => setRtIgnore(e.target.value)} placeholder="deepseek" spellCheck={false} />
+            </Row>
+            <SwitchRow label="No fallbacks" description="Use only the preferred servers above; if they are down the request fails." checked={rtNoFb} onChange={setRtNoFb} />
           </>
         )}
       </Group>

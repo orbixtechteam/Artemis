@@ -97,6 +97,10 @@ assert.ok(/spending limit reached/.test(lr.blocked), lr.blocked); // 0.95 + 4 = 
   assert.deepStrictEqual(pv.routingBody('https://openrouter.ai/api/v1/chat/completions'), { provider: { sort: 'latency', order: ['morph', 'open-inference'], allow_fallbacks: true } });
   assert.deepStrictEqual(pv.routingBody('https://api.groq.com/openai/v1/chat/completions'), {});
   assert.deepStrictEqual(pv.routingBody('https://evil.example/https://openrouter.ai/api/v1/chat/completions'), {});
+  const priv = pv.normalize({ name: 'OR', baseUrl: 'https://openrouter.ai/api/v1', routing: { zdr: true, denyCollection: true, ignore: 'DeepSeek, bad name!', only: 'together,fireworks' } });
+  assert.deepStrictEqual(priv.routing, { only: ['together', 'fireworks'], ignore: ['deepseek'], zdr: true, denyCollection: true });
+  pv.registerHeaders([priv]);
+  assert.deepStrictEqual(pv.routingBody('https://openrouter.ai/api/v1/chat/completions'), { provider: { only: ['together', 'fireworks'], ignore: ['deepseek'], allow_fallbacks: false, zdr: true, data_collection: 'deny' } });
   pv.registerHeaders([]);
   assert.deepStrictEqual(pv.routingBody('https://openrouter.ai/api/v1/chat/completions'), {});
   console.log('providers: routing ok');

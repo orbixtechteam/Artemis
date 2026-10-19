@@ -86,7 +86,7 @@ const KEYWORDS = {
 };
 
 // Settings that are not saved from here: secrets go through their own commit path, the rest is computed by main.
-const NOT_SAVED = new Set(['hasApiKey', 'hasMakeToken', 'hasTelegramToken', 'shortcutError', 'shortcutErrors', 'telegramToken', 'apiKey', 'apiKeyEnc', 'telegramTokenEnc', 'makeTokenEnc', 'mcpTokenEnc']);
+const NOT_SAVED = new Set(['hasApiKey', 'hasMakeToken', 'hasTelegramToken', 'hasBraveKey', 'braveKey', 'braveKeyEnc', 'shortcutError', 'shortcutErrors', 'telegramToken', 'apiKey', 'apiKeyEnc', 'telegramTokenEnc', 'makeTokenEnc', 'mcpTokenEnc']);
 // Typed or dragged values: saved 400 ms after the last change instead of at once.
 const DEBOUNCED = new Set(['systemPrompt', 'personalityCustom', 'maxTokens', 'cbUrl', 'ttsUrl', 'ttsVoice', 'ttsVoiceEn', 'ttsVoices', 'voiceLangMap', 'cbVoice', 'voiceSttModel', 'ttsModel', 'remoteFolder', 'cbExaggeration', 'cbCfg', 'cbTemperature', 'cbSpeed']);
 const normalize = (k, v) => {
@@ -150,6 +150,7 @@ export function SettingsModal({ settings, groups = [], projects = [], providers 
   }, [s]);
   useEffect(() => () => { if (timer.current) flush(); }, []); // closing the tab saves what is still waiting
   useEffect(() => { if (status !== 'saved') return undefined; const t = setTimeout(() => setStatus(''), 1600); return () => clearTimeout(t); }, [status]);
+  const [braveDraft, setBraveDraft] = useState('');
   const saveSecret = async (patch) => { try { await applyRef.current(patch); setStatus('saved'); } catch (e) { console.error('Saving settings failed', e); setStatus('error'); } };
 
   // Themes come from main: built-in JSON plus <userData>/themes and <project>/.artemis/themes, refreshed here.
@@ -371,6 +372,34 @@ export function SettingsModal({ settings, groups = [], projects = [], providers 
                   checked={!!s.autoApproveEdits} onChange={put('autoApproveEdits')} />
                 <SwitchRow label="Memory" checked={!!s.memoryEnabled} onChange={put('memoryEnabled')} />
                 <SwitchRow label="Web search and page fetch" checked={!!s.webEnabled} onChange={put('webEnabled')} />
+                <Row label="Search engine" description="Built-in scrapes DuckDuckGo and Bing, which often block it. Brave Search API is a real search API with your own key. An AI search model (for example perplexity/sonar through OpenRouter) returns an answer with sources.">
+                  <Select value={s.searchEngine || (s.searchProvider ? 'provider' : '')} onChange={(e) => setS((x) => ({ ...x, searchEngine: e.target.value }))}>
+                    <option value="">Built-in (DuckDuckGo, Bing)</option>
+                    <option value="brave">Brave Search API</option>
+                    <option value="provider">AI search model</option>
+                  </Select>
+                </Row>
+                {s.searchEngine === 'brave' ? (
+                  <Row stacked label="Brave Search API key" description={s.hasBraveKey ? 'A key is saved (stored encrypted). Paste a new one to replace it. Get a key at brave.com/search/api; the key goes only to api.search.brave.com.' : 'Get a key at brave.com/search/api (create an account, pick a plan, copy the key from the dashboard) and paste it here. It goes only to api.search.brave.com.'}>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <input type="password" value={braveDraft} onChange={(e) => setBraveDraft(e.target.value)} placeholder={s.hasBraveKey ? 'Saved. Paste to replace' : 'BSA…'} spellCheck={false} autoComplete="off" style={{ flex: 1 }} />
+                      <button type="button" className="pref-btn primary" disabled={!braveDraft.trim()} onClick={async () => { const k = braveDraft.trim(); setS((x) => ({ ...x, hasBraveKey: true })); setBraveDraft(''); await saveSecret({ braveKey: k }); }}>Save key</button>
+                    </div>
+                  </Row>
+                ) : null}
+                {(s.searchEngine || (s.searchProvider ? 'provider' : '')) === 'provider' ? (
+                  <>
+                    <Row label="Search provider" description="The provider that serves the search model.">
+                      <Select value={s.searchProvider || ''} onChange={(e) => setS((x) => ({ ...x, searchProvider: e.target.value }))}>
+                        <option value="">Choose a provider</option>
+                        {providers.filter((p) => p.enabled !== false).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </Select>
+                    </Row>
+                    <Row label="Search model" description="An online-search model of that provider. Default: perplexity/sonar.">
+                      <input value={s.searchModel ?? 'perplexity/sonar'} onChange={(e) => setS((x) => ({ ...x, searchModel: e.target.value }))} placeholder="perplexity/sonar" spellCheck={false} />
+                    </Row>
+                  </>
+                ) : null}
                 <SwitchRow label="Notes knowledge base" description="Artemis can search and read your notes after you approve." checked={s.notesAi !== false} onChange={put('notesAi')} />
                 <SwitchRow label="Terminal commands" description="Asks once per task." checked={!!s.shellEnabled} onChange={put('shellEnabled')} />
                 <SwitchRow label="Computer control (macOS)" description="Screen, mouse and keyboard. Asks once per task. Emergency stop: ⌘⇧Esc." checked={!!s.computerEnabled} onChange={put('computerEnabled')} />

@@ -250,8 +250,12 @@ function parseBing(html) {
   return results;
 }
 
-async function webSearch(query, { signal, max = 8, fallback, ddgUrl = 'https://html.duckduckgo.com/html/', bingUrl = 'https://www.bing.com/search' } = {}) {
+async function webSearch(query, { signal, max = 8, fallback, via, ddgUrl = 'https://html.duckduckgo.com/html/', bingUrl = 'https://www.bing.com/search' } = {}) {
   let results = [], failure = null;
+  if (via) { // a search provider chosen in Settings (for example perplexity/sonar through OpenRouter) goes first; the scraped engines are only the backup
+    try { const text = await via(query, signal); if (text && String(text).trim()) return text; failure = 'the search provider returned nothing'; }
+    catch (e) { if (e.name === 'AbortError' && signal?.aborted) throw e; failure = `the search provider failed (${e.message})`; }
+  }
   try {
     const res = await fetch(ddgUrl, {
       method: 'POST',
@@ -260,12 +264,12 @@ async function webSearch(query, { signal, max = 8, fallback, ddgUrl = 'https://h
       signal: withTimeout(signal, 15000)
     });
     const html = await res.text();
-    if (!res.ok) failure = `HTTP ${res.status}`;
-    else if (/anomaly|bots use duckduckgo/i.test(html) && !/result__a/.test(html)) failure = 'DuckDuckGo blocked the request';
+    if (!res.ok) failure = (failure ? failure + '; ' : '') + `HTTP ${res.status}`;
+    else if (/anomaly|bots use duckduckgo/i.test(html) && !/result__a/.test(html)) failure = (failure ? failure + '; ' : '') + 'DuckDuckGo blocked the request';
     else results = parseDdg(html);
   } catch (e) {
     if (e.name === 'AbortError' && signal?.aborted) throw e;
-    failure = e.message;
+    failure = (failure ? failure + '; ' : '') + e.message;
   }
   if (!results.length) { // DuckDuckGo refuses scripts now and then: Bing's plain result page is the second try
     try {
@@ -280,12 +284,29 @@ async function webSearch(query, { signal, max = 8, fallback, ddgUrl = 'https://h
     const text = await fallback(query, signal);
     if (text) return `(fallback search)\n${text}`;
   }
-  return failure ? `No results (${failure}).` : 'No results.';
+  return failure ? `Web search is not working right now (${failure}). Do not repeat the search with other words. Tell the user, and ask for a link or the exact page if you need one. In Settings → Tools the user can pick a search provider.` : 'No results.';
+}
+
+/** Brave Search API (https://api.search.brave.com): the key goes in the X-Subscription-Token header. Returns the same numbered list as the scraped engines. */
+async function braveSearch({ key, query, signal, max = 8, url = 'https://api.search.brave.com/res/v1/web/search' }) {
+  const res = await fetch(`${url}?q=${encodeURIComponent(query)}&count=${Math.min(20, Math.max(1, max))}`, {
+    headers: { accept: 'application/json', 'x-subscription-token': String(key || '').trim() },
+    signal: withTimeout(signal, 15000)
+  });
+  if (!res.ok) {
+    const why = res.status === 401 || res.status === 403 ? 'the key was refused' : res.status === 429 ? 'the rate or monthly limit is used up' : res.status === 402 ? 'the plan has no credit left' : '';
+    throw new Error(`Brave Search HTTP ${res.status}${why ? ': ' + why : ''}`);
+  }
+  const j = await res.json();
+  const list = ((j && j.web && j.web.results) || []).slice(0, max);
+  const clean = (t) => String(t || '').replace(/<[^<>]*>/g, '').replace(/&quot;/g, '"').replace(/&#x27;|&#39;/g, "'").replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+  return list.map((r, n) => `${n + 1}. ${clean(r.title)}\n   ${r.url}\n   ${clean(r.description)}`).join('\n\n');
 }
 
 /** Search-grounded answer through the configured OpenAI-compatible endpoint (e.g. perplexity/sonar). */
 async function endpointSearch({ baseUrl, key, query, signal, model = 'perplexity/sonar' }) {
-  const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/v1/chat/completions`, {
+  const base = baseUrl.replace(/\/+$/, '');
+  const res = await fetch(/\/v\d+$/.test(base) ? `${base}/chat/completions` : `${base}/v1/chat/completions`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
     body: JSON.stringify({ model, messages: [{ role: 'user', content: query }] }),
@@ -298,4 +319,4 @@ async function endpointSearch({ baseUrl, key, query, signal, model = 'perplexity
   return text + cites;
 }
 
-module.exports = { webFetch, webSearch, endpointSearch, htmlToText, parseDdg, parseBing, isPrivateHost, assertPublic, decodeBody };
+module.exports = { webFetch, webSearch, endpointSearch, braveSearch, htmlToText, parseDdg, parseBing, isPrivateHost, assertPublic, decodeBody };

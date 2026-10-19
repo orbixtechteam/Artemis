@@ -16,7 +16,9 @@ const { createSpeaker } = require('./speaker');
 const { createVoiceGate } = require('./voice-gate');
 // ---------- app lock: while locked, IPC calls that act or show content are refused (the list is in electron/lock.js) ----------
 let lockGuard = () => true; // replaced as soon as the lock exists (further down)
-{ const handle = ipcMain.handle.bind(ipcMain); ipcMain.handle = (ch, fn) => handle(ch, (e, ...a) => { if (!lockGuard(ch)) throw new Error('Artemis is locked.'); return fn(e, ...a); }); }
+// Read-only lists the window asks for while it starts behind the lock screen: they answer "nothing" instead of throwing (a throw prints an error in the terminal each time).
+const LOCKED_QUIET = { 'mcp:status': [], 'schedule:list': [], 'notes:root': '', 'notes:list': { ok: false, error: 'locked', items: [] }, 'library:list': { ok: false, error: 'locked', items: [] } };
+{ const handle = ipcMain.handle.bind(ipcMain); ipcMain.handle = (ch, fn) => handle(ch, (e, ...a) => { if (!lockGuard(ch)) { if (LOCKED_QUIET[ch] !== undefined) return JSON.parse(JSON.stringify(LOCKED_QUIET[ch])); throw new Error('Artemis is locked.'); } return fn(e, ...a); }); }
 // ---------- app log (file + Logs page) ----------
 const logger = createLogger({
   dir: path.join(app.getPath('home'), '.artemis', 'logs'),
@@ -32,7 +34,6 @@ const web = require('./web');
 const mediaGen = require('./media');
 const { createComputer } = require('./computer');
 const { createFloat } = require('./float');
-const { createQuick } = require('./quick');
 const { createRemote } = require('./remote');
 const { createMcpManager, parseImport } = require('./mcp');
 const tools = require('./tools');
@@ -216,13 +217,14 @@ const DEFAULT_SETTINGS = {
   closeToTray: true,
   makeEnabled: true,
   voiceSttProvider: '',
+  searchEngine: '', searchProvider: '', searchModel: 'perplexity/sonar', // web_search through a provider (an online-search model) instead of the scraped engines
   voiceSttModel: 'whisper-1',
   voiceLanguage: 'auto',
   voiceAutoRead: false,
   connectorsLazy: true, fullFileAccess: true, toolsLazy: true, mcpServerEnabled: false, mcpServerPort: 8788, mcpTokenEnc: null,
   mcpAlwaysAllow: false, notesAi: true, sentinelPreload: false, sentinelAuto: false, sentinelPtt: '', sentinelInterrupt: false, sentinelStopWords: false, sentinelHideInApp: false, sentinelNameOnly: true, sentinelSensitivity: 'normal',
   sentinelModel: '', // empty = the default model; a fast model makes voice answers start sooner,
-  sentinelPos: null,
+  sentinelPos: null, sentinelSizes: null,
   micDeviceId: '',
   speakerDeviceId: '',
   voiceName: '',
@@ -249,7 +251,7 @@ const DEFAULT_SETTINGS = {
 };
 const getSettings = () => ({ ...DEFAULT_SETTINGS, ...readJson('settings', {}) });
 
-const SECRET_FIELDS = { telegramToken: 'telegramTokenEnc', makeToken: 'makeTokenEnc', mcpToken: 'mcpTokenEnc' };
+const SECRET_FIELDS = { telegramToken: 'telegramTokenEnc', makeToken: 'makeTokenEnc', mcpToken: 'mcpTokenEnc', braveKey: 'braveKeyEnc' };
 const cleanSecret = (v) => String(v == null ? '' : v).replace(/[\s\u00a0\u200b-\u200f\u2028\u2029\ufeff]+/g, '');
 const encStr = (v0) => { const v = cleanSecret(v0); return (!v ? null : safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(v).toString('base64') : 'plain:' + v); };
 let decWarned = false;
@@ -266,7 +268,7 @@ const getSecret = (name) => decStr(getSettings()[SECRET_FIELDS[name]]) || (name 
 const setSecret = (name, value) => writeJson('settings', { ...getSettings(), [SECRET_FIELDS[name]]: encStr(value) });
 const saveSettings = (patch) => writeJson('settings', { ...getSettings(), ...patch });
 
-const publicSettings = () => ({ ...getSettings(), telegramTokenEnc: undefined, makeTokenEnc: undefined, mcpTokenEnc: undefined, hasMakeToken: !!getSecret('makeToken'), hasApiKey: readProviders().some((p) => p.enabled !== false && (p.models || []).length && (!p.needsKey || getProviderKey(p.id))), hasTelegramToken: !!getSecret('telegramToken'), shortcutError, shortcutErrors });
+const publicSettings = () => ({ ...getSettings(), telegramTokenEnc: undefined, makeTokenEnc: undefined, mcpTokenEnc: undefined, braveKeyEnc: undefined, hasBraveKey: !!getSecret('braveKey'), hasMakeToken: !!getSecret('makeToken'), hasApiKey: readProviders().some((p) => p.enabled !== false && (p.models || []).length && (!p.needsKey || getProviderKey(p.id))), hasTelegramToken: !!getSecret('telegramToken'), shortcutError, shortcutErrors });
 
 // ---------- app lock, voice recognition, unauthorized-access alerts (electron/lock.js, speaker.js, voice-gate.js) ----------
 const lockAuthWaiting = new Map(); // id -> resolve(password | null): a password asked from the window (to approve a sensitive action)
@@ -374,9 +376,10 @@ ipcMain.handle('store:set', (_e, name, data) => {
 ipcMain.handle('settings:get', () => publicSettings());
 ipcMain.handle('settings:set', async (_e, patch) => {
   // never let the renderer overwrite stored secrets: undefined values survive IPC and would wipe them
-  const { apiKey, apiKeyEnc, telegramToken, telegramTokenEnc, makeTokenEnc, mcpTokenEnc, mcpServerEnabled, mcpServerPort, mcpAlwaysAllow, hasMakeToken, hasApiKey, hasTelegramToken, ...rest } = patch;
+  const { apiKey, apiKeyEnc, telegramToken, telegramTokenEnc, makeTokenEnc, mcpTokenEnc, braveKey, braveKeyEnc, hasBraveKey, mcpServerEnabled, mcpServerPort, mcpAlwaysAllow, hasMakeToken, hasApiKey, hasTelegramToken, ...rest } = patch;
   // an empty field means "unchanged", never "delete"
   if (typeof telegramToken === 'string' && telegramToken.trim()) setSecret('telegramToken', telegramToken.trim());
+  if (typeof braveKey === 'string' && braveKey.trim()) setSecret('braveKey', braveKey.trim());
   const before = getSettings();
   saveSettings(rest);
   if (rest.theme) nativeThemeFor();
@@ -560,14 +563,52 @@ const appInFront = () => {
 const appFocused = () => { try { return !!(win && !win.isDestroyed() && win.isVisible() && !win.isMinimized() && win.isFocused()); } catch { return false; } };
 let frontTimer = null;
 const syncSentinelSoon = () => { clearTimeout(frontTimer); frontTimer = setTimeout(() => { try { if (sentinelWidget) syncSentinel(); } catch {} }, 150); };
+// One window for everything: the Quick chat / Quick search (shortcut, tray, menu) open the Sentinel widget on its Chat or Search tab.
+// widgetQuick = the widget is up because of that (even with Sentinel off); the widget page tells us when to let go again ('hide-quick').
+let widgetQuick = false, widgetQuickClosedAt = 0; // a tray click first blurs (closes) the widget, then arrives: that click means "close", not "open again"
+function ensureWidget() {
+  if (!sentinelWidget) sentinelWidget = createSentinelWidget({ BrowserWindow, screen, isDev: IS_DEV, getPos: () => getSettings().sentinelPos, setPos: (p) => saveSettings({ sentinelPos: p }), getSizes: () => getSettings().sentinelSizes, setSizes: (z) => saveSettings({ sentinelSizes: z }) });
+  return sentinelWidget;
+}
+function openWidgetTab(tab, toggle) {
+  if (lock.isLocked()) return;
+  if (toggle && !widgetQuick && Date.now() - widgetQuickClosedAt < 350) return;
+  ensureWidget();
+  if (!widgetQuick && !sentinelWidget.isVisible()) sentinelWidget.center(); // a fresh Quick chat / Search opens in the middle of the screen
+  widgetQuick = true;
+  syncSentinel();
+  sentinelWidget.focus();
+  sentinelWidget.sendWhenReady('sentinel:cmd', { tab: tab === 'search' ? 'search' : 'chat', toggle: !!toggle });
+}
+function closeWidgetQuick() {
+  if (!widgetQuick || !sentinelWidget) return;
+  sentinelWidget.send('sentinel:cmd', { quick: 'close' });
+  widgetQuick = false; widgetQuickClosedAt = Date.now(); syncSentinel();
+}
+/** Stands in for the old Quick window (electron/quick.js) for every caller: same methods, but they drive the Sentinel widget. */
+const quickViaWidget = () => ({
+  show: (on) => openWidgetTab(on === 'search' ? 'search' : 'chat', false),
+  toggle: (on) => openWidgetTab(on === 'search' ? 'search' : 'chat', true),
+  hide: () => closeWidgetQuick(),
+  isVisible: () => widgetQuick && !!(sentinelWidget && sentinelWidget.isVisible()),
+  resize: () => {}, keepOpen: () => {}, setMode: () => {},
+  get window() { return sentinelWidget ? sentinelWidget.window : null; }
+});
 function syncSentinel() {
-  if (!sentinelWidget) sentinelWidget = createSentinelWidget({ BrowserWindow, screen, isDev: IS_DEV, getPos: () => getSettings().sentinelPos, setPos: (p) => saveSettings({ sentinelPos: p }) });
-  if ((sentinelOn() || sentinelInfo.err) && !appInFront()) { sentinelWidget.show(); sentinelWidget.send('sentinel:state', widgetInfo()); sentinelWidget.send('sentinel:front', appFocused()); } // front: the widget stays put while you are in the app (no auto open / close)
+  ensureWidget();
+  /* shown whether or not the Artemis window is in front (in front it only stops opening and closing by itself) */ if (sentinelOn() || sentinelInfo.err || widgetQuick) { sentinelWidget.show(); sentinelWidget.send('sentinel:state', widgetInfo()); sentinelWidget.send('sentinel:front', appFocused()); } // front: the widget stays put while you are in the app (no auto open / close)
   else sentinelWidget.hide();
   try { rebuildTray && rebuildTray(); } catch {}
 }
 ipcMain.on('sentinel:state', (_e, info) => { sentinelInfo = info && typeof info === 'object' ? info : { state: 'off' }; syncSentinel(); });
 ipcMain.on('sentinel:level', (_e, v) => { sentinelWidget && sentinelWidget.send('sentinel:level', v); });
+ipcMain.on('sentinel:grip', (_e, kind, a, b) => {
+  if (!sentinelWidget) return;
+  if (kind === 'start') sentinelWidget.gripStart();
+  else if (kind === 'move') sentinelWidget.gripMove(Number(a) || 0, Number(b) || 0);
+  else if (kind === 'end') sentinelWidget.gripEnd();
+  else if (kind === 'reset') sentinelWidget.gripReset(String(a || ''));
+});
 ipcMain.on('sentinel:resize', (_e, h, mode, size) => { sentinelWidget && sentinelWidget.resize(h, mode, size); });
 // The widget is a small chat client: it asks the main window's page (which owns the chats) for an artifact, a file preview, or to send
 // a typed message to Sentinel's chat. The main window is never shown or focused for this.
@@ -588,6 +629,7 @@ ipcMain.handle('sentinel:widget', (_e, cmd) => {
   if (!sentinelWidget) return false;
   if (/^(left|right|up|down|top|bottom|center)$/.test(c)) return sentinelWidget.moveTo(c);
   if (/^(expand|collapse|pin|unpin)$/.test(c)) { sentinelWidget.send('sentinel:cmd', c); return true; }
+  if (c === 'hide-quick') { widgetQuick = false; widgetQuickClosedAt = Date.now(); syncSentinel(); return true; } // the widget page closed the Quick chat / Search
   return false;
 });
 
@@ -889,6 +931,7 @@ async function executeRun({ requestId, model: model0, messages, project, system,
       baseUrl: runRoute.baseUrl, key: runRoute.key, model: runRoute.model, noToolCalls: !!runRoute.noTools, messages: runRoute.noTools ? stashImages(messages) : messages, maxTokens: maxTokens || settings.maxTokens, reasoningEffort: effort === 'auto' ? '' : (effort || settings.reasoningEffort || ''),
       custom: system, personality: require('./personality').text(settings), userName: settings.profileName || '', userAbout: settings.profileAbout || '', userLocation: settings.profileLocation || '', project, root: fileRoot, defaultRoot: !root,
       webEnabled: settings.webEnabled, shellEnabled: settings.shellEnabled && !restrict,
+      searchVia: (() => { if (settings.searchEngine === 'brave') { const k = getSecret('braveKey'); return k ? (q, sig) => require('./web').braveSearch({ key: k, query: q, signal: sig }) : null; } if (settings.searchEngine === 'builtin' || !settings.searchProvider) return null; const r = providersLib.resolve(`prov:${settings.searchProvider}:x`, readProviders(), getProviderKey); if (r.error) return null; return (q, sig) => require('./web').endpointSearch({ baseUrl: r.baseUrl, key: r.key, query: q, signal: sig, model: settings.searchModel || 'perplexity/sonar' }); })(),
       computer: settings.computerEnabled && !restrict && process.platform === 'darwin' ? computer : null,
       schedule: unattended || restrict ? null : { list: () => scheduler.list(), save: (j) => scheduler.save({ ...j, projectId: j.projectId !== undefined ? j.projectId : (project?.id || null) }), remove: (id) => scheduler.remove(id) },
       lockApp: unattended || restrict ? null : () => lock.lock('ai'),
@@ -1159,8 +1202,7 @@ const menuAccel = (a) => (normAccel(a) ? String(a).trim() : undefined);
  */
 function onQuickChatShortcut() {
   if (lock.isLocked()) return; // locked: no Quick window
-  if (getSettings().paletteFromQuickShortcut && win && !win.isDestroyed() && win.isVisible() && win.isFocused() && !quick.isVisible()) { try { win.webContents.send('menu', 'palette'); } catch {} return; }
-  quick.toggle('chat');
+  quick.toggle(appFocused() && !quick.isVisible() ? 'search' : 'chat'); // inside Artemis the shortcut opens Search (to jump somewhere); from another app it opens the chat
 }
 /** The Quick search shortcut (off by default) opens the Quick window straight on its Search tab. */
 function onQuickSearchShortcut() { if (lock.isLocked()) return; quick.toggle('search'); }
@@ -1619,7 +1661,7 @@ app.whenReady().then(() => {
   } catch (e) { logger.warn('mcp', 'Could not encrypt connector secrets: ' + e.message); }
   mcp.configure(readMcpList()).catch(() => {});
   computer = createComputer({ screenSize: () => screen.getPrimaryDisplay().size, avoid: () => floater.rect() });
-  quick = createQuick({ BrowserWindow, screen, isDev: IS_DEV, nativeTheme });
+  quick = quickViaWidget();
   lock.init(); // before the window: its first question is whether it is locked
   createWindow();
   try { createTray(); } catch (e) { tray = null; }

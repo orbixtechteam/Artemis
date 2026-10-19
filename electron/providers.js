@@ -109,6 +109,12 @@ function cleanRouting(r) {
   const order = (Array.isArray(r.order) ? r.order : String(r.order || '').split(','))
     .map((x) => String(x).trim().toLowerCase().replace(/\s+/g, '-')).filter((x) => /^[a-z0-9][a-z0-9._\/-]{0,63}$/.test(x)).slice(0, 8);
   if (order.length) out.order = [...new Set(order)];
+  const slugs = (v) => [...new Set((Array.isArray(v) ? v : String(v || '').split(',')).map((x) => String(x).trim().toLowerCase().replace(/\s+/g, '-')).filter((x) => /^[a-z0-9][a-z0-9._\/-]{0,63}$/.test(x)).slice(0, 16))];
+  const only = slugs(r.only); if (only.length) out.only = only;
+  const ignore = slugs(r.ignore); if (ignore.length) out.ignore = ignore;
+  if (r.zdr === true) out.zdr = true;
+  if (r.denyCollection === true) out.denyCollection = true;
+  if (r.noFallbacks === true) out.noFallbacks = true;
   return Object.keys(out).length ? out : null;
 }
 let routingRegistry = [];
@@ -120,7 +126,12 @@ function routingFor(url) {
 /** Spread into a chat request body: { provider: {...} } for a provider with routing set, otherwise nothing. */
 function routingBody(url) {
   const r = routingFor(url);
-  return r ? { provider: { ...r, allow_fallbacks: true } } : {};
+  if (!r) return {};
+  const { denyCollection, noFallbacks, zdr, ...rest } = r;
+  const provider = { ...rest, allow_fallbacks: !(noFallbacks || zdr || denyCollection || (rest.only && rest.only.length)) };
+  if (zdr) provider.zdr = true;
+  if (denyCollection) provider.data_collection = 'deny';
+  return { provider };
 }
 
 /** Which endpoint/key/model to use for a chat model id ("prov:<providerId>:<modelId>"). */

@@ -58,6 +58,7 @@ import { FilePanel, ArtifactPanel, ProgressPanel } from './components/SidePanel.
 import { greeting, toApiMessages, uid } from './lib/history.js';
 import { needsTitle, keepsTitle } from './lib/titles.mjs';
 import LockHost from './components/LockHost.jsx';
+import { stripFences, codeOnly } from './lib/clip.mjs';
 
 const api = window.api;
 
@@ -401,14 +402,14 @@ export default function App() {
       if (!sel && !link && !code && !msgEl) return; // nothing useful here
       if (link && /^https?:/i.test(link.href)) items.push({ label: 'Open in Artemis browser', onClick: () => a.openLink(link.href) }, { label: 'Open in default browser', onClick: () => window.api.openExternalUrl(link.href) }, { label: 'Copy link', onClick: () => navigator.clipboard.writeText(link.href) }, { sep: true });
       if (sel) items.push({ label: 'Copy', hint: '⌘C', onClick: () => navigator.clipboard.writeText(sel) });
-      if (code) items.push({ label: 'Copy code', onClick: () => navigator.clipboard.writeText(code.innerText) });
+      if (code) items.push({ label: 'Copy code', onClick: () => navigator.clipboard.writeText(codeOnly(code.innerText)) });
       if (msgEl) {
         const mid = msgEl.getAttribute('data-msg'); const cid = pane ? pane.getAttribute('data-chat-pane') : currentRef.current;
         const c = chatsRef.current.find((x) => x.id === cid); const m = c && c.messages.find((x) => x.id === mid);
         if (m) {
           const text = m.role === 'user' ? (m.content || '') : (m.steps || []).map((st) => st.text || '').filter(Boolean).join('\n\n');
           const busy = a.isRunning(c.id);
-          items.push({ label: 'Copy message', onClick: () => navigator.clipboard.writeText(text) });
+          items.push({ label: 'Copy message', onClick: () => navigator.clipboard.writeText(m.role === 'user' ? text : stripFences(text)) });
           if (m.role === 'assistant' && !m.compacted) items.push({ label: 'Regenerate', disabled: busy, onClick: () => a.regen(m, c) });
           items.push({ sep: true }, { label: 'Delete message', danger: true, disabled: busy && m.role === 'assistant' && m === c.messages[c.messages.length - 1], onClick: () => a.deleteMsg(c.id, m.id) });
         }
@@ -1196,7 +1197,15 @@ export default function App() {
     const c = chats.find((x) => x.id === cid);
     if (c && isRunning(cid)) stop(c, true); // the queue sends it as soon as the run has ended
   };
-  const queueFor = (c) => ({ queue: (c && queues[c.id]) || [], queueHeld: !!(c && held[c.id]), onQueue: (text, atts, extra) => c && enqueue(c.id, text, atts, extra), onUnqueue: (id) => c && unqueue(c.id, id), onSendNow: (id) => c && sendNow(c.id, id) });
+  // Cmd/Ctrl+Enter while an answer is being written: the typed message goes first and the answer is stopped (the queue sends it right away)
+  const enqueueNow = (cid, text, atts, extra) => {
+    const item = { id: uid(), text, atts, ...(extra ? { extra } : {}) };
+    setQueues((q) => ({ ...q, [cid]: [item, ...(q[cid] || [])] }));
+    setHeld((h) => ({ ...h, [cid]: false }));
+    const c = chats.find((x) => x.id === cid);
+    if (c && isRunning(cid)) stop(c, true);
+  };
+  const queueFor = (c) => ({ queue: (c && queues[c.id]) || [], queueHeld: !!(c && held[c.id]), onQueue: (text, atts, extra) => c && enqueue(c.id, text, atts, extra), onUnqueue: (id) => c && unqueue(c.id, id), onSendNow: (id) => c && sendNow(c.id, id), onSendNowText: (text, atts, extra) => c && enqueueNow(c.id, text, atts, extra) });
   useEffect(() => {
     for (const [cid, list] of Object.entries(queues)) {
       if (!list.length || isRunning(cid) || held[cid]) continue;

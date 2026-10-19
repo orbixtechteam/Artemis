@@ -73,8 +73,8 @@ export default function Sidebar({
   // the menu can never be dragged shorter than the row that holds "More"
   const minNav = () => { const b = moreRef.current, n = navRef.current; if (!b || !n) return 60; return Math.ceil(b.getBoundingClientRect().bottom - n.getBoundingClientRect().top + n.scrollTop + 4); };
   useEffect(() => { if (navH != null) { const m = minNav(); if (navH < m) setNavH(m); } }, []); // (a saved menu height only applies while More is open: closed, the menu fits its rows, so no empty gap is left under "More")
-  const openMore = () => setMore((m) => { if (m) return m; try { localStorage.setItem('zero-more2', '1'); } catch {} return true; });
-  const closeMore = () => setMore((m) => { if (!m) return m; try { localStorage.setItem('zero-more2', '0'); } catch {} return false; });
+  const openMore = () => setMore((m) => (m ? m : true));
+  const closeMore = () => setMore((m) => (m ? false : m));
   const startSplit = (e) => {
     e.preventDefault();
     const y0 = e.clientY, h0 = navRef.current ? navRef.current.offsetHeight : 200;
@@ -86,8 +86,8 @@ export default function Sidebar({
     window.addEventListener('mousemove', mv); window.addEventListener('mouseup', up);
   };
   const resetSplit = () => { setNavH(null); try { { localStorage.removeItem('artemis-nav-h'); localStorage.removeItem('ares-nav-h'); }; } catch {} };
-  const [more, setMore] = useState(() => { try { return localStorage.getItem('zero-more2') === '1'; } catch { return false; } });
-  const toggleMore = () => setMore((m) => { try { localStorage.setItem('zero-more2', m ? '0' : '1'); } catch {} return !m; });
+  const [more, setMore] = useState(false); // More is closed every time the app starts (the open state is no longer remembered)
+  const toggleMore = () => setMore((m) => !m);
   // opening or closing More moves the divider down or up to fit it (only when the menu height was set by hand)
   const firstMore = useRef(true);
   useEffect(() => {

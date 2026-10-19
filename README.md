@@ -214,7 +214,7 @@ Issues and small pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING),
 
 ## License
 
-[MIT](LICENSE) © 2026 Orbix Labs. Third-party licenses are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES).
+[MIT](LICENSE) © 2026 Orbix Lab. Third-party licenses are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES).
 
 ## Upgrading from Ares
 

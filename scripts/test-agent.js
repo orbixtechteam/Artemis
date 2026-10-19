@@ -478,6 +478,7 @@ const delta = (d, finish = null) => ({ choices: [{ delta: d, finish_reason: fini
   assert.strictEqual(r.text, 'plain reply'); assert.strictEqual(r.toolCalls[0].name, 'list_dir'); assert.strictEqual(r.usage.prompt, 7);
   await assert.rejects(streamOnce({ url: B + '/stall', body: {}, send, stallMs: 150 }), /stopped sending data/);
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ag-ps-'));
+  for (const d of ['d1','d2','d3','d4']) fs.mkdirSync(path.join(root, d));
   const evs = [];
   await runAgent({ baseUrl: B + '/pseudo', key: 'k', model: 'm', root, toolsEnabled: true, messages: [{ role: 'user', content: 'list' }], approve: async () => true, send: (e) => evs.push(e) });
   assert.strictEqual(pseudoN, 5, 'text-written calls that parse do not use up the retries');

@@ -1006,7 +1006,7 @@ async function runTool(name, args, ctx) {
       case 'web_search': {
         const q = String(args.query || '').trim();
         if (!q) throw new Error('query is empty');
-        return { ok: true, text: await web.webSearch(q, { signal: ctx.signal, max: Number(args.max_results) || 8, fallback: ctx.searchFallback }) };
+        return { ok: true, text: await web.webSearch(q, { signal: ctx.signal, max: Number(args.max_results) || 8, fallback: ctx.searchFallback, via: ctx.searchVia }) };
       }
       case 'use_tools': {
         if (!ctx.activeGroups || !ctx.groupsAvailable) throw new Error('Tool groups are not available here.');

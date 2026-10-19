@@ -35,7 +35,7 @@ function buildSystem({ taskNote, personality, makeEnabled, custom, project, root
     parts.push('No project folder is selected for this chat, so file tools are off. If file work is needed, ask the user to pick a project folder.');
   }
   if (makeEnabled) parts.push('make_* tools control the user\'s Make.com account. Start with make_overview to get the teamId. To just build something (a demo, a test, a simple HTTP call), use make_create_scenario with a template {type:"http_request", url} and activate:true, then make_run with responsive:true and read the result with make_get /scenarios/{id}/logs: do the whole thing, do not stop to ask the user to add anything in Make. A scenario needs no trigger module (the schedule is a setting), so never tell the user to add a Timer. For other apps, read a similar existing scenario with make_get_scenario and copy its exact module ids and parameter shapes (use make_get for /connections, /hooks, /data-stores); never invent module ids. Changing or running scenarios asks for approval, so say in one line what you will do first.');
-  if (webEnabled) parts.push('web_search and web_fetch give you current information from the web. Cite the URLs you used.' + (isSub ? '' : ' For "near me" or "nearby" requests, take the place from the user\'s saved location above or call get_location (never ask the user where they are first), then use web_search for the places and include the area in the query.'));
+  if (webEnabled) parts.push('web_search and web_fetch give you current information from the web. Cite the URLs you used. Never guess a URL or a file path in a repository: a guessed address is usually a 404. For a GitHub project, first list the folder with web_fetch on https://api.github.com/repos/OWNER/REPO/contents/PATH (start at the root, then open the folders you see), then fetch the file from raw.githubusercontent.com. If web_search says it is not working, do not repeat it with other words: tell the user.' + (isSub ? '' : ' For "near me" or "nearby" requests, take the place from the user\'s saved location above or call get_location (never ask the user where they are first), then use web_search for the places and include the area in the query.'));
   if (shellEnabled) parts.push("run_command runs in the user's real shell on their machine. Prefer read-only commands, explain anything destructive before running it, and keep commands short.");
   if (computerEnabled) {
     parts.push(
@@ -731,6 +731,7 @@ async function runAgent(opts) {
   const budget = opts.runTokenBudget || DEFAULT_RUN_BUDGET;
   let spent = 0, spentBase = 0, softResets = 0, wroteSince = false; // spent counts cache-discounted tokens; spentBase/softResets: runs that were summarized and continued
   const seenCalls = new Map();
+  const failStreak = new Map(); // tool name -> failures in a row (any arguments): the same tool failing three times stops the run
   const fileReads = new Map();
   let exploreCalls = 0, wrote = false;
   let agentRuns = 0;
@@ -832,7 +833,7 @@ async function runAgent(opts) {
           allowTools: subagents.toolNames(groups), agentRole: def ? def.body : '',
           autoApprove: !!opts.agentAutoApprove,
           approve: (i) => opts.approve({ ...i, id: cid(i.id), agent: label }),
-          searchFallback: opts.searchFallback, shouldStop: opts.shouldStop,
+          searchFallback: opts.searchFallback, searchVia: opts.searchVia, shouldStop: opts.shouldStop,
           runTokenBudget: Math.min(600000, Math.round(budget / 2)), contextTokens: opts.contextTokens, send: sub
         });
       } catch (e) {
@@ -1116,10 +1117,18 @@ async function runAgent(opts) {
           else if (!wrote && exploreCalls >= 8 && (exploreCalls - 8) % 4 === 0) text += `\n[${exploreCalls} read/search calls so far and nothing has changed. Stop exploring: make the change now, or ask the user one short question if the target is unclear.]`;
         }
         if (WRITE_TOOLS.has(tc.name) && r.ok) wrote = wroteSince = true;
+        if (r.ok || r.denied) failStreak.set(tc.name, 0); else failStreak.set(tc.name, (failStreak.get(tc.name) || 0) + 1);
         send({ type: 'tool:result', id: tc.id, name: tc.name, ok: r.ok, denied: !!r.denied, text, image: r.image });
         history.push({ role: 'tool', tool_call_id: tc.id, content: text });
         images.push(...(r.images || (r.image ? [r.image] : [])));
         if (signal?.aborted) return;
+        if ((failStreak.get(tc.name) || 0) >= 3) { // the same tool failed three times in a row: stop and tell the user instead of trying forever
+          const why = String(text || '').replace(/\s+/g, ' ').slice(0, 240);
+          const msg = `I stopped: the ${tc.name} tool failed 3 times in a row, so I am not going to keep trying. Last error: ${why}\nTell me how you want to continue (for example give me the exact link, file or path, or another approach).`;
+          send({ type: 'notice', text: `Stopped: ${tc.name} failed 3 times in a row.` });
+          send({ type: 'chunk', text: msg });
+          return;
+        }
       }
       if (images.length) {
         history.push({

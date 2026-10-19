@@ -390,3 +390,53 @@ const { pruneImages } = require('../electron/agent');
   assert(!r.ok && /timed out/.test(r.text) && Date.now() - t < 5000, 'timeout returns within seconds');
   console.log('extra: library query, OpenRouter images and command timeout ok');
 })().catch((e) => { console.error(e); process.exit(1); });
+
+// copied answers are paste-ready: no ``` lines
+import('../src/lib/clip.mjs').then(({ stripFences, codeOnly }) => {
+  const assert = require('assert');
+  assert.strictEqual(stripFences('Run this:\n```sql\nSELECT 1;\nSELECT 2;\n```\nDone.'), 'Run this:\nSELECT 1;\nSELECT 2;\nDone.');
+  assert.strictEqual(stripFences('a\n```\nx\n```\nb\n~~~js\ny\n~~~'), 'a\nx\nb\ny');
+  assert.strictEqual(codeOnly('```sql\nSELECT 1;\n```'), 'SELECT 1;');
+  assert.strictEqual(codeOnly('SELECT 1;\n'), 'SELECT 1;\n');
+  console.log('extra: copy without code fences ok');
+}).catch((e) => { console.error(e); process.exit(1); });
+
+// the same tool failing three times in a row stops the run; web_search can go through a provider
+(async () => {
+  const assert = require('assert'), http = require('http'), fs = require('fs'), os = require('os'), path = require('path');
+  const { runAgent } = require('../electron/agent');
+  let n = 0;
+  const srv = http.createServer((req, res) => { let b = ''; req.on('data', (c) => (b += c)); req.on('end', () => {
+    n++; res.writeHead(200, { 'content-type': 'text/event-stream' });
+    const ev = [{ choices: [{ delta: { tool_calls: [{ index: 0, id: 'f' + n, function: { name: 'read_file', arguments: JSON.stringify({ path: `missing${n}.txt` }) } }] }, finish_reason: null }] }, { choices: [{ delta: {}, finish_reason: 'tool_calls' }] }];
+    for (const e of ev) res.write(`data: ${JSON.stringify(e)}\n\n`); res.write('data: [DONE]\n\n'); res.end();
+  }); });
+  await new Promise((r) => srv.listen(0, r));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fail-')); const events = [];
+  await runAgent({ baseUrl: `http://127.0.0.1:${srv.address().port}`, key: 'k', model: 'm', maxTokens: 50, root, toolsEnabled: true, autoApprove: true, send: (e) => events.push(e), approve: async () => true, messages: [{ role: 'user', content: 'read it' }] });
+  srv.close();
+  assert.strictEqual(n, 3, 'the model is called exactly 3 times, then the run stops');
+  assert(events.some((e) => e.type === 'chunk' && /failed 3 times in a row/.test(e.text)), 'the user is told');
+  const web = require('../electron/web');
+  const viaText = await web.webSearch('x', { via: async () => 'ANSWER\nSources:\n1. https://e.com' });
+  assert(/^ANSWER/.test(viaText), 'a search provider answers first');
+  const broken = await web.webSearch('x', { via: async () => { throw new Error('HTTP 401'); }, ddgUrl: 'http://127.0.0.1:1/', bingUrl: 'http://127.0.0.1:1/' });
+  assert(/not working/.test(broken) && /HTTP 401/.test(broken), 'a failing provider ends with a clear message');
+  let seenTok = '', seenUrl = '';
+  const bsrv = require('http').createServer((q, r) => {
+    seenTok = q.headers['x-subscription-token']; seenUrl = q.url;
+    if (seenTok !== 'GOOD') { r.writeHead(401); return r.end('{}'); }
+    r.writeHead(200, { 'content-type': 'application/json' });
+    r.end(JSON.stringify({ web: { results: [{ title: 'A <strong>b</strong> &amp; c', url: 'https://a.example/x', description: 'one <strong>two</strong>' }, { title: 'T2', url: 'https://b.example', description: 'd2' }] } }));
+  });
+  await new Promise((r) => bsrv.listen(0, '127.0.0.1', r));
+  const burl = `http://127.0.0.1:${bsrv.address().port}/res/v1/web/search`;
+  const bt = await web.braveSearch({ key: ' GOOD ', query: 'a b', url: burl });
+  assert(/^1\. A b & c\n   https:\/\/a\.example\/x\n   one two/.test(bt) && /2\. T2/.test(bt), bt);
+  assert(seenTok === 'GOOD' && /q=a%20b/.test(seenUrl), 'key in the header, query encoded');
+  await assert.rejects(web.braveSearch({ key: 'BAD', query: 'x', url: burl }), /401.*refused/);
+  const viaBrave = await web.webSearch('a b', { via: (q, sig) => web.braveSearch({ key: 'GOOD', query: q, signal: sig, url: burl }) });
+  assert(/a\.example/.test(viaBrave));
+  bsrv.close();
+  console.log('extra: repeated tool failure stops the run; search provider ok');
+})().catch((e) => { console.error(e); process.exit(1); });
