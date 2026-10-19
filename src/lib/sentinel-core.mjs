@@ -6,35 +6,37 @@ import { TAG_RE, EMOTION_HINT } from './tts-emotion.mjs';
 export const RATE = 16000;
 
 // The wake phrase is "Wake up". The offline recogniser is limited to this phrase (and "hey"/"okay" in front of it).
-export const WAKE_PHRASE = 'wake up';
-export const WAKE_WORDS = ['wake up'];
-export const GRAMMAR = JSON.stringify(['wake up', 'hey wake up', 'okay wake up', '[unk]']);
+export const DEFAULT_WAKE = 'wake up';
+export const WAKE_PHRASE = DEFAULT_WAKE;
+export const WAKE_WORDS = [DEFAULT_WAKE];
+/** The wake phrase from Settings → Voice: 1 to 3 English words (the offline recogniser only knows words of its own list); anything else falls back to "wake up". */
+export function normWake(s) {
+  const w = String(s || '').toLowerCase().replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  const n = w ? w.split(' ').length : 0;
+  return n >= 1 && n <= 3 && w.length >= 3 && w.length <= 30 ? w : DEFAULT_WAKE;
+}
+/** The phrase as it is shown to the user ("Wake up", "Hello computer"). */
+export function wakeLabel(s) { const w = normWake(s); return w.charAt(0).toUpperCase() + w.slice(1); }
+/** Which wake engine Settings → Voice chose: 'oww' (a trained model, any language) only when a model is picked, otherwise 'vosk' (the typed English phrase). */
+export function wakeEngine(s) {
+  const o = s || {};
+  const model = typeof o.sentinelOwwModel === 'string' && /^[A-Za-z0-9][A-Za-z0-9_.-]{0,80}$/.test(o.sentinelOwwModel) ? o.sentinelOwwModel : '';
+  const t = o.sentinelOwwThreshold == null || o.sentinelOwwThreshold === '' ? NaN : Number(o.sentinelOwwThreshold);
+  return { engine: o.sentinelEngine === 'oww' && model ? 'oww' : 'vosk', model, threshold: Number.isFinite(t) ? Math.min(0.95, Math.max(0.2, t)) : 0.5 };
+}
+export function wakeGrammar(word) { const w = normWake(word); return JSON.stringify([w, 'hey ' + w, 'okay ' + w, '[unk]']); }
+export const GRAMMAR = wakeGrammar(DEFAULT_WAKE);
 
 const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
 
 // While Artemis is thinking or speaking the offline recogniser also listens for a few words that interrupt it.
-export const BARGE_GRAMMAR = JSON.stringify(['stop', 'okay stop', 'stop it', 'enough', 'quiet', 'be quiet', 'shut up', 'cancel', 'wake up', 'hey wake up', '[unk]']);
-export function hasBarge(text) { const t = norm(text); return !!t && /\b(wake up|stop|enough|quiet|cancel|shut up)\b/.test(t); }
+export function bargeGrammar(word) { const w = normWake(word); return JSON.stringify(['stop', 'okay stop', 'stop it', 'enough', 'quiet', 'be quiet', 'shut up', 'cancel', w, 'hey ' + w, '[unk]']); }
+export const BARGE_GRAMMAR = bargeGrammar(DEFAULT_WAKE);
+export function hasBarge(text, word = DEFAULT_WAKE) { const t = norm(text); return !!t && new RegExp('\\b(' + normWake(word).split(' ').join('\\s+') + '|stop|enough|quiet|cancel|shut up)\\b').test(t); }
 
 /** True when the recogniser output contains the wake phrase. */
-export function hasWake(text) {
-  return /\bwake up\b/.test(norm(text));
-}
-
-// Talking to Artemis inside a conversation: the sentence starts with his name ("Artemis, open settings", "hey Artemis ...").
-// Speech-to-text often spells the name differently, so a few common spellings count.
-// The name as Whisper writes it in other scripts (Russian, Ukrainian, Arabic, Japanese …), and with a Turkish/Azerbaijani case ending ("Artemis'e").
-const NAME_OTHER = /^(артемис|артемида|артеміс|артеміда|أرتميس|آرتمیس|アルテミス|阿尔忒弥斯)[\p{P}]*$/iu;
-const NAME_SUFFIX = /^artemis(e|i|in|le|dir)$/; // after bare(): apostrophes are gone
-const NAMES = ['artemis', 'artemus', 'artemas', 'artemes', 'artemiss', 'artimis', 'artemis,', 'art amiss', 'our themis', 'artemist'];
-/** Text after the name when the sentence starts with it (or with "Wake up"), otherwise null. */
-export function afterName(text) {
-  const words = String(text || '').trim().split(/\s+/).filter(Boolean);
-  let i = 0;
-  if (words.length && ['hey', 'hi', 'ok', 'okay', 'yo'].includes(bare(words[0]))) i = 1;
-  if (i < words.length && (NAMES.includes(bare(words[i])) || NAME_OTHER.test(words[i]) || NAME_SUFFIX.test(bare(words[i])))) return tidy(words.slice(i + 1));
-  const w = matchWake(words);
-  return w < 0 ? null : tidy(words.slice(w));
+export function hasWake(text, word = DEFAULT_WAKE) {
+  return new RegExp('\\b' + normWake(word).split(' ').join('\\s+') + '\\b').test(norm(text));
 }
 
 // How a speech-to-text model tends to write the spoken phrase "Wake up".
@@ -46,7 +48,30 @@ const deburr = (w) => w.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLower
 const bare = (w) => deburr(w).replace(/[^a-z]/g, '');
 // Where the phrase ends (index after its last word), or -1. It must be at the very start, or right after "hey" / "okay":
 // "wake up" is also an ordinary English phrase, so it never counts later in a sentence.
-function matchWake(words) {
+// A phrase chosen in Settings has no known spellings: the first words (or the ones after "hey" / "okay") must be close to it, so a different way of
+// writing it (one letter off, or split or joined: "wake up" / "wakeup") still counts.
+function lev(a, b) {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[a.length][b.length];
+}
+function matchCustom(words, wake) {
+  const target = wake.replace(/ /g, ''); const n = wake.split(' ').length;
+  const tol = target.length >= 8 ? 2 : target.length >= 5 ? 1 : 0;
+  for (const start of [0, 1]) {
+    if (start === 1 && !(words.length && HEY.includes(bare(words[0])))) break;
+    for (let k = Math.max(1, n - 1); k <= n + 1; k++) {
+      if (start + k > words.length) break;
+      const got = words.slice(start, start + k).map(bare).join('');
+      if (got && lev(got, target) <= tol) return start + k;
+    }
+  }
+  return -1;
+}
+function matchWake(words, word = DEFAULT_WAKE) {
+  const wake = normWake(word);
+  if (wake !== DEFAULT_WAKE) return matchCustom(words, wake);
   for (let i = 0; i < Math.min(words.length, 2); i++) {
     if (i === 1 && !HEY.includes(bare(words[0]))) break;
     const one = bare(words[i]); const two = i + 1 < words.length ? one + ' ' + bare(words[i + 1]) : '';
@@ -58,18 +83,18 @@ function matchWake(words) {
 const tidy = (words) => words.join(' ').replace(/^[\s,.:;!?\-\u2013\u2014]+/, '').trim();
 
 /** Remove a leading "Wake up," / "Hey wake up" from a transcript. */
-export function stripWake(text) {
+export function stripWake(text, word = DEFAULT_WAKE) {
   const words = String(text || '').trim().split(/\s+/).filter(Boolean);
-  const end = matchWake(words);
+  const end = matchWake(words, word);
   return end < 0 ? words.join(' ') : tidy(words.slice(end));
 }
 
 // Second check on the transcript of the recording. The offline recogniser only knows a few words and can mistake ordinary
 // speech for the wake phrase, so the real speech-to-text must also hear it at the start.
 /** Text after the wake phrase, or null when the transcript does not start with it (then the recording is ignored). */
-export function afterWake(text) {
+export function afterWake(text, word = DEFAULT_WAKE) {
   const words = String(text || '').trim().split(/\s+/).filter(Boolean);
-  const end = matchWake(words);
+  const end = matchWake(words, word);
   return end < 0 ? null : tidy(words.slice(end));
 }
 

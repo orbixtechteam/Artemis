@@ -136,7 +136,7 @@ export default function LockHost({ sentinel }) {
 
   const sState = sentinel || 'off';
   const voiceHint = cfg && cfg.voiceUnlock && !inLockdown
-    ? (sState === 'off' ? 'Voice unlock is on, but Sentinel is off. Turn Sentinel on to unlock by voice.' : 'Say “Wake up”, then speak. Your voice unlocks Artemis.')
+    ? (sState === 'off' ? 'Voice unlock is on, but Sentinel is off. Turn Sentinel on to unlock by voice.' : `Say “${window.__wakeWord || 'Wake up'}”, then speak. Your voice unlocks Artemis.`)
     : '';
   const why = { start: 'Locked when Artemis started', idle: 'Locked after a period of inactivity', sleep: 'Locked when the Mac went to sleep', manual: 'Locked', ai: 'Locked', mcp: 'Locked', voice: 'Locked: another voice was heard', lockdown: 'Locked after too many failed attempts' }[st.reason] || 'Locked';
 

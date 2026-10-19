@@ -338,7 +338,16 @@ export default function SentinelWidget() {
   useEffect(() => { const el = scroller.current; if (el && stuck.current) el.scrollTop = el.scrollHeight; }, [msgs, answer, open, viewer, v.activity, v.approval]);
   const onScroll = () => { const el = scroller.current; if (el) stuck.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24; };
   // The window follows the content: the pill reports its height; the chat and the viewer have the fixed S / M / L size.
-  const report = () => { if (box.current) api.sentinelResize(box.current.offsetHeight + 8, mode, size); };
+  // Only when something changed: the layout effect runs on every render (many per second while Sentinel talks) and each report moves a native window.
+  const lastReport = useRef('');
+  const report = () => {
+    if (!box.current) return;
+    const h = box.current.offsetHeight + 8;
+    const key = mode === 'compact' ? `${mode}|${size}|${h}` : `${mode}|${size}`;
+    if (key === lastReport.current) return;
+    lastReport.current = key;
+    api.sentinelResize(h, mode, size);
+  };
   useLayoutEffect(report);
   useEffect(() => { if (!box.current || !window.ResizeObserver || mode !== 'compact') return undefined; const ro = new ResizeObserver(() => report()); ro.observe(box.current); return () => ro.disconnect(); }, [mode, size]);
   const act = (a) => () => api.sentinelAction(a);
@@ -349,7 +358,10 @@ export default function SentinelWidget() {
     setSending(true); stuck.current = true;
     try { const ok = await api.sentinelAsk('send', text); if (ok) setDraft(''); } catch {} finally { setSending(false); }
   };
-  const working = info.state === 'thinking' || info.state === 'speaking' || !!v.running || msgs.some((m) => m.running);
+  // The three bouncing dots, like in the main chat: shown while the answer has not started (the message is the user's, or the reply has no text or tool steps yet).
+  const lastMsg = msgs.length ? msgs[msgs.length - 1] : null;
+  const waiting = (info.state === 'thinking' || !!v.running || !!v.busy) && !v.approval && !v.activity && (!lastMsg || lastMsg.role === 'user' || (!lastMsg.text && !(lastMsg.tools || []).length));
+  const working = info.state === 'thinking' || info.state === 'speaking' || !!v.running || !!v.busy || msgs.some((m) => m.running);
   const viewRev = viewer && viewer.type === 'artifact' && arts.get(viewer.id) ? arts.get(viewer.id).rev : '';
   // Messages from before Sentinel's chat existed would show nothing: fall back to the last exchange.
   const shown = msgs.length ? msgs : (info.heard ? [{ id: 'h', role: 'user', text: info.heard }, ...(answer ? [{ id: 'a', role: 'assistant', text: answer, tools: [], images: v.images || [], artifacts: v.artifacts || [], files: [] }] : [])] : []);
@@ -385,8 +397,9 @@ export default function SentinelWidget() {
                 <QuickChat embedded focusNonce={focusNonce} onClose={closeQuick} onKeepOpen={(k) => { keepRef.current = !!k; }} />
               ) : (<>
               <div className="swm-list" ref={scroller} onScroll={onScroll} onClickCapture={linkClick}>
-                {shown.length === 0 && <p className="dim swm-empty">Say “Wake up” or type a message below.</p>}
+                {shown.length === 0 && <p className="dim swm-empty">Say your wake phrase or type a message below.</p>}
                 {shown.map((m, i) => <MemoBubble key={m.id || i} m={m} onOpen={openItem} last={i === shown.length - 1} />)}
+                {waiting && <div className="swm-asst" aria-label="Artemis is answering"><span className="typing"><i /><i /><i /></span></div>}
               </div>
               {v.approval && (
                 <div className="swc-ask">

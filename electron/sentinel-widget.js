@@ -123,7 +123,7 @@ function createSentinelWidget({ BrowserWindow, screen, isDev, getPos, setPos, ge
     w.setResizable(false);
   }
   function hide() { if (alive()) w.hide(); }
-  function destroy() { if (alive()) w.destroy(); w = null; }
+  function destroy() { clearTimeout(resizeTimer); clearTimeout(moveTimer); resizeTimer = null; if (alive()) w.destroy(); w = null; }
   function send(channel, payload) { if (alive() && !w.webContents.isLoading()) w.webContents.send(channel, payload); }
   function apply(b) {
     const cur = w.getBounds();
@@ -134,7 +134,14 @@ function createSentinelWidget({ BrowserWindow, screen, isDev, getPos, setPos, ge
     w.setResizable(false);
   }
   /** The page reports how tall its content is, its mode (the compact pill, the expanded chat or the viewer) and the S / M / L size. */
+  // Reports come in bursts (every render of the page); the last one wins, applied at most ~20 times a second.
+  let resizeTimer = null; let resizeArgs = null;
   function resize(h, mode, size) {
+    resizeArgs = [h, mode, size];
+    if (resizeTimer) return;
+    resizeTimer = setTimeout(() => { resizeTimer = null; const a = resizeArgs; resizeArgs = null; if (a) resizeNow(...a); }, 50);
+  }
+  function resizeNow(h, mode, size) {
     if (!alive()) return;
     if (mode === true) mode = 'expanded';
     curMode = mode === 'expanded' || mode === 'viewer' ? mode : 'compact';
@@ -143,6 +150,8 @@ function createSentinelWidget({ BrowserWindow, screen, isDev, getPos, setPos, ge
     const cur = w.getBounds();
     const wa = areaOf(cur);
     const mine = userSize[curMode];
+    // the pill's height jitters by a pixel while text wraps: not worth moving a native window for
+    if (curMode === 'compact' && cur.width === WIDTH && Math.abs(cur.height - sizeFor('compact', size, h, wa).height) <= 1) return;
     apply(fitBounds(cur, mine ? { width: Math.min(mine.width, wa.width - 8), height: Math.min(mine.height, wa.height - 8) } : sizeFor(mode, size, h, wa), wa));
   }
   /** The corner handle: the user drags to make the widget as big or small as they want; the size is remembered per mode. */

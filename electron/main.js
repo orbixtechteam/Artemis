@@ -14,6 +14,7 @@ const { createLogger } = require('./logger');
 const { createLock } = require('./lock');
 const { createSpeaker } = require('./speaker');
 const { createVoiceGate } = require('./voice-gate');
+const { createWakeWord } = require('./wakeword');
 // ---------- app lock: while locked, IPC calls that act or show content are refused (the list is in electron/lock.js) ----------
 let lockGuard = () => true; // replaced as soon as the lock exists (further down)
 // Read-only lists the window asks for while it starts behind the lock screen: they answer "nothing" instead of throwing (a throw prints an error in the terminal each time).
@@ -222,7 +223,7 @@ const DEFAULT_SETTINGS = {
   voiceLanguage: 'auto',
   voiceAutoRead: false,
   connectorsLazy: true, fullFileAccess: true, toolsLazy: true, mcpServerEnabled: false, mcpServerPort: 8788, mcpTokenEnc: null,
-  mcpAlwaysAllow: false, notesAi: true, sentinelPreload: false, sentinelAuto: false, sentinelPtt: '', sentinelInterrupt: false, sentinelStopWords: false, sentinelHideInApp: false, sentinelNameOnly: true, sentinelSensitivity: 'normal',
+  mcpAlwaysAllow: false, notesAi: true, sentinelPreload: false, sentinelAuto: false, sentinelPtt: '', sentinelInterrupt: false, sentinelStopWords: false, sentinelHideInApp: false, sentinelWake: 'wake up', sentinelEngine: 'vosk', sentinelOwwModel: '', sentinelOwwThreshold: 0.5, sentinelSensitivity: 'normal',
   sentinelModel: '', // empty = the default model; a fast model makes voice answers start sooner,
   sentinelPos: null, sentinelSizes: null,
   micDeviceId: '',
@@ -286,6 +287,7 @@ const lock = createLock({
 });
 lockGuard = (ch) => lock.guard(ch);
 const speaker = createSpeaker({ fs, path, dir: () => path.join(app.getPath('userData'), 'speaker'), safeStorage, log: (lv, m) => logger[lv === 'warn' ? 'warn' : 'info']('speaker', m) });
+const wakeword = createWakeWord({ fs, path, dir: () => path.join(app.getPath('userData'), 'wakeword'), log: (lv, msg) => logger[lv === 'warn' ? 'warn' : 'info']('wakeword', msg === undefined ? lv : msg) });
 const voiceGate = createVoiceGate({ lock, speaker, log: (lv, m) => logger[lv === 'warn' ? 'warn' : 'info']('speaker', m) });
 
 // ---------- themes (JSON palettes, so a new theme needs no rebuild) ----------
@@ -1555,7 +1557,7 @@ const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) app.quit();
 app.on('second-instance', () => showMain('Artemis was launched again'));
 // Let the window save its pending chats first (ack 'app:flushed', or give up after 1.5 s), then quit for real.
-let flushAsked = false;
+let flushAsked = false; let quitWatchdog = null;
 app.on('before-quit', (e) => {
   quitting = true;
   if (!flushAsked && win && !win.isDestroyed()) {
@@ -1570,6 +1572,10 @@ app.on('before-quit', (e) => {
   }
   flushUsage();
   try { mcpServer.stop(); } catch {} try { sentinelWidget && sentinelWidget.destroy(); } catch {}
+  // Every other window goes now: a hidden or always-on-top one must not keep the app alive.
+  for (const w of BrowserWindow.getAllWindows()) { try { if (!w.isDestroyed()) w.destroy(); } catch {} }
+  // Last resort: if something in the shutdown hangs (a child process, a native module), the app still ends after 4 s instead of needing Force Quit.
+  if (!quitWatchdog) { quitWatchdog = setTimeout(() => { try { app.exit(0); } catch { process.exit(0); } }, 4000); }
 });
 
 app.whenReady().then(() => {
@@ -1676,7 +1682,10 @@ app.whenReady().then(() => {
   applyLoginItem();
   app.on('activate', () => showMain('Dock icon clicked (activate)'));
 });
-app.on('will-quit', () => { try { terminals.closeAll(); } catch {} scheduler.stop(); unregisterShortcuts(); globalShortcut.unregisterAll(); remote?.stop(); mcp.close(); });
+app.on('will-quit', () => {
+  // each step on its own: one that throws must not skip the rest
+  for (const f of [() => terminals.closeAll(), () => scheduler.stop(), () => unregisterShortcuts(), () => globalShortcut.unregisterAll(), () => remote?.stop(), () => wakeword.stop(), () => { const r = mcp.close(); if (r && r.catch) r.catch(() => {}); }]) { try { f(); } catch {} }
+});
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 
 // ---------- IPC handlers that touch main's mutable state (kept here) ----------
@@ -1809,6 +1818,7 @@ require('./ipc/files')({ ipcMain, BrowserWindow, app, defaultFilesDir, dialog, f
 require('./ipc/library')({ ipcMain, BrowserWindow, dialog, shell, files, library, getWin: () => win });
 require('./ipc/perm')({ ipcMain, permissions });
 require('./ipc/lock')({ ipcMain, lock, speaker, voiceGate, lockAuthWaiting, snapWaiting, logger, testAlert: testLockAlert });
+require('./ipc/wakeword')({ ipcMain, wakeword, dialog, getWin: () => win });
 require('./ipc/media')({ ipcMain, mediaDir, mediaGen, shell });
 require('./ipc/usage')({ ipcMain, getUsage, setUsage });
 require('./ipc/providers')({ ipcMain, encStr, getProviderKey, providersLib, publicProviders, readProviderKeys, readProviders, writeJson });

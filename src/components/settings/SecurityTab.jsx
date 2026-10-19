@@ -235,7 +235,7 @@ export function SecurityTab() {
 
           <Group title="Unlock with" footer="The password always works. Touch ID needs a Mac with a fingerprint reader.">
             <SwitchRow label="Touch ID" description={st.touchIdAvailable ? 'Touch the sensor instead of typing.' : 'Not available on this Mac.'} checked={!!cfg.touchIdUnlock && st.touchIdAvailable} disabled={!st.touchIdAvailable} onChange={(v) => toggle({ touchIdUnlock: v })} />
-            <SwitchRow label="My voice (Sentinel)" description={enrolled && modelReady ? 'While locked, Sentinel keeps listening. Say “Wake up”, then speak: if it is your voice, Artemis unlocks. Any other voice hears “Unauthorized access.”' : 'Needs the voice model and your enrolled voice (below).'}
+            <SwitchRow label="My voice (Sentinel)" description={enrolled && modelReady ? 'While locked, Sentinel keeps listening. Say the wake phrase, then speak: if it is your voice, Artemis unlocks. Any other voice hears “Unauthorized access.”' : 'Needs the voice model and your enrolled voice (below).'}
               checked={!!cfg.voiceUnlock && enrolled && modelReady} disabled={!(enrolled && modelReady)} onChange={(v) => toggle({ voiceUnlock: v })} />
           </Group>
 

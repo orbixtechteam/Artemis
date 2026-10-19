@@ -30,7 +30,10 @@ const SAFE_SETTINGS = {
   cbVoice: (v) => String(v).slice(0, 200), cbHybrid: Boolean,
   cbExaggeration: (v) => Math.min(2, Math.max(0.25, Number(v) || 0.5)), cbCfg: (v) => Math.min(1, Math.max(0, Number(v) || 0)),
   cbTemperature: (v) => Math.min(2, Math.max(0.05, Number(v) || 0.8)), cbSpeed: (v) => Math.min(2, Math.max(0.5, Number(v) || 1)),
-  sentinelInterrupt: Boolean, sentinelNameOnly: Boolean, sentinelAuto: Boolean,
+  sentinelInterrupt: Boolean, sentinelWake: (v) => String(v).slice(0, 40),
+  sentinelEngine: (v) => { if (!['vosk', 'oww'].includes(v)) throw new Error('sentinelEngine must be vosk or oww'); return v; },
+  sentinelOwwModel: (v) => { const s = String(v); if (s && !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,80}$/.test(s)) throw new Error('sentinelOwwModel must be the name of an imported wake word model'); return s; },
+  sentinelOwwThreshold: (v) => Math.min(0.95, Math.max(0.2, Number(v) || 0.5)), sentinelAuto: Boolean,
   sentinelSensitivity: (v) => { if (!['high', 'normal', 'low'].includes(v)) throw new Error('sentinelSensitivity must be high, normal or low'); return v; },
   profileName: (v) => String(v).slice(0, 100), profileAbout: (v) => String(v).slice(0, 2000)
 };

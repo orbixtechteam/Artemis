@@ -23,9 +23,12 @@ if (typeof window !== 'undefined' && window.addEventListener) {
 export function createFollower(container) {
   if (!container || !window.CSS || !CSS.highlights || typeof Highlight === 'undefined') return { follow() {}, clear() {} };
   const born = performance.now(); // a scroll after this moment means: stop moving the page for this reply
-  let full = ''; let map = [];
-  const build = () => {
+  let full = ''; let map = []; let lastEl = null; let lastLen = -1;
+  const build = (force) => {
     const el = typeof container === 'function' ? container() : container;
+    // Nothing new in the message (same element, same text length, nodes still in the page): the mapping below is still right. It is a walk over every character, so it must not run for every spoken chunk.
+    if (!force && el && el === lastEl && el.textContent.length === lastLen && map.length && map[0].n.isConnected && map[map.length - 1].n.isConnected) return;
+    lastEl = el; lastLen = el ? el.textContent.length : -1;
     full = ''; map = []; let lastSpace = true;
     if (!el) return;
     const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {

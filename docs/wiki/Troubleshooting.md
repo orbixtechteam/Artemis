@@ -91,3 +91,7 @@ Earlier builds were called Ares and kept data in `~/.ares`, `Documents/Ares Note
 - [Computer Control](Computer-Control.md)
 - [Sentinel (Voice)](Sentinel-Voice.md)
 - [Phone (Telegram)](Phone-Telegram.md)
+
+## Artemis does not quit, or the Sentinel widget freezes
+
+Quitting closes every window and ends the app after at most a few seconds, even if a background step hangs. If the widget still freezes, note what Sentinel was doing (speaking, answering with images, expanded view) and send the log from **Settings → Logs**.

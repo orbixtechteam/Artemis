@@ -15,6 +15,24 @@ const assert = require('assert');
   assert.strictEqual(c.afterWake('Weak up, new chat'), 'new chat');           // weak spelling, first words
   assert.strictEqual(c.afterWake('so anyway the plan is to wake up early'), null); // later in a sentence: ignored
   assert.strictEqual(c.afterWake('Artemis, what time is it'), null);               // the old name no longer works
+  // which wake engine Settings picked
+  assert.deepStrictEqual(c.wakeEngine({}), { engine: 'vosk', model: '', threshold: 0.5 });
+  assert.deepStrictEqual(c.wakeEngine({ sentinelEngine: 'oww', sentinelOwwModel: 'my_phrase', sentinelOwwThreshold: 0.6 }), { engine: 'oww', model: 'my_phrase', threshold: 0.6 });
+  assert.strictEqual(c.wakeEngine({ sentinelEngine: 'oww', sentinelOwwModel: '' }).engine, 'vosk'); assert.strictEqual(c.wakeEngine({ sentinelEngine: 'oww', sentinelOwwModel: '../x' }).engine, 'vosk');
+  assert.strictEqual(c.wakeEngine({ sentinelOwwThreshold: 5 }).threshold, 0.95); assert.strictEqual(c.wakeEngine({ sentinelOwwThreshold: 0 }).threshold, 0.2); assert.strictEqual(c.wakeEngine({ sentinelOwwThreshold: '' }).threshold, 0.5);
+  // a wake phrase chosen in Settings
+  assert.strictEqual(c.normWake('  Hello   Computer! '), 'hello computer'); assert.strictEqual(c.normWake(''), 'wake up'); assert.strictEqual(c.normWake('a'), 'wake up'); assert.strictEqual(c.normWake('one two three four'), 'wake up'); assert.strictEqual(c.normWake('сәлам'), 'wake up');
+  assert.strictEqual(c.wakeLabel('hello computer'), 'Hello computer');
+  assert(JSON.parse(c.wakeGrammar('hello computer')).includes('hey hello computer')); assert(JSON.parse(c.wakeGrammar('hello computer')).includes('[unk]'));
+  assert(JSON.parse(c.bargeGrammar('computer')).includes('computer')); assert(c.hasBarge('computer', 'computer')); assert(!c.hasBarge('computer'));
+  assert(c.hasWake('hey computer', 'computer')); assert(c.hasWake('Computer!', 'computer')); assert(!c.hasWake('wake up', 'computer')); assert(!c.hasWake('my computers are old', 'computer'));
+  assert.strictEqual(c.afterWake('Computer, what time is it', 'computer'), 'what time is it');
+  assert.strictEqual(c.afterWake('Hey computer open settings', 'computer'), 'open settings');
+  assert.strictEqual(c.afterWake('Computar what time is it', 'computer'), 'what time is it'); // one letter off still counts
+  assert.strictEqual(c.afterWake('Hello computer', 'hello computer'), ''); assert.strictEqual(c.afterWake('Hellocomputer open it', 'hello computer'), 'open it');
+  assert.strictEqual(c.afterWake('so my computer is slow', 'computer'), null);       // later in a sentence: ignored
+  assert.strictEqual(c.afterWake('Wake up, what time is it', 'computer'), null);       // the old phrase does not work once another is chosen
+  assert.strictEqual(c.stripWake('Computer, what time is it', 'computer'), 'what time is it'); assert.strictEqual(c.stripWake('what time is it', 'computer'), 'what time is it');
   assert.strictEqual(c.afterWake('I wake up at seven every day and go to work'), null);
   assert.strictEqual(c.afterWake('wake'), null);
   assert.strictEqual(c.afterWake(''), null);

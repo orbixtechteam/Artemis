@@ -35,7 +35,7 @@ const BLOCKED_WHILE_LOCKED = [
   /^media:/, /^import:/, /^dialog:/, /^shell:/, /^phone:/, /^float:/, /^project:/, /^profile:(pick|clear)/, /^artemis:/, /^claude:/,
   /^providers:(save|delete|test)$/, /^skills:(save|delete|import|toggle|get)$/, /^agents:(save|delete)$/, /^brains:(save|delete)$/,
   /^settings:set$/, /^browser:(open|navigate|nav|tab-new|external)$/, /^quick:handoff$/, /^palette:run$/, /^sentinel:(ask|copy|download|delete)$/,
-  /^voice:transcribe$/, /^perm:request$/, /^memory:free$/, /^usage:clear$/, /^logs:clear$/, /^themes:(delete|import)$/
+  /^voice:transcribe$/, /^wakeword:(download|preset|import|remove)$/, /^perm:request$/, /^memory:free$/, /^usage:clear$/, /^logs:clear$/, /^themes:(delete|import)$/
 ];
 const isBlockedChannel = (ch) => !/^lock:|^speaker:/.test(String(ch)) && BLOCKED_WHILE_LOCKED.some((re) => re.test(String(ch)));
 

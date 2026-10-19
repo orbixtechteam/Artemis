@@ -42,7 +42,8 @@ module.exports = function registerLockIpc({ ipcMain, lock, speaker, voiceGate, l
   });
   ipcMain.handle('speaker:test', (_e, wav) => locked() ? LOCKED : voiceGate.test(bytes(wav)));
   // Sentinel asks this before it acts on a recording: the decision (and the counting, the unlocking, the lockdown) is made here, not in the page
-  ipcMain.handle('speaker:verify', async (_e, wav) => {
-    try { return await voiceGate.verify(bytes(wav)); } catch (e) { return { ok: false, reason: 'error', error: (e && e.message) || String(e) }; }
+  // o.phase 'session' = inside an open conversation (another voice is ignored in silence); o.strict = a spoken yes/no to an approval (only the owner counts)
+  ipcMain.handle('speaker:verify', async (_e, wav, o) => {
+    try { return await voiceGate.verify(bytes(wav), { always: true, phase: o && o.phase === 'session' ? 'session' : 'wake', strict: !!(o && o.strict) }); } catch (e) { return { ok: false, reason: 'error', error: (e && e.message) || String(e) }; }
   });
 };
