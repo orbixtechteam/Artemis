@@ -14,8 +14,10 @@ const BLOCKED = [
   [/\b(shutdown|reboot|halt)\b/, 'shutdown/reboot is not allowed'],
   [new RegExp('\\b(curl|wget)\\b[^;&]*\\|\\s*(env\\s+)?' + INTERP + '\\b'), 'piping downloads into a shell or interpreter is not allowed'],
   [new RegExp('\\b(' + INTERP.slice(3, -1) + '|source|\\.)\\s+(-\\S+\\s+)*<\\(\\s*(curl|wget)\\b'), 'running a download through process substitution is not allowed'],
-  [/(\beval|\s-c)\s+\$\(\s*(curl|wget)\b/, 'running a download is not allowed']
+  [/(\beval|\s-c)\s+\$\(\s*(curl|wget)\b/, 'running a download is not allowed'],
+  [new RegExp('\\b(base64|base32|xxd|openssl)\\b[^;&]*\\s(-d|-D|--decode|-r)\\b[^;&]*\\|\\s*(env\\s+)?' + INTERP + '\\b'), 'piping decoded content into a shell or interpreter is not allowed']
 ];
+const SHELLS = /^(sh|bash|zsh|dash|ksh|fish)$/;
 
 // Protected targets for recursive delete / find -delete: /, ~, and top-level system folders.
 const PROTECTED = /^(\/|~\/?|\/\*|~\/\*|\/\.|~\/\.)$|^\/(Users|home|System|Applications|Library|bin|sbin|usr|etc|var|private|opt|Volumes)\/?\*?$|^~\/(Documents|Desktop|Downloads|Library|Pictures|Movies|Music)\/?\*?$/;
@@ -38,12 +40,19 @@ function blockedReason(command) {
   for (const [re, why] of BLOCKED) if (re.test(s) || re.test(String(command))) return why;
   for (const seg of s.split(/;|&&|\|\||\||&|\n|\$\(|`/)) {
     let t = seg.trim().split(/\s+/).filter(Boolean);
-    while (t.length && /^(\w+=\S*|command|builtin|exec|nohup|time|xargs|env|nice)$/.test(t[0])) t = t.slice(1);
+    for (;;) {
+      if (t.length && /^(\w+=\S*|command|builtin|exec|nohup|time|xargs|env|nice)$/.test(t[0])) { t = t.slice(1); continue; }
+      // "bash -c rm -rf /" (quotes already stripped): check the wrapped command itself
+      const sh = t.length && SHELLS.test(t[0].replace(/^.*\//, '')) ? t.slice(1).findIndex((x) => /^-\w*c\w*$/.test(x)) : -1;
+      if (sh >= 0) { t = t.slice(sh + 2); continue; }
+      break;
+    }
     if (!t.length) continue;
     const cmd = t[0].replace(/^.*\//, '');
     const flags = t.slice(1).filter((x) => /^-[^-]/.test(x)).join('');
     const targets = t.slice(1).filter((x) => !x.startsWith('-'));
     if (cmd === 'rm' && /[rR]/.test(flags) && targets.some((x) => PROTECTED.test(x))) return 'recursive delete of / or ~ is not allowed';
+    if ((cmd === 'chmod' || cmd === 'chown') && /R/.test(flags) && targets.some((x) => PROTECTED.test(x))) return 'recursive chmod/chown of / or ~ is not allowed';
     if (cmd === 'find' && !t.includes('-maxdepth') && /^(~\/?|\$HOME\/?|~\/Library\/?|\$HOME\/Library\/?|\/Users\/[^/]+\/?|\/Users\/[^/]+\/Library\/?|\/)$/.test(targets[0] || '')) return 'find over the whole home folder, ~/Library or / takes minutes and hangs; search a specific folder or add -maxdepth (for Artemis Files use the folder shown by library_list)';
     if (cmd === 'find' && (t.includes('-delete') || /-exec(dir)?\s+rm\b/.test(t.join(' '))) && targets.some((x) => PROTECTED.test(x))) return 'deleting with find in / or ~ is not allowed';
   }
