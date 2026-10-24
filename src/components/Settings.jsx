@@ -16,6 +16,8 @@ import { MakeTab } from './settings/MakeTab.jsx';
 import { AgentsTab } from './settings/AgentsTab.jsx';
 import { BrainsTab } from './settings/BrainsTab.jsx';
 import MemoryPanel from './MemoryPanel.jsx';
+import { MemoryGroup } from './settings/MemoryGroup.jsx';
+import { SandboxGroup } from './settings/SandboxGroup.jsx';
 import { eventToAccelerator, formatAccelerator, parseAccelerator } from '../lib/shortcuts.mjs';
 
 const IS_MAC = window.api?.platform === 'darwin';
@@ -113,7 +115,7 @@ const validTab = (t) => (sectionOf(t) || SECTIONS[0])[0];
 export function SettingsModal({ settings, groups = [], projects = [], providers = [], onProviders = () => {}, onApply = async () => {}, onTabChange, initialTab = 'general', onBack, profile, onProfile }) {
   const [tab, setTabState] = useState(() => validTab(initialTab));
   // opening a part (Access, Brains, Phone …) shows its section and scrolls to that part (after the reset to the top below)
-  const showPart = (part) => setTimeout(() => { const el = contentRef.current?.querySelector(`[data-part="${part}"]`); if (el) el.scrollIntoView({ block: 'start' }); }, 60);
+  const showPart = (part) => setTimeout(() => { scrollIntent.current = Date.now(); const el = contentRef.current?.querySelector(`[data-part="${part}"]`); if (el) el.scrollIntoView({ block: 'start' }); }, 60);
   useEffect(() => { setTabState(validTab(initialTab)); if (initialTab !== validTab(initialTab)) showPart(initialTab); }, [initialTab]);
   const setTab = (t) => { const sec = validTab(t); setTabState(sec); if (onTabChange) onTabChange(sec); if (t !== sec) showPart(t); };
   const [tq, setTq] = useState('');
@@ -183,23 +185,70 @@ export function SettingsModal({ settings, groups = [], projects = [], providers 
   const known = !s.model || chatGroups.some((g) => g.items.some(([id]) => id === s.model));
   const modelOptions = chatGroups.map((g) => <optgroup key={g.label} label={g.label}>{g.items.map(([id, n]) => <option key={id} value={id}>{n}</option>)}</optgroup>);
 
-  // ---- sidebar: search filters the sections; rows in the open section that match are highlighted ----
+  // ---- search: while there is a query, every section is rendered and only the rows that match stay visible ----
+  // (labels, descriptions, option names and values of every field, not only section names). The sidebar lists the sections with hits.
   const terms = tq.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  const shown = terms.length ? SECTIONS.filter(([, label, , , , parts]) => { const hay = [label, ...parts.map((p) => (PART_TITLES[p] || '') + ' ' + (KEYWORDS[p] || ''))].join(' ').toLowerCase(); return terms.every((t) => hay.includes(t)); }) : SECTIONS;
+  const searching = terms.length > 0;
+  const [hitSecs, setHitSecs] = useState([]);
+  const kwSecs = searching ? SECTIONS.filter(([, label, , , , parts]) => { const hay = [label, ...parts.map((p) => (PART_TITLES[p] || '') + ' ' + (KEYWORDS[p] || ''))].join(' ').toLowerCase(); return terms.every((t) => hay.includes(t)); }).map(([id]) => id) : [];
+  const shown = searching ? SECTIONS.filter(([id]) => hitSecs.includes(id) || kwSecs.includes(id)) : SECTIONS;
   const contentRef = useRef(null);
   const navRef = useRef(null);
-  useEffect(() => { if (terms.length && shown.length && !shown.some(([id]) => id === tab)) setTab(shown[0][0]); }, [tq]);
-  useEffect(() => { // highlight matching rows; runs after every render because a section loads its rows asynchronously
+  const textOf = (el) => {
+    let t = el.textContent || '';
+    el.querySelectorAll('input, textarea').forEach((x) => { if (x.type !== 'password') t += ' ' + (x.value || '') + ' ' + (x.placeholder || ''); });
+    el.querySelectorAll('select option').forEach((o) => { t += ' ' + o.textContent; });
+    return t.toLowerCase();
+  };
+  const matches = (el) => terms.every((t) => textOf(el).includes(t));
+  useEffect(() => { // runs after every render: some sections load their rows asynchronously
     const root = contentRef.current; if (!root) return;
-    let first = null;
-    root.querySelectorAll('.pref-row').forEach((el) => {
-      const hit = terms.length > 0 && terms.every((t) => (el.textContent || '').toLowerCase().includes(t));
-      el.classList.toggle('match', hit);
-      if (hit && !first) first = el;
-    });
-    if (first && root.dataset.q !== tq + '|' + tab) { root.dataset.q = tq + '|' + tab; first.scrollIntoView({ block: 'nearest' }); }
+    const page = root.querySelector('.pref-page'); if (!page) return;
+    const kids = [...page.children].filter((k) => !k.classList.contains('pref-page-head'));
+    if (!searching) { kids.forEach((k) => k.classList.remove('search-hidden')); page.querySelectorAll('.search-hidden, .match').forEach((e) => e.classList.remove('search-hidden', 'match')); return; }
+    const secs = new Set();
+    let head = null, headHit = false, first = null;
+    const closeHead = () => { if (head) { head.classList.toggle('search-hidden', !headHit); if (headHit && head.dataset.sec) secs.add(head.dataset.sec); } };
+    for (const k of kids) {
+      if (k.matches('h2.pref-part')) { closeHead(); head = k; headHit = false; continue; }
+      const rows = [...k.querySelectorAll('.pref-row')];
+      let visible = false;
+      if (rows.length) {
+        const titleHit = (r) => { const g = r.closest('.pref-group'); const t = g && g.querySelector('.pref-group-title'); return !!t && terms.every((x) => (t.textContent || '').toLowerCase().includes(x)); };
+        for (const r of rows) {
+          const byTitle = titleHit(r);
+          const hit = byTitle || matches(r);
+          r.classList.toggle('search-hidden', !hit);
+          r.classList.toggle('match', hit && !byTitle);
+          if (hit) { visible = true; if (!first) first = r; }
+        }
+        // cards inside this block whose rows are all hidden go too (a tab can hold several groups in one wrapper)
+        k.querySelectorAll('.pref-group').forEach((g) => { const rs = g.querySelectorAll('.pref-row'); if (rs.length) g.classList.toggle('search-hidden', ![...rs].some((r) => !r.classList.contains('search-hidden'))); });
+      } else visible = matches(k);
+      k.classList.toggle('search-hidden', !visible);
+      if (visible) headHit = true;
+    }
+    closeHead();
+    const list = [...secs];
+    if (list.join() !== hitSecs.join()) setHitSecs(list);
+    if (first && root.dataset.q !== tq) { root.dataset.q = tq; root.scrollTop = 0; scrollKeep.current = 0; }
   });
-  useEffect(() => { if (contentRef.current) contentRef.current.scrollTop = 0; }, [tab]);
+  useEffect(() => { if (contentRef.current) contentRef.current.scrollTop = 0; scrollKeep.current = 0; }, [tab]);
+  // Keep the scroll position when something on the page re-renders: a part that loads or redraws for a moment (a status that
+  // refreshes, a card that reloads) can make the page shorter for a frame, and the browser then jumps to the top.
+  const scrollKeep = useRef(0);
+  const scrollIntent = useRef(0);
+  useEffect(() => {
+    const el = contentRef.current; if (!el) return undefined;
+    // only scrolling the user (or our own jump to a part) asked for counts; a jump caused by the page getting shorter does not
+    const mark = () => { scrollIntent.current = Date.now(); };
+    const onScroll = () => { if (Date.now() - scrollIntent.current < 1200) scrollKeep.current = el.scrollTop; };
+    for (const ev of ['wheel', 'keydown', 'pointerdown', 'touchmove']) el.addEventListener(ev, mark, { passive: true });
+    el.addEventListener('scroll', onScroll, { passive: true });
+    const keep = new ResizeObserver(() => { if (scrollKeep.current > 0 && el.scrollTop < scrollKeep.current - 2 && el.scrollHeight >= scrollKeep.current + el.clientHeight - 2) el.scrollTop = scrollKeep.current; });
+    if (el.firstElementChild) keep.observe(el.firstElementChild);
+    return () => { el.removeEventListener('scroll', onScroll); for (const ev of ['wheel', 'keydown', 'pointerdown', 'touchmove']) el.removeEventListener(ev, mark); keep.disconnect(); };
+  }, []);
   const onNavKey = (e) => {
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
     e.preventDefault();
@@ -211,9 +260,20 @@ export function SettingsModal({ settings, groups = [], projects = [], providers 
   };
   const sec = SECTIONS.find(([id]) => id === tab) || SECTIONS[0];
   const parts = sec[5];
-  const has = (p) => parts.includes(p);
-  // a section made of several parts gets a heading per part; data-part is where openSettings('<part>') scrolls to
-  const partHead = (p) => (parts.length > 1 ? <h2 className="pref-part" data-part={p}>{PART_TITLES[p]}</h2> : null);
+  const has = (p) => searching || parts.includes(p);
+  // a section made of several parts gets a heading per part; data-part is where openSettings('<part>') scrolls to.
+  // While searching every part has a heading (with its section), so the results are grouped and the sidebar can jump to them.
+  const partHead = (p) => {
+    const own = sectionOf(p);
+    if (searching) return <h2 className="pref-part" data-part={p} data-sec={own[0]}>{own[5].length > 1 ? `${own[1]} · ${PART_TITLES[p]}` : own[1]}</h2>;
+    return parts.length > 1 ? <h2 className="pref-part" data-part={p}>{PART_TITLES[p]}</h2> : null;
+  };
+  const openSec = (id) => {
+    if (!searching) return setTab(id);
+    scrollIntent.current = Date.now();
+    const el = contentRef.current?.querySelector(`h2.pref-part[data-sec="${id}"]:not(.search-hidden)`);
+    if (el) el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  };
   const statusEl = (
     <span className={`pref-status ${status}`} role="status" aria-live="polite">
       {status === 'saved' ? <><Icon name="check" size={13} /> Saved</> : status === 'error' ? 'Could not save. Try again.' : ''}
@@ -227,7 +287,7 @@ export function SettingsModal({ settings, groups = [], projects = [], providers 
         <div className="prefs-search">
           <Icon name="search" size={13} />
           <input type="search" placeholder="Search" aria-label="Search settings" value={tq} spellCheck={false} onChange={(e) => setTq(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && shown[0]) { setTab(shown[0][0]); } else if (e.key === 'Escape') { e.stopPropagation(); setTq(''); } else if (e.key === 'ArrowDown') { e.preventDefault(); navRef.current?.querySelector('[data-sec]')?.focus(); } }} />
+            onKeyDown={(e) => { if (e.key === 'Enter' && shown[0]) { const id = shown[0][0]; setTq(''); setTab(id); } else if (e.key === 'Escape') { e.stopPropagation(); setTq(''); } else if (e.key === 'ArrowDown') { e.preventDefault(); navRef.current?.querySelector('[data-sec]')?.focus(); } }} />
         </div>
         {onProfile && !terms.length && (
           <button type="button" className="prefs-who" onClick={onProfile}>
@@ -240,7 +300,7 @@ export function SettingsModal({ settings, groups = [], projects = [], providers 
             <React.Fragment key={id}>
             {i > 0 && !terms.length && group !== shown[i - 1][4] && <div className="prefs-nav-gap" aria-hidden="true" />}
             <button type="button" data-sec={id} className={`prefs-nav-item ${tab === id ? 'active' : ''} ${terms.length ? 'match' : ''}`} aria-current={tab === id ? 'page' : undefined}
-              tabIndex={tab === id || !shown.some(([x]) => x === tab) ? 0 : -1} onClick={() => setTab(id)}>
+              tabIndex={tab === id || !shown.some(([x]) => x === tab) ? 0 : -1} onClick={() => openSec(id)}>
               <span className={`prefs-nav-icon ic-${id}`}><Icon name={icon} size={14} /></span>
               <span className="prefs-nav-label">{label}</span>
             </button>
@@ -250,7 +310,7 @@ export function SettingsModal({ settings, groups = [], projects = [], providers 
         </div>
       </nav>
       <main className="prefs-content" ref={contentRef}>
-        <Page title={sec[1]} description={sec[3]} aside={statusEl}>
+        <Page title={searching ? 'Search' : sec[1]} description={searching ? (shown.length ? `Settings that match “${tq.trim()}”. Clear the search to go back.` : `No settings match “${tq.trim()}”.`) : sec[3]} aside={statusEl}>
           {has('general') && partHead('general')}
           {has('general') && (
             <>
@@ -416,6 +476,8 @@ export function SettingsModal({ settings, groups = [], projects = [], providers 
                 )}
                 <SwitchRow label="Search my earlier chats" description="Lets Artemis look things up in your saved chats when you refer to them. Incognito chats are never searched." checked={s.chatSearchEnabled !== false} onChange={put('chatSearchEnabled')} />
               </Group>
+              {s.memoryEnabled && <MemoryGroup s={s} setS={setS} put={put} providers={providers} modelOptions={modelOptions} />}
+              {s.shellEnabled && <SandboxGroup s={s} setS={setS} put={put} />}
             </>
           )}
           {has('access') && partHead('access')}

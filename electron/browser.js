@@ -823,4 +823,4 @@ function createBrowser(deps) {
   return { open, hide, setRect, setCovered, nav, navigate, newTab: (u) => newTab(u), select, close, state, destroy, onWindowResize: layout, agent, agentDone, tool, host, isShown: () => shown };
 }
 
-module.exports = { createBrowser, toUrl, allowedUrl, hostOf, cleanUA, parseKeys, jpegSize, PARTITION, artemisLib, readPageScript, findScript, textScript, inPage };
+module.exports = { createBrowser, toUrl, allowedUrl, hostOf, cleanUA, parseKeys, jpegSize, PARTITION, artemisLib, readPageScript, findScript, textScript, inPage, targetScript, pointScript, readValueScript, formScript, scrollScript, UNTRUSTED, MAX_OUT };

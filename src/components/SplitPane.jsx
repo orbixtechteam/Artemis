@@ -19,7 +19,7 @@ export default function SplitPane({ chat, busy, settings, projects, brains, brai
       <header className="split-head">
         <div className="chat-title">{chat.incognito && <Icon name="ghost" size={15} className="incog-ico" />}{chat.title}</div>
         <ChatPills chatId={chat.id} model={chat.model} settings={settings} incognito={chat.incognito}
-          perm={perm} onPerm={(v) => h.update({ perm: v })} agents={agents} onAgents={(v) => h.update({ agents: v })} tools={tools} onTools={(v) => h.update({ tools: v })} effort={chat.effort ?? (settings.reasoningEffort || 'auto')} onEffort={(v) => h.update({ effort: v })}
+          perm={perm} onPerm={(v) => h.update({ perm: v })} agents={agents} onAgents={(v) => h.update({ agents: v })} shell={chat.shell || 'sandbox'} onShell={(v) => h.update({ shell: v })} tools={tools} onTools={(v) => h.update({ tools: v })} effort={chat.effort ?? (settings.reasoningEffort || 'auto')} onEffort={(v) => h.update({ effort: v })}
           projectId={chat.projectId} projects={projects} onProject={(id) => h.update({ projectId: id })}
           brains={brains} brain={brain} onBrain={(v) => h.update({ brain: v, councilPick: null })} councilPick={chat.councilPick} onRevote={() => h.update({ councilPick: null })}
           onUsageDetails={h.onUsageDetails} onOpenSettings={h.onOpenSettings} />

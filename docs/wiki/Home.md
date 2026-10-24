@@ -40,6 +40,8 @@ New here? Start with [Getting Started](Getting-Started.md).
 - [Sentinel Voice](Sentinel-Voice.md): wake word, push-to-talk, the floating widget
 - [Phone (Telegram)](Phone-Telegram.md)
 - [MCP](MCP.md): connectors, and Artemis as an MCP server for Claude Code
+- [Gateway and command line](Gateway.md): the local API, `artemis` CLI and the headless mode
+- [Sandbox](Sandbox.md): terminal commands in Docker or over SSH
 
 ## Security and help
 

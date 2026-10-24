@@ -38,6 +38,15 @@ const { createFloat } = require('./float');
 const { createRemote } = require('./remote');
 const { createMcpManager, parseImport } = require('./mcp');
 const tools = require('./tools');
+// core: SQLite sessions, the memory workspace and the gateway API (electron/core/)
+const { openDb } = require('./core/db');
+const { createSessions } = require('./core/sessions');
+const { createWorkspace } = require('./core/workspace');
+const { createMemIndex } = require('./core/memindex');
+const { createMemoryApi, embedderFrom } = require('./core/memory-api');
+const { flushMemory } = require('./core/memflush');
+const gatewayLib = require('./core/gateway');
+const { sandboxFromSettings, hideHostShellTools } = require('./core/sandbox');
 const themes = require('./themes');
 
 const IS_DEV = !!process.env.ELECTRON_DEV;
@@ -141,7 +150,7 @@ const { createPermissions } = require('./permissions');
 const readProviders = () => { const l = readJson('providers', []); const list = Array.isArray(l) ? l : []; providersLib.registerHeaders(list); return list; };
 const readProviderKeys = () => readJson('providerkeys', {});
 const getProviderKey = (id) => decStr(readProviderKeys()[id]);
-const limitState = () => checkLimits(getUsage(), getSettings(), Date.now(), providersLib.priceMap(readProviders()));
+const limitState = () => checkLimits(allUsage(), getSettings(), Date.now(), providersLib.priceMap(readProviders()));
 const skills = createSkills({
   userDir: path.join(app.getPath('userData'), 'skills'),
   getDisabled: () => getSettings().disabledSkills || [],
@@ -156,9 +165,15 @@ const agents = createAgents({
   userDir: path.join(app.getPath('userData'), 'agents'),
   notify: () => { try { win?.webContents.send('agents:changed'); } catch {} }
 });
+const searchSaved = (q, n) => {
+  const c = initCore();
+  if (c.sessions) { try { return c.sessions.search(q, { limit: n, projects: readJson('projects', []) }); } catch (e) { logger.warn('db', 'Full-text chat search failed, using the simple search: ' + e.message); } }
+  return chatSearch.searchChats(readChats(), q, { limit: n, projects: readJson('projects', []) });
+};
+const getSaved = (id) => { const c = initCore(); if (c.sessions) { try { return c.sessions.get(id); } catch {} } return (readChats() || []).find((x) => x.id === id) || null; };
 const chatsApi = () => ({
-  search: (q, n) => chatSearch.searchChats(readJson('chats', []), q, { limit: n, projects: readJson('projects', []) }),
-  read: (id, last) => { const c = (readJson('chats', []) || []).find((x) => x.id === id && !x.incognito); return c ? chatSearch.transcript(c, { last }) : null; }
+  search: (q, n) => searchSaved(q, n),
+  read: (id, last) => { const c = getSaved(id); return c && !c.incognito ? chatSearch.transcript(c, { last }) : null; }
 });
 const mcp = createMcpManager();
 const oauthPending = new Map();
@@ -254,11 +269,61 @@ const DEFAULT_SETTINGS = {
   autoTitles: true, // name chats from their topic after the first reply (and again as the topic drifts)
   titleModel: '', // empty = the chat's own model
   scheduleModel: '', // model for scheduled tasks that have none of their own; empty = the default model
-  disabledSkills: []
+  disabledSkills: [],
+  sandbox: '', sandboxImage: 'node:22-bookworm', sandboxNetwork: true, sandboxMemory: '2g', sandboxCpus: '2', sandboxSshHost: '', sandboxSshDir: '', // run_command in Docker or over SSH instead of this computer
+  sqliteStore: true, // chats live in artemis.db (SQLite, full-text search); chats.json is still written as a backup copy
+  memoryV2: true, // long-term memory as Markdown files in the workspace folder (SOUL.md, USER.md, MEMORY.md, daily notes)
+  memoryFlush: true, // before old messages are summarized, save what is worth keeping to memory
+  memoryModel: '', // model for the memory flush; empty = the scheduled-task model, else the chat's model
+  embeddingModel: '', // prov:<provider>:<model> for memory_search by meaning; empty = keywords only
+  workspaceFolder: '', // empty = <userData>/workspace
+  gatewayEnabled: false, gatewayPort: 8789, gatewayTokenEnc: null, gatewayModel: '', gatewayRestrict: false
 };
 const getSettings = () => ({ ...DEFAULT_SETTINGS, ...readJson('settings', {}) });
 
-const SECRET_FIELDS = { telegramToken: 'telegramTokenEnc', makeToken: 'makeTokenEnc', mcpToken: 'mcpTokenEnc', braveKey: 'braveKeyEnc' };
+// ---------- core: SQLite sessions + memory workspace (opened on first use) ----------
+// SQLite (artemis.db) holds the chats and the search indexes; chats.json keeps being written as a backup copy, so going
+// back to an older build loses nothing. If SQLite cannot open, everything falls back to the JSON files as before.
+const coreState = { tried: false, db: null, sessions: null, ws: null, index: null };
+const workspaceDir = () => getSettings().workspaceFolder || path.join(app.getPath('userData'), 'workspace');
+const coreLog = (area) => (lv, m) => { try { (logger[lv] || logger.info)(area, m); } catch {} };
+function initCore() {
+  if (coreState.tried) return coreState;
+  coreState.tried = true;
+  const st = getSettings();
+  if (st.sqliteStore !== false) {
+    try {
+      const db = openDb(path.join(app.getPath('userData'), 'artemis.db'), { log: coreLog('db') });
+      if (db) {
+        const sessions = createSessions({ db, log: coreLog('db'), writer: 'renderer' });
+        if (db.getMeta('chatsImported') !== '1') {
+          const arr = readJson('chats', []);
+          if (Array.isArray(arr) && arr.length) sessions.sync(arr);
+          if (!corruptStores.has('chats')) db.setMeta('chatsImported', '1');
+          logger.info('db', `Chats moved into artemis.db (${Array.isArray(arr) ? arr.length : 0} chats); chats.json stays as a backup copy`);
+        }
+        try { const n = sessions.purge(30); if (n) logger.info('db', `${n} chats deleted more than 30 days ago were removed for good`); } catch {}
+        coreState.db = db; coreState.sessions = sessions;
+      }
+    } catch (e) { logger.error('db', 'artemis.db could not be opened, chats stay in chats.json: ' + ((e && e.message) || e)); coreState.db = null; coreState.sessions = null; }
+  }
+  if (st.memoryV2 !== false) {
+    try {
+      const ws = createWorkspace({ dir: workspaceDir(), log: coreLog('memory') });
+      ws.ensure(readJson('memory', []));
+      coreState.ws = ws;
+      if (coreState.db) coreState.index = createMemIndex({ db: coreState.db, workspace: ws, log: coreLog('memory'), embedder: embedderFrom({ getSettings, readProviders, getProviderKey }) });
+    } catch (e) { logger.error('memory', 'The memory workspace could not be set up, memory stays in memory.json: ' + ((e && e.message) || e)); coreState.ws = null; }
+  }
+  return coreState;
+}
+/** The saved chats (SQLite when available, else chats.json). */
+const readChats = () => { const c = initCore(); if (c.sessions) { try { return c.sessions.toArray(); } catch (e) { logger.error('db', 'Reading chats from artemis.db failed, using chats.json: ' + e.message); } } return readJson('chats', []); };
+let mirrorTimer = null;
+/** After a write that did not come from the window (gateway, phone without a window): refresh the chats.json backup copy. */
+const mirrorChats = () => { if (mirrorTimer) return; mirrorTimer = setTimeout(() => { mirrorTimer = null; const c = initCore(); if (c.sessions) { try { writeJson('chats', c.sessions.toArray()); } catch (e) { logger.warn('db', 'chats.json backup copy failed: ' + e.message); } } }, 3000); };
+
+const SECRET_FIELDS = { telegramToken: 'telegramTokenEnc', makeToken: 'makeTokenEnc', mcpToken: 'mcpTokenEnc', braveKey: 'braveKeyEnc', gatewayToken: 'gatewayTokenEnc' };
 const cleanSecret = (v) => String(v == null ? '' : v).replace(/[\s\u00a0\u200b-\u200f\u2028\u2029\ufeff]+/g, '');
 const encStr = (v0) => { const v = cleanSecret(v0); return (!v ? null : safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(v).toString('base64') : 'plain:' + v); };
 let decWarned = false;
@@ -275,7 +340,7 @@ const getSecret = (name) => decStr(getSettings()[SECRET_FIELDS[name]]) || (name 
 const setSecret = (name, value) => writeJson('settings', { ...getSettings(), [SECRET_FIELDS[name]]: encStr(value) });
 const saveSettings = (patch) => writeJson('settings', { ...getSettings(), ...patch });
 
-const publicSettings = () => ({ ...getSettings(), telegramTokenEnc: undefined, makeTokenEnc: undefined, mcpTokenEnc: undefined, braveKeyEnc: undefined, hasBraveKey: !!getSecret('braveKey'), hasMakeToken: !!getSecret('makeToken'), hasApiKey: readProviders().some((p) => p.enabled !== false && (p.models || []).length && (!p.needsKey || getProviderKey(p.id))), hasTelegramToken: !!getSecret('telegramToken'), shortcutError, shortcutErrors });
+const publicSettings = () => ({ ...getSettings(), telegramTokenEnc: undefined, makeTokenEnc: undefined, mcpTokenEnc: undefined, braveKeyEnc: undefined, gatewayTokenEnc: undefined, hasBraveKey: !!getSecret('braveKey'), hasMakeToken: !!getSecret('makeToken'), hasApiKey: readProviders().some((p) => p.enabled !== false && (p.models || []).length && (!p.needsKey || getProviderKey(p.id))), hasTelegramToken: !!getSecret('telegramToken'), shortcutError, shortcutErrors });
 
 // ---------- app lock, voice recognition, unauthorized-access alerts (electron/lock.js, speaker.js, voice-gate.js) ----------
 const lockAuthWaiting = new Map(); // id -> resolve(password | null): a password asked from the window (to approve a sensitive action)
@@ -308,7 +373,7 @@ const voiceGate = createVoiceGate({ lock, speaker, log: (lv, m) => logger[lv ===
 /** The project folder of the newest chat's project: where a project theme file would sit. */
 const openProjectFolder = () => {
   try {
-    const chats = readJson('chats', []);
+    const chats = readChats();
     const id = [...chats].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0] && [...chats].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0].projectId;
     const project = id && readJson('projects', []).find((p) => p.id === id);
     return project && project.folder ? project.folder : undefined;
@@ -378,17 +443,40 @@ function createWindow() {
 }
 
 // ---------- IPC: storage / settings ----------
-ipcMain.handle('store:get', (_e, name) => (name in STORES ? readJson(name, STORES[name]) : null));
+// Ids of chats the window has had (loaded, or contained in one of its saves): a save without one of these means the user deleted it.
+// Chats written meanwhile by another writer (the headless gateway) are not in it, so a save never deletes them.
+const rendererKnown = new Set();
+let pushedSeq = 0;
+ipcMain.handle('store:get', (_e, name) => {
+  if (name === 'chats') {
+    const c = initCore();
+    if (c.sessions) { try { pushedSeq = c.sessions.seq(); const list = c.sessions.toArray(); rendererKnown.clear(); for (const x of list) rendererKnown.add(String(x.id)); return list; } catch (e) { logger.error('db', 'Reading chats from artemis.db failed, using chats.json: ' + e.message); } }
+    return readJson('chats', []);
+  }
+  if (name === 'memory') { const c = initCore(); if (c.ws) { try { return c.ws.list(); } catch (e) { logger.error('memory', 'Reading MEMORY.md failed: ' + e.message); } } }
+  return name in STORES ? readJson(name, STORES[name]) : null;
+});
 ipcMain.handle('store:set', (_e, name, data) => {
   if (!(name in STORES)) return true;
   if (corruptStores.has(name) && corruptNotified !== true) { notifyCorrupt(); return false; } // keep the damaged file's slot untouched until the user knows
+  if (name === 'chats') {
+    const c = initCore();
+    if (c.sessions) {
+      try {
+        if (Array.isArray(data)) for (const x of data) if (x && x.id != null) rendererKnown.add(String(x.id));
+        c.sessions.sync(data, { writer: 'renderer', known: rendererKnown });
+        setTimeout(pushExternal, 50); // merged chats go back to the window right away
+      } catch (e) { logger.error('db', 'Saving chats to artemis.db failed (chats.json is still written): ' + e.message); }
+    }
+  }
+  if (name === 'memory') { const c = initCore(); if (c.ws) { try { c.ws.replaceAll(data); return true; } catch (e) { logger.error('memory', 'Saving MEMORY.md failed: ' + e.message); return false; } } }
   writeJson(name, data);
   return true;
 });
 ipcMain.handle('settings:get', () => publicSettings());
 ipcMain.handle('settings:set', async (_e, patch) => {
   // never let the renderer overwrite stored secrets: undefined values survive IPC and would wipe them
-  const { apiKey, apiKeyEnc, telegramToken, telegramTokenEnc, makeTokenEnc, mcpTokenEnc, braveKey, braveKeyEnc, hasBraveKey, mcpServerEnabled, mcpServerPort, mcpAlwaysAllow, hasMakeToken, hasApiKey, hasTelegramToken, ...rest } = patch;
+  const { apiKey, apiKeyEnc, telegramToken, telegramTokenEnc, makeTokenEnc, mcpTokenEnc, braveKey, braveKeyEnc, hasBraveKey, mcpServerEnabled, mcpServerPort, mcpAlwaysAllow, hasMakeToken, hasApiKey, hasTelegramToken, gatewayTokenEnc: _gwTok, gatewayEnabled: _gwOn, gatewayPort: _gwPort, sqliteStore: _sq, ...rest } = patch;
   // an empty field means "unchanged", never "delete"
   if (typeof telegramToken === 'string' && telegramToken.trim()) setSecret('telegramToken', telegramToken.trim());
   if (typeof braveKey === 'string' && braveKey.trim()) setSecret('braveKey', braveKey.trim());
@@ -469,7 +557,8 @@ ipcMain.handle('tool:decision', async (_e, toolId, ok) => {
 
 /** Compares memory entries by their words only, so "Use X." and "use x" count as the same entry. */
 const memKey = (t) => String(t || '').toLowerCase().normalize('NFKC').replace(/[^\p{L}\p{N}]+/gu, ' ').trim().slice(0, 500);
-const memoryApi = (notify) => ({
+const memoryApi = (notify) => { const c = initCore(); return c.ws ? createMemoryApi({ workspace: c.ws, index: c.index, notify }) : jsonMemoryApi(notify); };
+const jsonMemoryApi = (notify) => ({
   list: () => readJson('memory', []),
   add: (text) => {
     const list = readJson('memory', []);
@@ -835,8 +924,10 @@ function stashImages(messages) {
     return { ...m, content: flat ? parts.map((c) => c.text).join('\n\n') : parts };
   });
 }
-async function executeRun({ requestId, model: model0, messages, project, system, maxTokens, send: rawSend, restrict, incognito, source, unattended, allowEdits, permMode, chatId, brain, brainPick, revote, agentsMode, toolsMode, effort, mentions }) {
+async function executeRun({ requestId, model: model0, messages, project, system, maxTokens, send: rawSend, restrict, incognito, source, unattended, allowEdits, permMode, chatId, brain, brainPick, revote, agentsMode, toolsMode, effort, mentions, shellMode }) {
   const model = liveModel(model0);
+  // where run_command goes in this run: the sandbox from Settings, unless the chat picked "this Mac" (only a chat in the window can)
+  const sb = shellMode === 'host' && !unattended && !restrict ? null : currentSandbox();
   let usesFloat = false;
   const t0 = Date.now();
   const logEv = (ev) => {
@@ -944,7 +1035,8 @@ async function executeRun({ requestId, model: model0, messages, project, system,
       persona, sessionId: chatId || undefined, userData: app.getPath('userData'), mentions: Array.isArray(mentions) ? mentions.slice(0, 20) : [],
       baseUrl: runRoute.baseUrl, key: runRoute.key, model: runRoute.model, noToolCalls: !!runRoute.noTools, messages: runRoute.noTools ? stashImages(messages) : messages, maxTokens: maxTokens || settings.maxTokens, reasoningEffort: effort === 'auto' ? '' : (effort || settings.reasoningEffort || ''),
       custom: system, personality: require('./personality').text(settings), userName: settings.profileName || '', userAbout: settings.profileAbout || '', userLocation: settings.profileLocation || '', project, root: fileRoot, defaultRoot: !root,
-      webEnabled: settings.webEnabled, shellEnabled: settings.shellEnabled && !restrict,
+      // with a sandbox, run_command never touches this computer, so it is also allowed in phone/gateway (restricted) and scheduled tasks
+      sandbox: sb, webEnabled: settings.webEnabled, shellEnabled: settings.shellEnabled && (!restrict || !!sb),
       searchVia: (() => { if (settings.searchEngine === 'brave') { const k = getSecret('braveKey'); return k ? (q, sig) => require('./web').braveSearch({ key: k, query: q, signal: sig }) : async () => { throw new Error('Brave Search is selected but no key is saved. Open Settings → Tools → Search engine and paste the Brave key'); }; } if (!settings.searchProvider) return null; const r = providersLib.resolve(`prov:${settings.searchProvider}:x`, readProviders(), getProviderKey); if (r.error) return null; return (q, sig) => require('./web').endpointSearch({ baseUrl: r.baseUrl, key: r.key, query: q, signal: sig, model: settings.searchModel || 'perplexity/sonar' }); })(),
       computer: settings.computerEnabled && !restrict && process.platform === 'darwin' ? computer : null,
       schedule: unattended || restrict ? null : { list: () => scheduler.list(), save: (j) => scheduler.save({ ...j, projectId: j.projectId !== undefined ? j.projectId : (project?.id || null) }), remove: (id) => scheduler.remove(id) },
@@ -952,9 +1044,9 @@ async function executeRun({ requestId, model: model0, messages, project, system,
       appShot: unattended || restrict ? null : appScreenshot, withArtemisVisible: unattended || restrict ? null : withArtemisVisible,
       notes: settings.notesAi !== false ? notesAi : null,
       library: settings.notesAi !== false ? library : null,
-      term: settings.shellEnabled && !restrict && !unattended && process.platform !== 'win32' ? termApi : null,
+      term: settings.shellEnabled && !restrict && !unattended && !sb && process.platform !== 'win32' ? termApi : null, // the terminal panel is this computer's shell: off while the sandbox is on
       browser: settings.browserTools !== false && !restrict && !unattended ? browser.agent(requestId) : null,
-      phone: remote?.phone() || null, media: mediaApi(settings, controller.signal), mcp: settings.connectorsEnabled === false ? null : mcp, mcpLazy: settings.connectorsLazy !== false, fullFileAccess: settings.fullFileAccess !== false, lazyTools: settings.toolsLazy !== false,
+      phone: phoneNow(), media: mediaApi(settings, controller.signal), mcp: settings.connectorsEnabled === false ? null : sb ? sandboxedMcp() : mcp, mcpLazy: settings.connectorsLazy !== false, fullFileAccess: settings.fullFileAccess !== false, lazyTools: settings.toolsLazy !== false,
       skills: settings.skillsEnabled !== false ? { index: () => skills.indexText(root), get: (n) => skills.get(n, root), save: (o) => skills.save(o, root) } : null,
       autoLearn: settings.autoLearn !== false && !incognito && !unattended,
       chats: settings.chatSearchEnabled !== false && !incognito ? chatsApi() : null,
@@ -997,7 +1089,8 @@ async function executeRun({ requestId, model: model0, messages, project, system,
       autoAll: !unattended && perm === 'auto',
       agentAutoApprove: !unattended && (perm === 'auto' || (perm === 'edits' && settings.agentWriteApproval === false)),
       memoryApi: memoryApi(() => send({ type: 'memory:changed' })),
-      approve: (info) => unattended ? Promise.resolve(info.category === 'phone') : new Promise((resolve) => {
+      onCompact: incognito || settings.memoryEnabled === false || settings.memoryFlush === false || !initCore().ws ? null : (text) => flushFromRun(text, { model, chatId, project }),
+      approve: (info) => unattended ? Promise.resolve(info.category === 'phone' || (info.name === 'run_command' && !!sb)) : new Promise((resolve) => {
         myApprovals.add(info.id);
         approvals.set(info.id, resolve);
         if (approvalMeta.size > 200) approvalMeta.clear();
@@ -1037,10 +1130,10 @@ async function executeRun({ requestId, model: model0, messages, project, system,
   }
 }
 
-ipcMain.handle('chat:run', (e, { requestId, model, messages, project, system, maxTokens, incognito, permMode, chatId, brain, brainPick, revote, agentsMode, toolsMode, effort, mentions }) => {
+ipcMain.handle('chat:run', (e, { requestId, model, messages, project, system, maxTokens, incognito, permMode, chatId, brain, brainPick, revote, agentsMode, toolsMode, effort, mentions, shellMode }) => {
   const wc = e.sender;
   const send = (ev) => { if (!wc.isDestroyed()) wc.send('chat:event', { requestId, ...ev }); };
-  return executeRun({ requestId, model, messages, project, system, maxTokens, send, incognito: !!incognito, permMode, chatId, brain, brainPick, revote, agentsMode, toolsMode, effort, mentions });
+  return executeRun({ requestId, model, messages, project, system, maxTokens, send, incognito: !!incognito, permMode, chatId, brain, brainPick, revote, agentsMode, toolsMode, effort, mentions, shellMode });
 });
 ipcMain.handle('chat:compact', (_e, o = {}) => compactSummary(o));
 async function compactSummary({ model, messages, chatId, incognito } = {}) {
@@ -1149,7 +1242,7 @@ async function flushAlerts() {
   alertTimer = null;
   while (alertQueue.length) {
     const a = alertQueue[0];
-    const ph = remote && remote.phone && remote.phone();
+    const ph = phoneNow();
     try {
       if (!ph) throw new Error('Telegram is not connected and paired (Settings → Phone)');
       if (a.photo) { try { await ph.sendPhoto(a.photo, a.text); } catch { await ph.send(a.text + '\n(The photo could not be sent.)'); } } else await ph.send(a.text);
@@ -1178,7 +1271,7 @@ async function onLockAlert(info) {
 
 /** Settings → Security "Send test": the same message and photo as a real alert, sent now (not queued), so a wrong setup shows up here. */
 async function testLockAlert() {
-  const ph = remote && remote.phone && remote.phone();
+  const ph = phoneNow();
   if (!ph) return { ok: false, error: 'Telegram is not connected and paired yet (Settings → Phone).' };
   const cfg = lock.getConfig();
   const text = `Test alert from Artemis on ${os.hostname()}. This is how an unauthorized-access alert will look.`;
@@ -1379,7 +1472,7 @@ const writeMcpList = (list) => writeJson('mcp', (list || []).map((c) => mapMcpSe
 
 const decideTool = (id, ok) => { const r = approvals.get(id); approvalMeta.delete(id); if (r) { approvals.delete(id); r(!!ok); } };
 ipcMain.handle('phone:send-file', async (_e, p) => {
-  const phone = remote.phone();
+  const phone = phoneNow();
   if (!phone) return { ok: false, error: 'No phone paired. Pair Telegram in Settings → Phone.' };
   if (!p || !fs.existsSync(p) || !fs.statSync(p).isFile()) return { ok: false, error: 'File not found.' };
   try { await phone.sendFile(p, path.basename(p)); return { ok: true }; } catch (e) { return { ok: false, error: e.message }; }
@@ -1413,7 +1506,7 @@ async function runScheduled(job) {
   try { if (Notification.isSupported()) { const n = new Notification({ title: job.name, body: summary.slice(0, 160) }); n.on('click', () => showMain('scheduled task notification clicked')); n.show(); } } catch {}
   if (job.notifyPhone) {
     try {
-      const ph = remote && remote.phone();
+      const ph = phoneNow();
       if (ph) await ph.send(`⏰ ${job.name}\n\n${summary}`);
       else logger.warn('app', 'A scheduled task should be sent to the phone, but Telegram is not connected and paired', { job: job.name });
     } catch (e) { logger.error('app', 'Sending a scheduled task result to Telegram failed: ' + ((e && e.message) || e), { job: job.name }); }
@@ -1565,6 +1658,238 @@ const mcpServerInfo = () => {
   return { enabled: !!st.mcpServerEnabled, running: mcpServer.running(), alwaysAllow: !!st.mcpAlwaysAllow, port: Number(st.mcpServerPort) || 8788, token: st.mcpServerEnabled ? getSecret('mcpToken') : '', error: mcpServerError };
 };
 
+// ---------- sharing the data folder with the headless gateway ----------
+// The desktop app and `artemis gateway` can run at the same time on one data folder. Chats: both write artemis.db,
+// and changes made by the other side are pushed to the window (chats:external), merged by message id.
+// Background services (scheduled tasks, the Telegram bot, the gateway API) run in one place only: in the headless
+// gateway while it runs, otherwise here. The lock files say who is alive.
+const lockFile = (mode) => path.join(app.getPath('userData'), `${mode}.lock`);
+const readLock = (mode) => { try { const l = JSON.parse(fs.readFileSync(lockFile(mode), 'utf8')); return l && l.pid && gatewayLib.alive(l.pid) ? l : null; } catch { return null; } };
+const headlessActive = () => !!readLock('headless');
+/** While the headless gateway owns the Telegram bot, the app sends to the phone through it (POST /v1/phone/send). */
+function headlessPhone() {
+  if (!headlessActive()) return null;
+  const d = gatewayLib.readDiscovery(gatewayFile());
+  if (!d || d.mode !== 'headless') return null;
+  const post = async (body) => {
+    const r = await fetch(`http://${d.host || '127.0.0.1'}:${d.port}/v1/phone/send`, { method: 'POST', headers: { authorization: `Bearer ${d.token}`, 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(60000) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.ok) throw new Error(j.error || `HTTP ${r.status}`);
+  };
+  return { send: (text) => post({ text }), sendMd: (markdown) => post({ markdown }), sendFile: (file, caption) => post({ file, caption }), sendPhoto: (photo, caption) => post({ photo, caption }) };
+}
+const phoneNow = () => (remote && remote.phone()) || headlessPhone();
+function pushExternal() {
+  const c = coreState.db ? coreState : null;
+  if (!c || !c.sessions || !win || win.isDestroyed()) return;
+  try {
+    if (c.sessions.seq() === pushedSeq) return;
+    const ch = c.sessions.changesSince(pushedSeq, { exclude: 'renderer' });
+    pushedSeq = ch.seq;
+    if (!ch.chats.length && !ch.deleted.length) return;
+    // pushed chats count as the window's only once a save from the window contains them (a save already on its way does not)
+    for (const id of ch.deleted) rendererKnown.delete(String(id));
+    win.webContents.send('chats:external', { chats: ch.chats.filter((x) => !x.incognito), deleted: ch.deleted });
+  } catch (e) { logger.warn('db', 'Could not pass chat changes to the window: ' + e.message); }
+}
+let bgOwner = null, schedWatch = 0;
+/** Moves scheduled tasks, Telegram and the gateway to wherever they should run now. */
+function roleTick() {
+  const owner = headlessActive() ? 'headless' : 'desktop';
+  try { const m = fs.statSync(dataFile('schedules')).mtimeMs; if (schedWatch && m !== schedWatch) toWinSafe('schedule:changed', {}); schedWatch = m; } catch {}
+  if (owner === bgOwner) return;
+  const first = bgOwner === null;
+  bgOwner = owner;
+  if (owner === 'headless') {
+    logger.info('app', 'The headless gateway is running on this data folder: scheduled tasks, Telegram and the gateway API run there now');
+    try { scheduler.stop(); } catch {}
+  } else {
+    if (!first) logger.info('app', 'The headless gateway stopped: scheduled tasks, Telegram and the gateway API run in the app again');
+    try { scheduler.start(); } catch {}
+  }
+  if (!first || owner === 'headless') { try { remote && remote.reconfigure().catch(() => {}); } catch {} }
+  syncGateway().catch(() => {});
+  toWinSafe('app:changed', {});
+}
+// usage written by the headless gateway (its own file, so neither side overwrites the other)
+let hlUsage = { mtime: 0, list: [] };
+const headlessUsage = () => { try { const m = fs.statSync(dataFile('usage-headless')).mtimeMs; if (m !== hlUsage.mtime) { const l = readJson('usage-headless', []); hlUsage = { mtime: m, list: Array.isArray(l) ? l : [] }; } } catch { hlUsage = { mtime: 0, list: [] }; } return hlUsage.list; };
+const allUsage = () => { const h = headlessUsage(); return h.length ? [...getUsage(), ...h].sort((a, b) => (a.t || 0) - (b.t || 0)) : getUsage(); };
+
+// ---------- sandbox for run_command (electron/core/sandbox.js) ----------
+const sandboxedMcp = () => hideHostShellTools(mcp);
+let sbCache = { key: null, sb: null };
+function currentSandbox() {
+  const st = getSettings();
+  const key = JSON.stringify([st.sandbox, st.sandboxImage, st.sandboxNetwork, st.sandboxMemory, st.sandboxCpus, st.sandboxSshHost, st.sandboxSshDir]);
+  if (key !== sbCache.key) sbCache = { key, sb: sandboxFromSettings(st, coreLog('sandbox')) };
+  return sbCache.sb;
+}
+ipcMain.handle('sandbox:test', async (e) => {
+  const sb = currentSandbox();
+  if (!sb) return { ok: false, error: 'The sandbox is off.' };
+  const say = (line) => { try { if (!e.sender.isDestroyed()) e.sender.send('sandbox:log', String(line)); } catch {} logger.info('sandbox', String(line).slice(0, 300)); };
+  const r = await sb.runCommand({ command: 'uname -srm; id -un; pwd; (node -v || true) 2>/dev/null; (python3 -V || true) 2>/dev/null', timeout_seconds: 120 }, { defaultCwd: defaultFilesDir(), onLog: say });
+  return { ok: r.ok, text: r.text };
+});
+ipcMain.handle('sandbox:cleanup', async () => { const sb = currentSandbox(); if (!sb) return { ok: true, removed: 0 }; try { return { ok: true, removed: await sb.cleanup() }; } catch (e) { return { ok: false, error: e.message }; } });
+
+// ---------- memory flush (before compaction) ----------
+/** Saves what is worth keeping from messages that are about to be summarized (electron/core/memflush.js). Never throws. */
+async function flushFromRun(text, { model, chatId, project }) {
+  try {
+    const c = initCore(); if (!c.ws) return;
+    const st = getSettings();
+    const own = liveModel(model || st.model);
+    const pick = st.memoryModel ? liveModel(st.memoryModel) : st.scheduleModel ? liveModel(st.scheduleModel) : own;
+    let r = providersLib.resolve(pick, readProviders(), getProviderKey);
+    let used = pick;
+    if (r.error && pick !== own) { used = own; r = providersLib.resolve(own, readProviders(), getProviderKey); }
+    if (r.error) return;
+    const ask = (system, user) => brainsLib.askJson({ url: providersLib.joinUrl(r.baseUrl, 'chat/completions'), key: r.key, model: r.model, system, user, signal: AbortSignal.timeout(90000),
+      onUsage: (u) => recordUsage({ t: Date.now(), model: used, chat: chatId || '', project: (project && project.name) || '', source: 'memory', prompt: u.prompt, completion: u.completion, cached: 0, estimated: false }) });
+    const out = await flushMemory({ transcript: text, ask, workspace: c.ws, log: coreLog('memory') });
+    if (out.facts || out.notes) toWinSafe('chat:event', { type: 'memory:changed' });
+  } catch (e) { logger.warn('memory', 'Memory flush failed: ' + ((e && e.message) || e)); }
+}
+
+// ---------- gateway: local HTTP API for the CLI and other clients (electron/core/gateway.js) ----------
+let gateway = null, gatewayError = '';
+const gatewayFile = () => path.join(app.getPath('userData'), 'gateway.json');
+const gatewayToken = () => { let t = getSecret('gatewayToken'); if (!t) { t = gatewayLib.newToken(); setSecret('gatewayToken', t); } return t; };
+const gatewayPort = () => Math.min(65535, Math.max(1024, Number(getSettings().gatewayPort) || 8789));
+const projectFor = (id) => { const p = id ? readJson('projects', []).find((x) => x.id === id) : null; return p ? { name: p.name, instructions: p.instructions, ...(p.folder && fs.existsSync(p.folder) ? { folder: p.folder } : {}) } : null; };
+const gatewayHandlers = {
+  info: () => ({ mode: 'desktop', version: app.getVersion(), model: liveModel(getSettings().gatewayModel || getSettings().model), sqlite: !!initCore().sessions, memory: !!initCore().ws }),
+  async chat({ runId, sessionId, message, model, projectId }, emit) {
+    const st = getSettings();
+    const sid = sessionId || 'gw-' + crypto.randomBytes(5).toString('hex');
+    const prev = getSaved(sid);
+    if (prev && prev.incognito) throw new Error('That chat is incognito and cannot be continued from outside.');
+    const prior = prev ? chatSearch.chatTurns(prev, 30) : [];
+    const m = liveModel(model || st.gatewayModel || st.model);
+    const pid = projectId || (prev && prev.projectId) || null;
+    const winOpen = !!(win && !win.isDestroyed());
+    // with the window open the turn streams into the chat list live (and the window saves it); otherwise it is written here
+    if (winOpen) toWinSafe('phone:start', { requestId: runId, session: sid, prefix: '', via: 'gateway', source: 'gateway', text: message, images: [], model: m, projectId: pid, chatId: prev ? sid : null });
+    const steps = [''];
+    let error = '';
+    const send = (ev) => {
+      if (ev.type === 'chunk' && !ev.agent) steps[steps.length - 1] += ev.text;
+      else if (ev.type === 'step:new') steps.push('');
+      else if (ev.type === 'error') error = ev.message || 'Error';
+      emit(ev);
+      if (winOpen) toWinSafe('chat:event', { ...ev, requestId: runId });
+    };
+    await executeRun({ requestId: runId, messages: [...prior, { role: 'user', content: message }], send, restrict: !!st.gatewayRestrict, source: 'gateway',
+      model: m, system: st.systemPrompt, maxTokens: st.maxTokens, project: projectFor(pid), chatId: sid });
+    const texts = steps.map((t) => t.trim()).filter(Boolean);
+    if (!winOpen) {
+      const c = initCore();
+      if (c.sessions) { try { c.sessions.appendTurn(sid, { writer: 'desktop', user: message, steps: texts.map((t) => ({ text: t, toolCalls: [] })), assistant: error ? `Error: ${error}` : '', via: 'gateway', source: 'gateway', model: m, projectId: pid, title: message }); mirrorChats(); } catch (e) { logger.warn('gateway', 'Could not save the turn: ' + e.message); } }
+    }
+    if (error && !texts.length) throw new Error(error);
+    return { sessionId: sid, text: texts[texts.length - 1] || '' };
+  },
+  abort: (rid) => { const r = runs.get(rid); if (!r) return false; r.abort(); return true; },
+  approve: (id, ok) => { if (!approvals.has(id)) return false; decideTool(id, ok); return true; },
+  sessions: {
+    recent: (n) => { const c = initCore(); if (c.sessions) return c.sessions.recent(n, readJson('projects', [])); return chatSearch.recentChats(readChats(), n, readJson('projects', [])); },
+    get: (id) => getSaved(id),
+    search: (q, n) => searchSaved(q, n)
+  },
+  memory: {
+    search: async (q, n) => { const mem = memoryApi(() => toWinSafe('chat:event', { type: 'memory:changed' })); return mem.search ? mem.search(q, n) : (mem.list() || []).filter((x) => String(x.text).toLowerCase().includes(String(q).toLowerCase())).slice(0, n).map((x) => ({ path: 'memory', from: 0, to: 0, text: x.text, score: 1 })); },
+    list: () => memoryApi(() => {}).list(),
+    add: (text) => memoryApi(() => toWinSafe('chat:event', { type: 'memory:changed' })).add(text),
+    note: (text) => { const c = initCore(); if (!c.ws) throw new Error('Daily notes need the memory workspace (Settings → Tools → Memory)'); return c.ws.note(text); }
+  }
+};
+async function syncGateway() {
+  const st = getSettings();
+  try {
+    const want = !!st.gatewayEnabled && !headlessActive(); // the headless gateway serves the API while it runs
+    const port = gatewayPort();
+    if (gateway && (!want || gateway.address().port !== port)) { await gateway.stop(); gateway = null; gatewayLib.removeDiscovery(gatewayFile()); }
+    if (want && !gateway) {
+      const g = gatewayLib.createGateway({ host: '127.0.0.1', port, token: gatewayToken(), log: coreLog('gateway'), handlers: gatewayHandlers });
+      await g.start();
+      gateway = g;
+      gatewayLib.writeDiscovery(gatewayFile(), { mode: 'desktop', host: '127.0.0.1', port, token: gatewayToken(), version: app.getVersion() });
+    }
+    gatewayError = '';
+  } catch (e) { gateway = null; gatewayError = e && e.code === 'EADDRINUSE' ? `Port ${st.gatewayPort} is already in use. Pick another one.` : String((e && e.message) || e); logger.error('gateway', gatewayError); }
+}
+const gatewayInfo = () => {
+  const st = getSettings();
+  const hl = readLock('headless');
+  return { enabled: !!st.gatewayEnabled, running: !!gateway, port: gatewayPort(), token: st.gatewayEnabled ? gatewayToken() : '', error: gatewayError, restrict: !!st.gatewayRestrict, model: st.gatewayModel || '', headless: hl ? { pid: hl.pid, since: hl.startedAt } : null };
+};
+ipcMain.handle('gateway:info', () => gatewayInfo());
+// the headless gateway as a background service (launchd / systemd), run with this app's own binary in Node mode
+const gatewayService = () => require('./core/service').createService();
+const serviceOpts = () => ({ runtime: process.execPath, electronNode: true, entry: path.join(__dirname, 'core', 'cli-entry.js'), dataDir: app.getPath('userData'), args: [], logFile: path.join(app.getPath('home'), '.artemis', 'logs', 'gateway.log') });
+ipcMain.handle('gateway:service', async (_e, action) => {
+  try {
+    const svc = gatewayService();
+    if (action === 'install') { const st = svc.install(serviceOpts()); logger.info('gateway', 'Background service installed: ' + st.file); setTimeout(roleTick, 4000); return { ok: true, ...st }; }
+    if (action === 'uninstall') { const st = svc.uninstall(); logger.info('gateway', 'Background service removed'); setTimeout(roleTick, 1500); return { ok: true, ...st }; }
+    return { ok: true, ...svc.status() };
+  } catch (e) { return { ok: false, error: (e && e.message) || String(e) }; }
+});
+ipcMain.handle('gateway:set', async (_e, o = {}) => {
+  const patch = {};
+  if (typeof o.enabled === 'boolean') patch.gatewayEnabled = o.enabled;
+  if (typeof o.restrict === 'boolean') patch.gatewayRestrict = o.restrict;
+  if (typeof o.model === 'string') patch.gatewayModel = o.model;
+  if (o.port !== undefined) patch.gatewayPort = Math.min(65535, Math.max(1024, parseInt(o.port, 10) || 8789));
+  saveSettings(patch);
+  if (o.resetToken) { setSecret('gatewayToken', gatewayLib.newToken()); if (gateway) { await gateway.stop(); gateway = null; } }
+  await syncGateway();
+  return gatewayInfo();
+});
+ipcMain.handle('workspace:info', () => {
+  const c = initCore();
+  let stats = null; try { stats = c.index ? c.index.stats() : null; } catch {}
+  return { enabled: !!c.ws, dir: c.ws ? c.ws.dir : workspaceDir(), sqlite: !!c.sessions, dbFile: c.db ? c.db.file : '', stats, embeddingModel: getSettings().embeddingModel || '' };
+});
+ipcMain.handle('workspace:open', async (_e, rel) => {
+  const c = initCore(); if (!c.ws) return { ok: false, error: 'The memory workspace is off.' };
+  const target = rel && /^[\w./-]+\.md$/.test(String(rel)) && !String(rel).includes('..') ? c.ws.abs(String(rel)) : c.ws.dir;
+  const err = await shell.openPath(target);
+  return err ? { ok: false, error: err } : { ok: true };
+});
+// SOUL.md / USER.md / MEMORY.md edited inside the app (Settings → Long-term memory)
+const WS_EDITABLE = ['SOUL.md', 'USER.md', 'MEMORY.md'];
+ipcMain.handle('workspace:read', (_e, rel) => {
+  const c = initCore(); if (!c.ws) return { ok: false, error: 'The memory workspace is off.' };
+  if (!WS_EDITABLE.includes(rel)) return { ok: false, error: 'Only SOUL.md, USER.md and MEMORY.md can be edited here.' };
+  return { ok: true, text: c.ws.readText(rel) || '' };
+});
+ipcMain.handle('workspace:write', (_e, rel, text) => {
+  const c = initCore(); if (!c.ws) return { ok: false, error: 'The memory workspace is off.' };
+  if (!WS_EDITABLE.includes(rel)) return { ok: false, error: 'Only SOUL.md, USER.md and MEMORY.md can be edited here.' };
+  if (typeof text !== 'string' || text.length > 200000) return { ok: false, error: 'The text is too long.' };
+  try {
+    const file = c.ws.abs(rel); const tmp = file + '.tmp';
+    fs.writeFileSync(tmp, text.endsWith('\n') ? text : text + '\n'); fs.renameSync(tmp, file);
+    if (rel === 'MEMORY.md') toWinSafe('chat:event', { type: 'memory:changed' });
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+ipcMain.handle('workspace:reindex', async () => {
+  const c = initCore(); if (!c.index) return { ok: false, error: 'The memory index needs SQLite.' };
+  try { c.index.reindex({ force: true }); const n = await c.index.embedPending({ max: 2000 }); return { ok: true, embedded: n, stats: c.index.stats() }; }
+  catch (e) { return { ok: false, error: (e && e.message) || String(e) }; }
+});
+
+// ---------- lock file: tells the headless gateway that the app is running ----------
+function claimInstance() {
+  try { fs.writeFileSync(lockFile('desktop'), JSON.stringify({ pid: process.pid, startedAt: Date.now() })); } catch {}
+  return true;
+}
+const releaseInstance = () => { try { const cur = JSON.parse(fs.readFileSync(lockFile('desktop'), 'utf8')); if (cur.pid === process.pid) fs.unlinkSync(lockFile('desktop')); } catch {} };
+
 // ---------- app ----------
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) app.quit();
@@ -1594,6 +1919,7 @@ app.on('before-quit', (e) => {
 
 app.whenReady().then(() => {
   if (!gotLock) return;
+  if (!claimInstance()) return;
   try {
     const st = getSettings(); const provs = readProviders();
     logger.info('app', 'Saved keys check', { userData: app.getPath('userData'), encryption: safeStorage.isEncryptionAvailable(), providers: provs.map((p) => ({ name: p.name, needsKey: p.needsKey, key: !!getProviderKey(p.id), models: (p.models || []).length })) });
@@ -1624,14 +1950,15 @@ app.whenReady().then(() => {
     memory: memoryApi(() => { try { win?.webContents.send('chat:event', { type: 'memory:changed' }); } catch {} }),
     skillsList: () => skills.list(null).map((x) => ({ name: x.name, description: x.description, enabled: x.enabled })),
     chatsApi: {
-      recent: (n) => chatSearch.recentChats(readJson('chats', []), n, readJson('projects', [])),
-      search: (q, n) => chatSearch.searchChats(readJson('chats', []), q, { limit: n, projects: readJson('projects', []) }),
-      get: (id) => (readJson('chats', []) || []).find((c) => c.id === id && !c.incognito) || null,
+      recent: (n) => { const c = initCore(); if (c.sessions) { try { return c.sessions.recent(n, readJson('projects', [])); } catch {} } return chatSearch.recentChats(readChats(), n, readJson('projects', [])); },
+      search: (q, n) => searchSaved(q, n),
+      get: (id) => { const c = getSaved(id); return c && !c.incognito ? c : null; },
       turns: (c, n) => chatSearch.chatTurns(c, n)
     },
     appendToChat: (chatId, user, assistant) => {
       // with a window open the turn was already streamed live into that chat (phone:start carries the chat id)
       if (win && !win.isDestroyed()) return;
+      { const cs = initCore(); if (cs.sessions) { try { if (cs.sessions.get(chatId)) { cs.sessions.appendTurn(chatId, { user, assistant, via: 'telegram', writer: 'desktop' }); mirrorChats(); } return; } catch (e) { logger.warn('db', 'Could not add the phone turn to artemis.db: ' + e.message); } } }
       const list = readJson('chats', []); // no window: write straight into the saved chats
       const c = list.find((x) => x.id === chatId);
       if (c) { const id = () => Math.random().toString(36).slice(2, 10); c.messages.push({ id: id(), role: 'user', content: user, via: 'telegram' }, { id: id(), role: 'assistant', via: 'telegram', steps: [{ text: assistant, toolCalls: [] }] }); c.updatedAt = Date.now(); writeJson('chats', list); }
@@ -1647,7 +1974,9 @@ app.whenReady().then(() => {
     liveModel,
     summarize: (messages) => compactSummary({ model: getSettings().remoteModel || getSettings().model, messages }),
     desktopCompact: (chatId) => toWinSafe('remote:compact', { chatId }),
-    getSettings, getSecret, setSecret,
+    // while the headless gateway runs, it owns the Telegram bot (two bots on one token would fight)
+    getSettings: () => (headlessActive() ? { ...getSettings(), telegramEnabled: false } : getSettings()),
+    getSecret: (n) => (n === 'telegramToken' && headlessActive() ? '' : getSecret(n)), setSecret,
     saveSettings: (patch) => { saveSettings(patch); if (patch && Object.keys(patch).some((k) => ['toolsEnabled', 'notesAi', 'webEnabled', 'shellEnabled', 'computerEnabled', 'memoryEnabled', 'connectorsEnabled', 'autoApproveEdits'].includes(k))) toWinSafe('app:changed', {}); },
     decide: decideTool, abort: (rid) => runs.get(rid)?.abort(),
     screenshot: async () => { if (!computer) throw new Error('Computer control is only available on macOS.'); const r = await computer.screenshot(); return r.image; },
@@ -1673,10 +2002,12 @@ app.whenReady().then(() => {
   });
   remote.reconfigure().catch(() => {});
   syncMcpServer().catch(() => {});
+  syncGateway().catch(() => {});
   // one-time: file edits are auto-approved by default now (deleting still asks)
   if (!getSettings().migAutoApprove2) saveSettings({ migAutoApprove2: true });
   if (!getSettings().migAskDefault) saveSettings({ autoApproveEdits: false, migAskDefault: true }); // everything asks by default
-  scheduler.start();
+  roleTick(); setInterval(roleTick, 3000); // starts scheduled tasks here unless the headless gateway runs them
+  setInterval(pushExternal, 1500); // chats changed by the headless gateway show up in the window
   try { // encrypt secrets left in plain text by older versions (already encrypted values are kept as they are)
     const raw = readJson('mcp', []);
     if (Array.isArray(raw) && safeStorage.isEncryptionAvailable() && JSON.stringify(raw) !== JSON.stringify(raw.map((c) => mapMcpSecrets(c, mcpEnc)))) writeMcpList(raw);
@@ -1699,7 +2030,7 @@ app.whenReady().then(() => {
 });
 app.on('will-quit', () => {
   // each step on its own: one that throws must not skip the rest
-  for (const f of [() => terminals.closeAll(), () => scheduler.stop(), () => unregisterShortcuts(), () => globalShortcut.unregisterAll(), () => remote?.stop(), () => wakeword.stop(), () => updater.stop(), () => { const r = mcp.close(); if (r && r.catch) r.catch(() => {}); }]) { try { f(); } catch {} }
+  for (const f of [() => terminals.closeAll(), () => scheduler.stop(), () => unregisterShortcuts(), () => globalShortcut.unregisterAll(), () => remote?.stop(), () => wakeword.stop(), () => updater.stop(), () => { const r = mcp.close(); if (r && r.catch) r.catch(() => {}); }, () => { if (gateway) gateway.stop(); gatewayLib.removeDiscovery(gatewayFile()); }, () => releaseInstance(), () => { if (mirrorTimer) { clearTimeout(mirrorTimer); mirrorTimer = null; } }, () => { if (coreState.db) coreState.db.close(); }]) { try { f(); } catch {} }
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 
@@ -1836,6 +2167,6 @@ require('./ipc/lock')({ ipcMain, lock, speaker, voiceGate, lockAuthWaiting, snap
 require('./ipc/wakeword')({ ipcMain, wakeword, dialog, getWin: () => win });
 require('./ipc/update')({ ipcMain, updater, shell, app, getWin: () => win });
 require('./ipc/media')({ ipcMain, mediaDir, mediaGen, shell });
-require('./ipc/usage')({ ipcMain, getUsage, setUsage });
+require('./ipc/usage')({ ipcMain, getUsage: allUsage, setUsage: (l) => { setUsage(l); if (Array.isArray(l) && !l.length) { try { writeJson('usage-headless', []); } catch {} } } });
 require('./ipc/providers')({ ipcMain, encStr, getProviderKey, providersLib, publicProviders, readProviderKeys, readProviders, writeJson });
 require('./ipc/shell')({ ipcMain, fs, shell });

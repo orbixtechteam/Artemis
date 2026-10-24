@@ -217,3 +217,4 @@
 @media (prefers-reduced-motion: reduce) {
   .pref-switch, .pref-switch-knob, .pref-lang-toggle svg, .pref-row, .pref-status, .prefs .pref-card :is(input, textarea) { transition: none; }
 }
+.search-hidden { display: none !important; }

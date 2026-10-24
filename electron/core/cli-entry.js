@@ -1,0 +1,3 @@
+// Entry point of the `artemis` command inside the app bundle (packaged under electron/, unlike bin/).
+// The background service runs it with the app's own binary: ELECTRON_RUN_AS_NODE=1 <Artemis> <this file> gateway ...
+require('./cli').main(process.argv.slice(2)).catch((e) => { process.stderr.write((e && e.message ? e.message : String(e)) + '\n'); process.exit(1); });

@@ -43,7 +43,7 @@ const fn = (name, description, properties, required = []) => ({
   function: { name, description, parameters: { type: 'object', properties, required } }
 });
 
-function definitions({ makeEnabled, hasFolder, memoryEnabled, webEnabled, shellEnabled, computerEnabled, phoneEnabled, scheduleEnabled, notesEnabled, termEnabled, mediaEnabled, skillsEnabled, learnEnabled, chatsEnabled, delegateEnabled, browserEnabled }) {
+function definitions({ makeEnabled, hasFolder, memoryEnabled, memorySearchEnabled, webEnabled, shellEnabled, computerEnabled, phoneEnabled, scheduleEnabled, notesEnabled, termEnabled, mediaEnabled, skillsEnabled, learnEnabled, chatsEnabled, delegateEnabled, browserEnabled }) {
   const defs = [];
   if (hasFolder) defs.push(fn('task_note', 'Keeps a short note about the current task (plan, what is done, what is left, key facts). Old tool output is cleared as a long run goes on, but this note is shown to you at every step. Replaces the note, or adds to it with append=true. Empty text clears it.', { text: { type: 'string' }, append: { type: 'boolean' } }, ['text']));
   defs.push(fn('create_artifact', 'Creates (or updates) an artifact: a standalone piece of content shown in a side panel next to the chat, e.g. a web page/app/game (html), a diagram or graphic (svg), a long document (markdown), a substantial code file (code) or an Excel/CSV table (spreadsheet). For any Excel/xlsx/xls/CSV request use type spreadsheet, never an html page with a fake download button. To change an existing artifact, call again with the same id and the full new content.', {
@@ -105,9 +105,25 @@ function definitions({ makeEnabled, hasFolder, memoryEnabled, webEnabled, shellE
   defs.push(fn('lock_app', 'Locks the Artemis app (the app lock from Settings → Security) right now. Use it when the user says "lock", "Artemis lock" or asks you to lock or secure the app. Needs no arguments and no approval. Only the user can unlock it again (password, Touch ID or their voice).', {}, []));
   if (memoryEnabled) {
     defs.push(
-      fn('memory_save', 'Saves a durable fact about the user to memory (preference, context, goal). Use when the user says "remember" or shares a lasting fact. Write one short sentence.', { text: { type: 'string' } }, ['text']),
+      fn('memory_save', memorySearchEnabled
+        ? 'Saves a lasting fact about the user to MEMORY.md (a preference, how they work, a standing rule, a long-term goal): something still true next month. Not for events, progress or what happened today ("we started X today", "finished Y"): use memory_note for those. Write one short sentence.'
+        : 'Saves a durable fact about the user to memory (preference, context, goal). Use when the user says "remember" or shares a lasting fact. Write one short sentence.', { text: { type: 'string' } }, ['text']),
       fn('memory_forget', 'Deletes a memory entry by id.', { id: { type: 'string' } }, ['id'])
     );
+    if (memorySearchEnabled) {
+      defs.push(
+        fn('memory_search', 'Searches long-term memory: MEMORY.md, USER.md, SOUL.md and the daily notes (memory/YYYY-MM-DD.md), by keywords and, when set up, by meaning. Use it when the user refers to something from earlier days, a past decision or a fact that is not in the memory list above. Returns file paths with line ranges and the matching text.', {
+          query: { type: 'string', description: 'What to look for, in a few words' },
+          limit: { type: 'number', description: 'Max results (default 6, max 20)' }
+        }, ['query']),
+        fn('memory_get', 'Reads lines of a memory file (path from memory_search, e.g. "memory/2026-10-24.md" or "USER.md").', {
+          path: { type: 'string' }, from: { type: 'number', description: 'First line (1-based, default 1)' }, lines: { type: 'number', description: 'How many lines (default 80, max 400)' }
+        }, ['path']),
+        fn('memory_note', "Adds a line to today's daily note (memory/YYYY-MM-DD.md): an event, decision, result or open item of today worth finding again on another day. Use it when the user asks to note, log or write down what happened (\"bugün X etdik, qeyd et\", \"note that we shipped Y\"). Not for lasting facts about the user (memory_save) and not for the plan of the current task (task_note).", {
+          text: { type: 'string', description: 'One or two short sentences' }
+        }, ['text'])
+      );
+    }
   }
   if (webEnabled) {
     defs.push(
@@ -580,6 +596,9 @@ function summarize(name, args) {
     case 'create_skill': return `Save new skill: ${args.name || ''}`;
     case 'update_skill': return `Update skill: ${args.name || ''}`;
     case 'search_chats': return `Search chats: ${args.query || ''}`;
+    case 'memory_search': return `Search memory: ${args.query || ''}`;
+    case 'memory_get': return `Read memory file ${args.path || ''}`;
+    case 'memory_note': return `Daily note: ${String(args.text || '').slice(0, 120)}`;
     case 'make_create_scenario': return `Make: create scenario "${(args.template && args.template.name) || (args.blueprint && args.blueprint.name) || ''}" (${args.template ? 'HTTP request template' : (args.blueprint && args.blueprint.flow || []).length + ' modules'}${args.activate ? ', then turn on' : ''}, team ${args.teamId})`;
     case 'make_update_scenario': return `Make: update scenario ${args.id}${args.name ? ` (rename to "${args.name}")` : ''}${args.blueprint ? ' (new blueprint)' : ''}${args.scheduling ? ' (new schedule)' : ''}`;
     case 'make_set_active': return `Make: turn scenario ${args.id} ${args.active ? 'ON' : 'OFF'}`;
@@ -950,6 +969,26 @@ async function runTool(name, args, ctx) {
         if (memoryBudget(ctx)) return { ok: false, text: memoryBudget(ctx) };
         return { ok: true, text: ctx.memory.remove(String(args.id)) ? 'Removed from memory.' : 'No entry with this id.' };
       }
+      case 'memory_search': {
+        if (!ctx.memory || !ctx.memory.search) throw new Error('Memory search is off');
+        const q = String(args.query || '').trim();
+        if (!q) throw new Error('query is empty');
+        const hits = await ctx.memory.search(q, Math.min(20, Math.max(1, Number(args.limit) || 6)), ctx.signal);
+        return { ok: true, text: hits.length ? hits.map((h) => `${h.path}:${h.from}-${h.to}\n${h.text}`).join('\n\n---\n\n') : 'Nothing in memory matches. Do not guess; say you do not have it.' };
+      }
+      case 'memory_get': {
+        if (!ctx.memory || !ctx.memory.get) throw new Error('Memory search is off');
+        const r = ctx.memory.get(String(args.path || ''), args.from, args.lines);
+        return { ok: true, text: `${r.path} lines ${r.from}-${r.to} of ${r.total}:\n${r.text}` };
+      }
+      case 'memory_note': {
+        if (!ctx.memory || !ctx.memory.note) throw new Error('Memory search is off');
+        const text = String(args.text || '').trim();
+        if (!text) throw new Error('text is empty');
+        if (memoryBudget(ctx)) return { ok: false, text: memoryBudget(ctx) };
+        const where = ctx.memory.note(text.slice(0, 1000));
+        return { ok: true, text: `Added to ${where}.` };
+      }
       case 'use_skill': {
         if (!ctx.skills) throw new Error('Skills are off');
         const sk = ctx.skills.get(String(args.name || ''), root);
@@ -1041,6 +1080,7 @@ async function runTool(name, args, ctx) {
       case 'web_fetch':
         return { ok: true, text: await web.webFetch(String(args.url || ''), { signal: ctx.signal, allowPrivate: !!ctx.allowPrivateFetch }) };
       case 'run_command':
+        if (ctx.sandbox) return await ctx.sandbox.runCommand(args, { signal: ctx.signal, defaultCwd: root || undefined });
         return await shell.runCommand(args, { signal: ctx.signal, defaultCwd: root || undefined });
       case 'computer': {
         const sole = !(Array.isArray(args.actions) && args.actions.length);
@@ -1188,7 +1228,11 @@ async function runTool(name, args, ctx) {
         if (type === 'interval') repeat.every = Number(args.every_minutes) || 60;
         if (type === 'weekly') repeat.days = Array.isArray(args.days) ? args.days.map(Number) : [];
         if (type === 'monthly') repeat.dayOfMonth = Number(args.day_of_month) || 1;
-        const job = ctx.schedule.save({ name: args.name, prompt: args.prompt, repeat, notifyPhone: !!args.notify_phone, reminder: !!args.reminder, allowEdits: !!args.allow_edits });
+        // "reminder" delivers the text as it is, with no AI. A text written as an instruction to the assistant ("Send the user a summary of today's notes")
+        // needs a run, or the user gets the instruction itself.
+        let reminder = !!args.reminder;
+        if (reminder && /\b(the user|user's|summar|xülasə|today's notes|daily note|memory\/|search|look up|check (the|my|if)|find out)/i.test(String(args.prompt || ''))) reminder = false;
+        const job = ctx.schedule.save({ name: args.name, prompt: args.prompt, repeat, notifyPhone: !!args.notify_phone, reminder, allowEdits: !!args.allow_edits });
         const phoneWarn = args.notify_phone && !ctx.phone ? ' Warning: Telegram is not connected and paired, so the result will not reach the phone until the user connects it in Settings → Phone. Tell the user.' : '';
         return { ok: true, text: `Scheduled "${job.name}" (id ${job.id}). It runs: ${ctx.schedule.list().find((j) => j.id === job.id)?.description || type}. Next run: ${job.nextRun ? new Date(job.nextRun).toLocaleString() : 'none'}.${phoneWarn}` };
       }
