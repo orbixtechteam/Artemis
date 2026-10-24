@@ -1,7 +1,8 @@
 // Scheduled tasks: recurring or one-off prompts that run in the background.
 // job: { id, name, prompt, projectId, model, enabled, allowEdits, notifyPhone,
-//        repeat: { type: 'once'|'interval'|'daily'|'weekdays'|'weekly'|'monthly', at:'HH:MM', every (minutes), days:[0-6], dayOfMonth, date:'YYYY-MM-DD' },
+//        repeat: { type: 'once'|'interval'|'daily'|'weekdays'|'weekly'|'monthly'|'cron', at:'HH:MM', every (minutes), days:[0-6], dayOfMonth, date:'YYYY-MM-DD', cron:'m h dom mon dow' },
 //        nextRun, lastRun, lastStatus, lastError, runs }
+const { nextCron, describeCron, parseCron, minGapMinutes } = require('./core/cron');
 const MIN = 60000;
 
 function atParts(at) {
@@ -15,6 +16,7 @@ function nextRunAfter(job, from = Date.now()) {
   const r = job.repeat || {};
   const [h, m] = atParts(r.at);
   if (r.type === 'interval') return from + Math.max(1, Number(r.every) || 60) * MIN;
+  if (r.type === 'cron') { try { return nextCron(r.cron, from); } catch { return null; } }
   if (r.type === 'once') {
     const t = new Date(`${r.date}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`).getTime();
     return Number.isFinite(t) && t > from ? t : null;
@@ -44,6 +46,7 @@ function describe(job) {
     case 'weekdays': return `Weekdays at ${at}`;
     case 'weekly': return `${(r.days || [1]).map((d) => DOW[d]).join(', ')} at ${at}`;
     case 'monthly': return `Monthly on day ${r.dayOfMonth || 1} at ${at}`;
+    case 'cron': return describeCron(r.cron);
     default: return '';
   }
 }
@@ -52,11 +55,16 @@ function validate(job, now = Date.now()) {
   if (!String(job.name || '').trim()) throw new Error('Give the task a name.');
   if (!String(job.prompt || '').trim()) throw new Error('Write what the task should do.');
   const r = job.repeat || {};
-  if (!['once', 'interval', 'daily', 'weekdays', 'weekly', 'monthly'].includes(r.type)) throw new Error('Choose how often it runs.');
+  if (!['once', 'interval', 'daily', 'weekdays', 'weekly', 'monthly', 'cron'].includes(r.type)) throw new Error('Choose how often it runs.');
   if (r.type === 'interval' && !(Number(r.every) >= 5)) throw new Error('The interval must be at least 5 minutes.');
   if (r.type === 'once' && !/^\d{4}-\d{2}-\d{2}$/.test(r.date || '')) throw new Error('Pick a date.');
   if (r.type === 'once' && job.enabled !== false && nextRunAfter(job, now) === null) throw new Error('That date and time have already passed. Pick a time in the future.');
   if (r.type === 'weekly' && !(r.days || []).length) throw new Error('Pick at least one weekday.');
+  if (r.type === 'cron') {
+    parseCron(r.cron); // throws a readable message
+    if (nextCron(r.cron, now) === null) throw new Error('That cron expression never matches a date.');
+    if (minGapMinutes(r.cron, now) < 5) throw new Error('That cron expression runs more often than every 5 minutes. Use a step of at least 5 (for example "*/5 * * * *").');
+  }
 }
 
 /**

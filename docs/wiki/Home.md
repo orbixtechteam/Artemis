@@ -26,6 +26,7 @@ New here? Start with [Getting Started](Getting-Started.md).
 - [Brains](Brains.md): named personalities, each with its own model, and the council vote
 - [Skills](Skills.md): reusable `SKILL.md` instructions
 - [Scheduled Tasks](Scheduled-Tasks.md)
+- [Heartbeat, cron and webhooks](Heartbeat-and-Webhooks.md): a background checklist, cron expressions, events from GitHub, Stripe and others
 - [Make](Make.md): Make.com scenarios by asking
 
 ## Tools and control

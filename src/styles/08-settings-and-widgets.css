@@ -234,3 +234,17 @@ button.danger-solid:hover { filter: brightness(1.08); }
 
 /* shortcut recorder in Settings: shows it is listening for keys */
 input.recording { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); color: var(--muted); }
+
+/* Scheduled → Heartbeat / Webhooks */
+.hb-panel, .hooks-panel { display: flex; flex-direction: column; gap: 12px; max-width: 860px; }
+.hb-panel .hb-head, .hooks-panel .hb-head { margin-bottom: 2px; }
+.hb-panel textarea.mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: 12.5px; line-height: 1.5; }
+.hooks-panel .page-head.sub { margin: 14px 0 4px; }
+.hooks-panel .page-head.sub h2 { flex: 1; margin: 0; font-size: 16px; font-weight: 600; }
+.sched-sub.mono, .hooks-panel input.mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: 12px; }
+.sched-sub.bad-text, .hint.bad-text { color: var(--danger); }
+.empty-card.left { text-align: left; align-items: stretch; padding: 16px 18px; border-style: solid; color: var(--text); }
+.empty-card.left .pref-inline { display: flex; gap: 6px; flex-wrap: wrap; }
+.empty-card.left .pref-inline input { flex: 1; min-width: 240px; }
+.modal .pref-inline { display: flex; gap: 6px; }
+.modal .pref-inline input { flex: 1; }

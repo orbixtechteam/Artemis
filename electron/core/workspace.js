@@ -2,6 +2,7 @@
 //   SOUL.md    who Artemis is for this user (voice, values, limits); added to every chat
 //   USER.md    lasting context about the user; added to every chat
 //   MEMORY.md  durable facts, one "- " line each (memory_save / memory_forget, the Memory panel)
+//   HEARTBEAT.md  the checklist of the heartbeat check (heartbeat.js); not added to chats
 //   memory/YYYY-MM-DD.md  daily notes (memory_note, the pre-compaction flush); today and yesterday are added to every chat
 // Everything is searchable through memindex.js (memory_search).
 const fs = require('fs');
@@ -11,7 +12,8 @@ const crypto = require('crypto');
 const TEMPLATES = {
   'SOUL.md': '# Soul\n\n<!-- Who Artemis is for you: voice, values, what it should never do. Write plain sentences below.\n     Everything outside these comments is added to every chat. -->\n',
   'USER.md': '# User\n\n<!-- Lasting context about you that Artemis should always have: your work, projects, people, how you like answers.\n     Everything outside these comments is added to every chat. -->\n',
-  'MEMORY.md': '# Memory\n\n<!-- Durable facts. Artemis adds lines here with memory_save; you can add, edit or delete lines yourself.\n     One fact per "- " line. -->\n\n'
+  'MEMORY.md': '# Memory\n\n<!-- Durable facts. Artemis adds lines here with memory_save; you can add, edit or delete lines yourself.\n     One fact per "- " line. -->\n\n',
+  'HEARTBEAT.md': '# Heartbeat\n\n<!-- A short checklist Artemis goes through every few minutes (Scheduled → Heartbeat).\n     Write one item per "- " line, for example:\n       - If an email from my bank or a client arrived, tell me in one line.\n       - If a GitHub issue was assigned to me, tell me.\n     If nothing needs your attention it stays silent. While this file has no items no check runs, so it costs nothing. -->\n'
 };
 
 /** Same normalisation as the old memory list: "Use X." and "use x" are the same entry. */
@@ -231,4 +233,4 @@ function createWorkspace({ dir, log = () => {}, onChange = () => {} }) {
   return { dir, ensure, list, add, remove, replaceAll, note, context, read, files, dailyPath, readText: (rel) => readText(rel), abs };
 }
 
-module.exports = { createWorkspace, memKey, idOf, meaningful, dateStr, stripComments, blankComments };
+module.exports = { createWorkspace, memKey, idOf, meaningful, dateStr, stripComments, blankComments, TEMPLATES };

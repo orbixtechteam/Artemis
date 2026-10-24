@@ -60,6 +60,31 @@ try { require(path.join(__dirname, '..', 'electron', 'main.js')); } catch (e) { 
   const missing = wanted.filter((c) => !handlers[c]);
   assert(wanted.length > 50, 'preload channel scan found the channels');
   assert(!missing.length, 'missing IPC handlers: ' + missing.join(', '));
+  // heartbeat and webhooks through IPC: the webhook port answers, a bad token is refused, the tunnel token stays encrypted
+  {
+    const hb = await handlers['heartbeat:status']({});
+    assert(hb.ok && hb.status.enabled === false && hb.status.from === '', 'heartbeat is off and runs day and night by default');
+    const set = await handlers['heartbeat:set']({}, { enabled: true, every: 15 });
+    assert(set.ok && set.status.enabled && set.status.every === 15, 'heartbeat settings are saved');
+    await handlers['heartbeat:set']({}, { enabled: false });
+    const free = await new Promise((r) => { const srv = require('net').createServer(); srv.listen(0, '127.0.0.1', () => { const p = srv.address().port; srv.close(() => r(p)); }); });
+    const made = await handlers['hooks:save']({}, { name: 'form', instructions: 'Tell me who signed up.' });
+    assert(made.ok && made.hook.secret, 'webhook created: ' + made.error);
+    const on = await handlers['hooks:set']({}, { enabled: true, port: free, tunnelToken: 'TUNNEL-SECRET' });
+    assert(on.ok, 'webhooks switched on: ' + on.error);
+    let info; for (let i = 0; i < 20; i++) { info = (await handlers['hooks:list']({})).info; if (info.running) break; await new Promise((r) => setTimeout(r, 100)); }
+    assert(info.running && info.port === free, 'the webhook port is listening');
+    const post = (tok) => fetch(`http://127.0.0.1:${free}/hooks/form`, { method: 'POST', headers: { authorization: 'Bearer ' + tok, 'content-type': 'application/json' }, body: '{"name":"Ali"}' }).then((r) => r.status);
+    assert.strictEqual(await post('wrong'), 401);
+    assert.strictEqual((await fetch(`http://127.0.0.1:${free}/v1/sessions`)).status, 404, 'the webhook port serves nothing else');
+    const raw2 = fs.readFileSync(path.join(userData, 'settings.json'), 'utf8');
+    assert(!raw2.includes('TUNNEL-SECRET') && JSON.parse(raw2).hooksTunnelTokenEnc, 'tunnel token encrypted at rest');
+    assert(!('hooksTunnelTokenEnc' in (await handlers['settings:get']({}))) || (await handlers['settings:get']({})).hooksTunnelTokenEnc === undefined, 'tunnel token not sent to the window');
+    assert.strictEqual((fs.statSync(path.join(userData, 'hooks.json')).mode & 0o777), 0o600, 'hooks.json is private');
+    const ws = await handlers['workspace:write']({}, 'HEARTBEAT.md', '# Heartbeat\n- test\n');
+    assert(ws.ok, 'HEARTBEAT.md can be edited in the app: ' + ws.error);
+    await handlers['hooks:set']({}, { enabled: false });
+  }
   console.log('main: all tests passed');
   process.exit(0);
 })().catch((e) => { console.error('FAILED:', e); process.exit(1); });

@@ -30,7 +30,8 @@ Chats, notes and memory are plain files on your disk. Every line of code is open
 - **Sub-agents**: up to four role agents in parallel (Researcher, Coder, Writer, Reviewer), plus your own agents written as Markdown files.
 - **Brains**: named personalities (Lancelot, Galahad, Percival) that each answer with their own model, or a council that votes on who answers and which skills and agents to use.
 - **Skills**: reusable `SKILL.md` folders (same layout as [agentskills.io](https://agentskills.io)), per user or per project, learned and improved with use.
-- **Scheduled tasks**: once, every N minutes, daily, weekdays, weekly or monthly, with a cheap default model for scheduled runs. Make.com scenarios by asking.
+- **Scheduled tasks**: once, every N minutes, daily, weekdays, weekly, monthly or a cron expression, with a cheap default model for scheduled runs. Make.com scenarios by asking.
+- **Heartbeat and webhooks**: a short checklist checked every few minutes that stays silent unless something needs you, and webhooks that let GitHub, Stripe, forms or n8n start runs (optionally on the internet through a Cloudflare tunnel).
 - **Long-term memory**: plain Markdown files (`SOUL.md`, `USER.md`, `MEMORY.md`, one daily note per day), searched by keywords and optionally by meaning; lasting facts are saved automatically before a long chat is compacted.
 - **Notes**: Markdown notes with folders, search, `[[wiki links]]` and a graph.
 - **Gateway and command line**: a local API and an `artemis` command (`artemis chat`, `artemis search`, `artemis memory search`), and a headless mode (`artemis gateway`) that runs the agent, chats, memory and scheduled tasks without a window.
@@ -70,7 +71,7 @@ The wiki explains how to use every feature, step by step. Start at [docs/wiki/Ho
 | --- | --- |
 | Set up | [Getting Started](docs/wiki/Getting-Started.md) · [Providers and Models](docs/wiki/Providers-and-Models.md) · [Usage Limits](docs/wiki/Usage-Limits.md) · [Appearance](docs/wiki/Appearance.md) |
 | Everyday use | [Chat and Projects](docs/wiki/Chat-and-Projects.md) · [Files and Attachments](docs/wiki/Files-and-Attachments.md) · [Notes](docs/wiki/Notes.md) · [Memory](docs/wiki/Memory.md) · [Quick Window and Shortcuts](docs/wiki/Quick-Window-and-Shortcuts.md) |
-| Agents and automation | [Sub-Agents](docs/wiki/Sub-Agents.md) · [Brains](docs/wiki/Brains.md) · [Skills](docs/wiki/Skills.md) · [Scheduled Tasks](docs/wiki/Scheduled-Tasks.md) · [Make](docs/wiki/Make.md) |
+| Agents and automation | [Sub-Agents](docs/wiki/Sub-Agents.md) · [Brains](docs/wiki/Brains.md) · [Skills](docs/wiki/Skills.md) · [Scheduled Tasks](docs/wiki/Scheduled-Tasks.md) · [Heartbeat and Webhooks](docs/wiki/Heartbeat-and-Webhooks.md) · [Make](docs/wiki/Make.md) |
 | Tools and control | [Tools and Approvals](docs/wiki/Tools-and-Approvals.md) · [Terminal](docs/wiki/Terminal.md) · [Browser](docs/wiki/Browser.md) · [Computer Control](docs/wiki/Computer-Control.md) |
 | Voice and integrations | [Sentinel Voice](docs/wiki/Sentinel-Voice.md) · [Phone (Telegram)](docs/wiki/Phone-Telegram.md) · [MCP](docs/wiki/MCP.md) · [Gateway and CLI](docs/wiki/Gateway.md) |
 | Security and help | [Security and App Lock](docs/wiki/Security-and-App-Lock.md) · [Troubleshooting](docs/wiki/Troubleshooting.md) |

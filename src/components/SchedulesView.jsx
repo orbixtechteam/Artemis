@@ -2,12 +2,14 @@ import React, { useEffect, useState } from 'react';
 import Select from './Select.jsx';
 import { askConfirm } from '../lib/dialog.js';
 import { Icon } from './Icons.jsx';
+import HeartbeatPanel from './automation/HeartbeatPanel.jsx';
+import WebhooksPanel from './automation/WebhooksPanel.jsx';
 
 const api = window.api;
 const DAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
-const blank = () => ({ name: '', prompt: '', projectId: '', model: '', enabled: true, allowEdits: false, notifyPhone: false, reminder: false, repeat: { type: 'daily', at: '09:00', every: 60, days: [1], dayOfMonth: 1, date: today() } });
+const blank = () => ({ name: '', prompt: '', projectId: '', model: '', enabled: true, allowEdits: false, notifyPhone: false, reminder: false, repeat: { type: 'daily', at: '09:00', every: 60, days: [1], dayOfMonth: 1, date: today(), cron: '0 9 * * 1-5' } });
 
 function when(ts) {
   if (!ts) return '—';
@@ -28,7 +30,7 @@ function Editor({ job, projects, models, onSave, onClose }) {
     if (!res.ok) return setErr(res.error);
     onSave();
   };
-  const needsTime = r.type !== 'interval';
+  const needsTime = r.type !== 'interval' && r.type !== 'cron';
   return (
     <div className="overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="modal wide">
@@ -39,14 +41,16 @@ function Editor({ job, projects, models, onSave, onClose }) {
           <label className="field"><span>Repeat</span>
             <Select value={r.type} onChange={(e) => setR({ type: e.target.value })}>
               <option value="daily">Every day</option><option value="weekdays">Weekdays</option><option value="weekly">Certain weekdays</option>
-              <option value="monthly">Every month</option><option value="interval">Every few minutes / hours</option><option value="once">Once</option>
+              <option value="monthly">Every month</option><option value="interval">Every few minutes / hours</option><option value="once">Once</option><option value="cron">Custom (cron expression)</option>
             </Select>
           </label>
           {needsTime && <label className="field"><span>Time</span><input type="time" value={r.at} onChange={(e) => setR({ at: e.target.value })} /></label>}
           {r.type === 'interval' && <label className="field"><span>Every (minutes)</span><input type="number" min={5} step={5} value={r.every} onChange={(e) => setR({ every: e.target.value })} /></label>}
           {r.type === 'once' && <label className="field"><span>Date</span><input type="date" min={today()} value={r.date} onChange={(e) => setR({ date: e.target.value })} /></label>}
+          {r.type === 'cron' && <label className="field"><span>Cron expression (minute hour day month weekday)</span><input className="mono" value={r.cron || ''} placeholder="*/30 9-18 * * 1-5" onChange={(e) => setR({ cron: e.target.value })} /></label>}
           {r.type === 'monthly' && <label className="field"><span>Day of month</span><input type="number" min={1} max={31} value={r.dayOfMonth} onChange={(e) => setR({ dayOfMonth: e.target.value })} /></label>}
         </div>
+        {r.type === 'cron' && <small className="hint">Your local time. Examples: <code>*/30 9-18 * * 1-5</code> every 30 min in working hours · <code>0 9 1,15 * *</code> on the 1st and 15th at 9:00 · <code>0 8 * * mon</code> Mondays at 8:00. At most every 5 minutes.</small>}
         {r.type === 'weekly' && <div className="day-pick">{DAYS.map((d, i) => <button key={i} type="button" title={DAY_NAMES[i]} aria-label={DAY_NAMES[i]} className={r.days.includes(i) ? 'on' : ''} onClick={() => toggleDay(i)}>{d}</button>)}</div>}
         <div className="sched-grid">
           <label className="field"><span>Project</span>
@@ -64,7 +68,7 @@ function Editor({ job, projects, models, onSave, onClose }) {
         <label className="check"><input type="checkbox" checked={!!j.reminder} onChange={(e) => setJ({ ...j, reminder: e.target.checked })} /> Plain reminder: show the text above exactly as written, without running the AI</label>
         <label className="check"><input type="checkbox" checked={j.allowEdits} onChange={(e) => setJ({ ...j, allowEdits: e.target.checked })} /> Allow file changes in the project folder (otherwise the task can only read)</label>
         <label className="check"><input type="checkbox" checked={j.notifyPhone} onChange={(e) => setJ({ ...j, notifyPhone: e.target.checked })} /> Send the result to my phone (Telegram)</label>
-        <small className="hint">Scheduled tasks run while Artemis is open (it can stay in the menu bar). They can't use the shell, the computer tool or ask for approval. If Artemis was closed at the time, the task runs once when you open it again.</small>
+        <small className="hint">Scheduled tasks run while Artemis is open (it can stay in the menu bar), or in the background gateway (Settings → Gateway → Keep running in the background). They can't use the shell, the computer tool or ask for approval. If Artemis was closed at the time, the task runs once when you open it again.</small>
         {err && <div className="error">{err}</div>}
         <div className="actions-row"><span style={{ flex: 1 }} /><button onClick={onClose}>Cancel</button><button className="primary" onClick={save}>Save</button></div>
       </div>
@@ -72,7 +76,12 @@ function Editor({ job, projects, models, onSave, onClose }) {
   );
 }
 
+const TABS = [['tasks', 'Tasks'], ['heartbeat', 'Heartbeat'], ['hooks', 'Webhooks']];
+let lastTab = 'tasks';
+
 export default function SchedulesView({ projects, models, onOpenChat }) {
+  const [tab, setTab0] = useState(lastTab);
+  const setTab = (t) => { lastTab = t; setTab0(t); };
   const [jobs, setJobs] = useState([]);
   const [edit, setEdit] = useState(null);
   const load = () => api.scheduleList().then((l) => setJobs(l || [])).catch(() => {});
@@ -82,9 +91,10 @@ export default function SchedulesView({ projects, models, onOpenChat }) {
     <div className="page">
       <div className="page-head">
         <h1>Scheduled</h1>
-        <button className="primary-btn" onClick={() => setEdit(blank())}><Icon name="plus" size={15} /> New task</button>
+        <div className="seg" role="tablist">{TABS.map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}</div>
+        {tab === 'tasks' && <button className="primary-btn" onClick={() => setEdit(blank())}><Icon name="plus" size={15} /> New task</button>}
       </div>
-      {jobs.length === 0 ? (
+      {tab === 'heartbeat' ? <HeartbeatPanel models={models} /> : tab === 'hooks' ? <WebhooksPanel models={models} projects={projects} /> : jobs.length === 0 ? (
         <div className="empty-card">
           <Icon name="clock" size={28} />
           <p>Run a prompt automatically — every morning, every few hours, or once at a set time. Each run appears as its own chat.</p>
