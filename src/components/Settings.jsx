@@ -52,22 +52,23 @@ function ShortcutField({ label, about, value, onChange, placeholder, error }) {
   );
 }
 
-// id, sidebar label, icon, one-line description, group (the sidebar leaves a gap between groups, like System Settings)
+// id, sidebar label, icon, one-line description, group (the sidebar leaves a gap between groups, like System Settings),
+// and the parts the page shows in order. A part id is what the rest of the app opens (openSettings('make') …),
+// so an old id still lands on the right section and scrolls to its part.
 export const SECTIONS = [
-  ['general', 'General', 'sliders', 'Default model, personality and how Artemis starts.', 'app'],
-  ['appearance', 'Appearance', 'eye', 'Light or dark, palette, accent colour and text size.', 'app'],
-  ['shortcuts', 'Keyboard shortcuts', 'keyboard', 'Shortcuts that work from any app, and inside Artemis.', 'app'],
-  ['providers', 'Providers', 'plug', 'Model providers, endpoints and API keys.', 'models'],
-  ['agents', 'Agents', 'layers', 'Helper agents Artemis can hand parts of a task to.', 'models'],
-  ['brains', 'Brains', 'bulb', 'Personalities with their own model, and the council that picks one.', 'models'],
-  ['voice', 'Voice', 'mic', 'Dictation, reading answers aloud and Sentinel voice mode.', 'models'],
-  ['tools', 'Tools & safety', 'wrench', 'What the assistant may do, and when it asks first.', 'safety'],
-  ['access', 'Access', 'shield', 'macOS permissions, folders and features Artemis can reach.', 'safety'],
-  ['security', 'Security', 'lock', 'App lock, Touch ID, voice recognition and what happens on unauthorized access.', 'safety'],
-  ['limits', 'Usage & limits', 'chart', 'What Artemis has used, and the limits that pause it.', 'more'],
-  ['make', 'Make', 'bolt', 'Let Artemis use your Make.com scenarios.', 'more'],
-  ['phone', 'Phone', 'phone', 'Chat with Artemis from Telegram.', 'more']
+  ['general', 'General', 'sliders', 'Default model, personality and how Artemis starts.', 'app', ['general']],
+  ['appearance', 'Appearance', 'eye', 'Light or dark, palette, accent colour and text size.', 'app', ['appearance']],
+  ['shortcuts', 'Keyboard', 'keyboard', 'Shortcuts that work from any app, and inside Artemis.', 'app', ['shortcuts']],
+  ['providers', 'Models & providers', 'plug', 'Model providers, endpoints and API keys.', 'models', ['providers']],
+  ['agents', 'Agents & brains', 'layers', 'Helper agents, and personalities with their own model.', 'models', ['agents', 'brains']],
+  ['voice', 'Voice & Sentinel', 'mic', 'Dictation, reading answers aloud and Sentinel voice mode.', 'models', ['voice']],
+  ['privacy', 'Privacy & safety', 'shield', 'What Artemis may do and reach, and the app lock.', 'more', ['tools', 'access', 'security']],
+  ['integrations', 'Integrations', 'link', 'Make.com scenarios, and chatting from your phone.', 'more', ['make', 'phone']],
+  ['limits', 'Usage & limits', 'chart', 'What Artemis has used, and the limits that pause it.', 'more', ['limits']]
 ];
+// headings of the parts inside a section that has more than one
+const PART_TITLES = { agents: 'Agents', brains: 'Brains', tools: 'Tools & safety', access: 'Access', security: 'Security', make: 'Make', phone: 'Phone' };
+const sectionOf = (id) => SECTIONS.find(([sec, , , , , parts]) => sec === id || parts.includes(id));
 
 // words people look for, so the search finds a setting by what it does and not only by its section name
 const KEYWORDS = {
@@ -107,12 +108,14 @@ export const pendingPatch = (s, base) => {
   }
   return out;
 };
-const validTab = (t) => (SECTIONS.some(([id]) => id === t) ? t : 'general');
+const validTab = (t) => (sectionOf(t) || SECTIONS[0])[0];
 
 export function SettingsModal({ settings, groups = [], projects = [], providers = [], onProviders = () => {}, onApply = async () => {}, onTabChange, initialTab = 'general' }) {
   const [tab, setTabState] = useState(() => validTab(initialTab));
-  useEffect(() => { setTabState(validTab(initialTab)); }, [initialTab]);
-  const setTab = (t) => { setTabState(t); if (onTabChange) onTabChange(t); };
+  // opening a part (Access, Brains, Phone …) shows its section and scrolls to that part (after the reset to the top below)
+  const showPart = (part) => setTimeout(() => { const el = contentRef.current?.querySelector(`[data-part="${part}"]`); if (el) el.scrollIntoView({ block: 'start' }); }, 60);
+  useEffect(() => { setTabState(validTab(initialTab)); if (initialTab !== validTab(initialTab)) showPart(initialTab); }, [initialTab]);
+  const setTab = (t) => { const sec = validTab(t); setTabState(sec); if (onTabChange) onTabChange(sec); if (t !== sec) showPart(t); };
   const [tq, setTq] = useState('');
   const [s, setS] = useState({ ...settings });
   const set = (k) => (e) => setS((x) => ({ ...x, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value }));
@@ -182,7 +185,7 @@ export function SettingsModal({ settings, groups = [], projects = [], providers 
 
   // ---- sidebar: search filters the sections; rows in the open section that match are highlighted ----
   const terms = tq.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  const shown = terms.length ? SECTIONS.filter(([id, label]) => { const hay = (label + ' ' + (KEYWORDS[id] || '')).toLowerCase(); return terms.every((t) => hay.includes(t)); }) : SECTIONS;
+  const shown = terms.length ? SECTIONS.filter(([, label, , , , parts]) => { const hay = [label, ...parts.map((p) => (PART_TITLES[p] || '') + ' ' + (KEYWORDS[p] || ''))].join(' ').toLowerCase(); return terms.every((t) => hay.includes(t)); }) : SECTIONS;
   const contentRef = useRef(null);
   const navRef = useRef(null);
   useEffect(() => { if (terms.length && shown.length && !shown.some(([id]) => id === tab)) setTab(shown[0][0]); }, [tq]);
@@ -207,6 +210,10 @@ export function SettingsModal({ settings, groups = [], projects = [], providers 
     requestAnimationFrame(() => navRef.current?.querySelector(`[data-sec="${next[0]}"]`)?.focus());
   };
   const sec = SECTIONS.find(([id]) => id === tab) || SECTIONS[0];
+  const parts = sec[5];
+  const has = (p) => parts.includes(p);
+  // a section made of several parts gets a heading per part; data-part is where openSettings('<part>') scrolls to
+  const partHead = (p) => (parts.length > 1 ? <h2 className="pref-part" data-part={p}>{PART_TITLES[p]}</h2> : null);
   const statusEl = (
     <span className={`pref-status ${status}`} role="status" aria-live="polite">
       {status === 'saved' ? <><Icon name="check" size={13} /> Saved</> : status === 'error' ? 'Could not save. Try again.' : ''}
@@ -237,7 +244,8 @@ export function SettingsModal({ settings, groups = [], projects = [], providers 
       </nav>
       <main className="prefs-content" ref={contentRef}>
         <Page title={sec[1]} description={sec[3]} aside={statusEl}>
-          {tab === 'general' && (
+          {has('general') && partHead('general')}
+          {has('general') && (
             <>
               <Group title="Model">
                 <Row label="Default model" description="Used for new chats. Add more models in Providers.">
@@ -309,11 +317,13 @@ export function SettingsModal({ settings, groups = [], projects = [], providers 
               </Group>
             </>
           )}
-          {tab === 'appearance' && (
+          {has('appearance') && partHead('appearance')}
+          {has('appearance') && (
             <AppearanceTab s={s} setS={setS} themes={themeInfo.themes} themeMsg={themeMsg} themeBusy={themeBusy}
               onRefresh={refreshThemes} onImport={importThemes} onOpenFolder={() => window.api.themesOpen('user').then(refreshThemes).catch(() => {})} />
           )}
-          {tab === 'shortcuts' && (
+          {has('shortcuts') && partHead('shortcuts')}
+          {has('shortcuts') && (
             <>
               <Group title="From any app" footer="Click a box, then press the keys. Esc cancels, Clear turns the shortcut off. The push-to-talk key for Sentinel is under Voice.">
                 {[
@@ -335,8 +345,10 @@ export function SettingsModal({ settings, groups = [], projects = [], providers 
               {settings.shortcutError && !settings.shortcutErrors && <Note tone="err">{settings.shortcutError}</Note>}
             </>
           )}
-          {tab === 'providers' && <ProvidersTab s={s} set={set} settings={settings} providers={providers} onProviders={onProviders} onApply={onApply} />}
-          {tab === 'tools' && (
+          {has('providers') && partHead('providers')}
+          {has('providers') && <ProvidersTab s={s} set={set} settings={settings} providers={providers} onProviders={onProviders} onApply={onApply} />}
+          {has('tools') && partHead('tools')}
+          {has('tools') && (
             <>
               <Group title="Tools">
                 <SwitchRow label="Tools on by default in new chats" description="Files, memory, notes, web and terminal. You can switch tools on or off per chat with the “Tools” pill next to the model picker. Off sends much smaller requests, which small local models and free tiers need."
@@ -399,14 +411,22 @@ export function SettingsModal({ settings, groups = [], projects = [], providers 
               </Group>
             </>
           )}
-          {tab === 'access' && <AccessTab s={s} set={set} setS={setS} projects={projects} goTo={setTab} />}
-          {tab === 'security' && <SecurityTab />}
-          {tab === 'brains' && <BrainsTab s={s} setS={setS} chatGroups={chatGroups} />}
-          {tab === 'agents' && <AgentsTab s={s} set={set} setS={setS} chatGroups={chatGroups} />}
-          {tab === 'limits' && <LimitsTab s={s} setS={setS} />}
-          {tab === 'voice' && <VoiceTab s={s} setS={setS} providers={providers} chatGroups={chatGroups} pttError={s.sentinelPtt === settings.sentinelPtt ? ((settings.shortcutErrors || {}).sentinelPtt || '') : ''} />}
-          {tab === 'make' && <MakeTab s={s} setS={setS} />}
-          {tab === 'phone' && <PhoneTab s={s} setS={setS} onSaveToken={(t) => saveSecret({ telegramToken: t })} />}
+          {has('access') && partHead('access')}
+          {has('access') && <AccessTab s={s} set={set} setS={setS} projects={projects} goTo={setTab} />}
+          {has('security') && partHead('security')}
+          {has('security') && <SecurityTab />}
+          {has('agents') && partHead('agents')}
+          {has('agents') && <AgentsTab s={s} set={set} setS={setS} chatGroups={chatGroups} />}
+          {has('brains') && partHead('brains')}
+          {has('brains') && <BrainsTab s={s} setS={setS} chatGroups={chatGroups} />}
+          {has('limits') && partHead('limits')}
+          {has('limits') && <LimitsTab s={s} setS={setS} />}
+          {has('voice') && partHead('voice')}
+          {has('voice') && <VoiceTab s={s} setS={setS} providers={providers} chatGroups={chatGroups} pttError={s.sentinelPtt === settings.sentinelPtt ? ((settings.shortcutErrors || {}).sentinelPtt || '') : ''} />}
+          {has('make') && partHead('make')}
+          {has('make') && <MakeTab s={s} setS={setS} />}
+          {has('phone') && partHead('phone')}
+          {has('phone') && <PhoneTab s={s} setS={setS} onSaveToken={(t) => saveSecret({ telegramToken: t })} />}
         </Page>
       </main>
     </div>

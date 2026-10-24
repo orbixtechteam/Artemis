@@ -28,6 +28,9 @@
 .prefs-nav-icon .icon { width: 13px; height: 13px; stroke-width: 1.8; }
 .prefs-nav-item.active .prefs-nav-icon { color: inherit; background: color-mix(in srgb, var(--accent-text) 16%, transparent); box-shadow: none; }
 .prefs-nav-gap { height: 12px; flex: none; }
+/* a part inside a section that has several (Privacy & safety: Tools, Access, Security …) */
+.pref-part { margin: 34px 0 14px; padding: 0 4px; font-family: var(--font-display); font-size: 17px; font-weight: 600; letter-spacing: -.012em; scroll-margin-top: 16px; }
+.pref-page > .pref-part:first-of-type { margin-top: 4px; }
 .prefs-none { padding: 6px 8px; color: var(--muted); font-size: var(--fs-sm); }
 
 /* content */
