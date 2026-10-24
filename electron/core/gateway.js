@@ -108,8 +108,9 @@ function createGateway({ host = '127.0.0.1', port = 8789, token, log = () => {},
       else if (!closed) json(res, 200, { ok: true, ...result });
     } catch (e) {
       runs.delete(runId);
-      const msg = (e && e.message) || String(e);
-      log('warn', 'gateway run failed: ' + msg);
+      // the client gets the error's message (what went wrong for the user), never a stack or the error object
+      const msg = e instanceof Error && e.message ? e.message.split('\n')[0].slice(0, 500) : 'The run failed';
+      log('warn', 'gateway run failed: ' + ((e && e.stack) || e));
       if (stream) { if (!closed) { res.write(`event: error\ndata: ${JSON.stringify({ message: msg })}\n\n`); res.end(); } }
       else if (!closed) fail(res, 500, msg);
     } finally { if (ping) clearInterval(ping); }
@@ -165,8 +166,10 @@ function createGateway({ host = '127.0.0.1', port = 8789, token, log = () => {},
       if (!safeEqual(auth.replace(/^Bearer\s+/i, ''), token)) return fail(res, 401, 'Missing or wrong token');
       await route(req, res);
     } catch (e) {
-      if (!res.headersSent) fail(res, e.status || 500, (e && e.message) || 'Error');
-      else try { res.end(); } catch {}
+      // errors we raise on purpose carry a status and a message for the client; anything else stays in the log
+      if (res.headersSent) { try { res.end(); } catch {} }
+      else if (e && e.status) { fail(res, e.status, String(e.message || 'Error').slice(0, 300)); }
+      else { log('warn', 'gateway error: ' + ((e && e.stack) || e)); fail(res, 500, 'Internal error (see the Artemis log)'); }
     }
   }
 

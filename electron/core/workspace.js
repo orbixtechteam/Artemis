@@ -18,7 +18,12 @@ const TEMPLATES = {
 const memKey = (t) => String(t || '').toLowerCase().normalize('NFKC').replace(/[^\p{L}\p{N}]+/gu, ' ').trim().slice(0, 500);
 /** Stable id of an entry: derived from its words, so hand edits need no bookkeeping. */
 const idOf = (t) => crypto.createHash('sha1').update(memKey(t)).digest('base64').replace(/[^a-z0-9]/gi, '').toLowerCase().slice(0, 6);
-const stripComments = (t) => String(t || '').replace(/<!--[\s\S]*?-->/g, '');
+/** Removes HTML comments, also nested or unclosed ones ("<!<!-- -->-- x"): repeated until nothing changes, then any leftover marker. */
+function stripComments(t) {
+  let s = String(t || ''), prev;
+  do { prev = s; s = s.replace(/<!--[\s\S]*?-->/g, ''); } while (s !== prev);
+  return s.replace(/<!--[\s\S]*$/, '').replace(/<!--|-->/g, '');
+}
 /** The part of a file that says something: comments and a lone top heading do not count. */
 function meaningful(text) {
   const t = stripComments(text).replace(/^\s*#\s+(Soul|User|Memory)\s*$/im, '').trim();

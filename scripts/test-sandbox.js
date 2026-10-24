@@ -39,7 +39,8 @@ const { createSandbox, runProc } = require('../electron/core/sandbox');
   r = await ssh.runCommand({ command: "echo 'quoted'" }, {});
   assert.ok(r.ok && r.text.includes('on me@box'));
   assert.strictEqual(sshCalls[0][0], 'ssh'); assert.ok(sshCalls[0].includes('BatchMode=yes') && sshCalls[0].includes('me@box'));
-  assert.ok(sshCalls[0][sshCalls[0].length - 1].includes('"$HOME"/work'), sshCalls[0][sshCalls[0].length - 1]);
+  const line = sshCalls[0][sshCalls[0].length - 1];
+  assert.ok(line.startsWith("'sh' '-c' ") && line.includes(" 'work' ") && line.endsWith(`'echo '\\''quoted'\\'''`), line);
   assert.ok(!(await createSandbox({ mode: 'ssh' }, { run: fake }).runCommand({ command: 'ls' }, {})).ok);
 
   // ---- the real in-container script, run by a fake docker that executes it on this machine ----
@@ -51,8 +52,8 @@ const { createSandbox, runProc } = require('../electron/core/sandbox');
   fs.writeFileSync(bin, `#!/bin/sh
 case "$1" in
   inspect) echo true; exit 0 ;;
-  exec) shift; while [ "$1" = "-e" ]; do shift 2; done; shift; [ "$1" = sh ] && shift; [ "$1" = -c ] && shift
-        script=$(printf '%s' "$1" | sed "s#/workspace#${proj}#g"); exec sh -c "$script" ;;
+  exec) shift; while [ "$1" = "-e" ]; do shift 2; done; shift; shift; shift   # name, sh, -c
+        script="$1"; dir=$(printf '%s' "$3" | sed "s#^/workspace#${proj}#"); exec sh -c "$script" sh "$dir" "$4" ;;
   *) exit 0 ;;
 esac
 `, { mode: 0o755 });
@@ -60,6 +61,10 @@ esac
   r = await real.runCommand({ command: 'cat a.txt && pwd', cwd: 'sub' }, { defaultCwd: proj });
   assert.ok(r.ok && r.text.includes('inside') && r.text.includes('exit code: 0'), r.text);
   r = await real.runCommand({ command: "echo \"it's\" fine; exit 3" }, { defaultCwd: proj });
+  // a folder name full of shell characters is an argument, never code
+  fs.mkdirSync(path.join(proj, 'we;ird $(x)'));
+  const odd = await real.runCommand({ command: 'pwd', cwd: 'we;ird $(x)' }, { defaultCwd: proj });
+  assert.ok(odd.ok && odd.text.includes('we;ird $(x)'), odd.text);
   assert.ok(!r.ok && r.text.includes("it's fine") && r.text.includes('exit code: 3'), r.text);
   r = await real.runCommand({ command: 'ls', cwd: 'missing' }, { defaultCwd: proj });
   assert.ok(!r.ok && /directory not found/.test(r.text), r.text);

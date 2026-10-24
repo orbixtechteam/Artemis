@@ -105,11 +105,12 @@ function createSandbox(cfg, { run = runProc } = {}) {
     if (why) return { ok: false, text: `Error: blocked — ${why}.` };
     const timeout = Math.min(Math.max(Number(timeout_seconds) || 60, 1), 600);
     const id = crypto.randomBytes(4).toString('hex');
-    // the command gets its own process group (setsid) so a timeout or Stop kills everything it started
+    // The script is fixed text: the folder and the command are passed as arguments ("$1", "$2"), never pasted into it.
+    // The command gets its own process group (setsid) so a timeout or Stop kills everything it started.
     const pidf = `/tmp/artemis-run-${id}.pid`;
     const leader = `echo $$ > ${pidf}; exec timeout -s KILL ${timeout} sh -lc "$1"`;
-    const inner = (dir) => `cd ${q(dir)} 2>/dev/null || { echo "directory not found: ${dir.replace(/"/g, '')}" >&2; exit 2; }; ` +
-      `if setsid -w true 2>/dev/null; then exec setsid -w sh -c ${q(leader)} sh ${q(cmd)}; else set -- ${q(cmd)}; ${leader}; fi`;
+    const SCRIPT = `cd "$1" 2>/dev/null || { echo "directory not found: $1" >&2; exit 2; }; shift; ` +
+      `if setsid -w true 2>/dev/null; then exec setsid -w sh -c '${leader}' sh "$1"; else ${leader}; fi`;
     const killCmd = `p=$(cat ${pidf} 2>/dev/null) && { kill -KILL -- -$p 2>/dev/null || kill -KILL $p; }`;
     const t0 = Date.now();
     let res, where;
@@ -123,7 +124,7 @@ function createSandbox(cfg, { run = runProc } = {}) {
       const onAbort = () => { run(docker, ['exec', name, 'sh', '-c', killCmd], { timeoutMs: 10000 }); };
       if (signal) signal.addEventListener('abort', onAbort, { once: true });
       say(`Running: ${cmd}`);
-      res = await run(docker, ['exec', '-e', 'TERM=dumb', '-e', 'NO_COLOR=1', name, 'sh', '-c', inner(where)], { timeoutMs: (timeout + 15) * 1000, signal, onData: onLog ? (d) => { for (const l of String(d).split(/\r?\n/)) if (l.trim()) say('  ' + l); } : undefined });
+      res = await run(docker, ['exec', '-e', 'TERM=dumb', '-e', 'NO_COLOR=1', name, 'sh', '-c', SCRIPT, 'sh', where, cmd], { timeoutMs: (timeout + 15) * 1000, signal, onData: onLog ? (d) => { for (const l of String(d).split(/\r?\n/)) if (l.trim()) say('  ' + l); } : undefined });
       say(`Finished with exit code ${res.code}.`);
       if (signal) signal.removeEventListener('abort', onAbort);
       where += ` (sandbox: docker ${image}${cfg.network === false ? ', no network' : ''})`;
@@ -131,8 +132,9 @@ function createSandbox(cfg, { run = runProc } = {}) {
       if (!cfg.sshHost) return { ok: false, text: 'Error: no SSH host is set for the sandbox (Settings → Tools).' };
       const base = cfg.sshDir || '~';
       const dir = cwd ? (String(cwd).startsWith('/') ? String(cwd) : `${base}/${cwd}`) : base;
-      const remote = inner(dir).replace(`cd ${q(dir)}`, `cd ${dir.startsWith('~') ? dir.replace(/^~/, '"$HOME"') : q(dir)}`);
-      res = await run('ssh', ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', String(cfg.sshHost), 'sh -c ' + q(remote)], { timeoutMs: (timeout + 20) * 1000, signal });
+      // ssh joins its arguments into one line for the remote shell, so each one is quoted; ~ becomes a path relative to the home folder
+      const remoteDir = dir === '~' ? '.' : dir.replace(/^~\//, '');
+      res = await run('ssh', ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', String(cfg.sshHost), ['sh', '-c', SCRIPT, 'sh', remoteDir, cmd].map(q).join(' ')], { timeoutMs: (timeout + 20) * 1000, signal });
       where = `${dir} (on ${cfg.sshHost})`;
     } else return { ok: false, text: 'Error: unknown sandbox mode' };
     if (res.error === 'cancelled') return { ok: false, text: 'Error: command cancelled.' };
