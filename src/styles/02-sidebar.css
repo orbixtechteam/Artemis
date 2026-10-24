@@ -1,61 +1,75 @@
-/* sidebar */
-.brand { display: flex; align-items: center; gap: 9px; padding: 4px 8px 2px; font-weight: 700; font-size: 17px; letter-spacing: -.02em; color: var(--text); }
-.sidebar { position: relative; width: var(--sb-w, 280px); flex: none; background: var(--side); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 10px; gap: 6px; transition: margin-left .2s; min-height: 0; }
-.sidebar.hidden { margin-left: calc(-1 * var(--sb-w, 280px)); }
-.new-chat { background: transparent; border: 1px solid var(--border); border-radius: var(--r-md); padding: 9px 12px; text-align: left; font-weight: 500; }
-.new-chat:hover, .side-btn:hover { background: var(--hover); }
-.section-head { display: flex; align-items: center; justify-content: space-between; font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding: 8px 6px 0; }
-.projects { display: flex; flex-direction: column; gap: 1px; max-height: 190px; overflow-y: auto; }
-/* Menu rows (New, Sentinel, Projects, ... and everything under More) use the same size and colour as chat rows */
-.nav-item { display: flex; align-items: center; gap: 8px; width: 100%; height: 28px; padding: 0 8px; line-height: 1; text-align: left; border: 0; background: transparent; border-radius: 7px; font-size: var(--fs-ui); color: var(--text); cursor: pointer; }
-.nav-item > svg { width: 15px; height: 15px; flex: none; color: var(--muted); }
-.nav-item:hover { background: var(--hover); }
+/* ---------- Sidebar (components/Sidebar.jsx): the macOS source-list look ----------
+   Top row (traffic lights on macOS, new incognito / new chat), search, the main places, a foldable Workspace
+   section, then the chat list and the profile row. Every row is 30px with the same left edge. */
+.sidebar { position: relative; width: var(--sb-w, 268px); flex: none; min-height: 0; display: flex; flex-direction: column; padding: 0 10px 10px; background: var(--side); border-right: .5px solid var(--line); overflow: hidden; transition: margin-left .2s; }
+.sidebar.hidden { margin-left: calc(-1 * var(--sb-w, 268px)); }
+
+.side-top { flex: none; display: flex; align-items: center; gap: 2px; height: 12px; }
+.side-top.mac { height: 52px; padding-left: 76px; } /* room for the traffic lights */
+.side-top .sp { flex: 1; }
+.side-top:not(.mac) { height: 44px; }
+.side-ib { flex: none; width: 28px; height: 28px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text-2); cursor: pointer; }
+.side-ib:hover { background: var(--fill); color: var(--text); }
+
+.side-search { flex: none; display: flex; align-items: center; gap: 6px; height: 28px; margin: 2px 2px 14px; padding: 0 8px; border-radius: 8px; background: var(--fill); color: var(--muted); }
+.side-search svg { width: 14px; height: 14px; flex: none; }
+.side-search input { flex: 1; min-width: 0; height: 100%; border: 0; background: transparent; outline: none; color: var(--text); font-size: var(--fs-ui); }
+.side-search input::placeholder { color: var(--muted); }
+.side-search:focus-within { box-shadow: var(--ring); }
+
+.side-nav { flex: 0 1 auto; min-height: 0; max-height: 55%; display: flex; flex-direction: column; gap: 1px; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
+.side-nav > *, .nav-more > * { flex: none; }
+.nav-more { display: flex; flex-direction: column; gap: 1px; }
+.nav-item { display: flex; align-items: center; gap: 9px; width: 100%; height: 30px; padding: 0 9px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text); font-size: var(--fs-ui); line-height: 1; text-align: left; cursor: pointer; }
+.nav-item > svg { width: 16px; height: 16px; flex: none; color: var(--accent); }
+.nav-item:hover { background: var(--fill); }
+.nav-item.active { background: var(--fill-2); }
 .nav-item .count { margin-left: auto; font-size: var(--fs-xs); color: var(--muted); }
-.nav-ico.new { width: 15px; height: 15px; flex: none; border-radius: 50%; background: var(--active); display: inline-grid; place-items: center; }
-.nav-ico.new svg { width: 11px; height: 11px; color: var(--text); }
-/* Sidebar rows: chats, pinned projects, notes and project headers all share one size */
-.proj, .chat-item { display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 0 8px; border-radius: 7px; cursor: pointer; font-size: var(--fs-ui); }
-.chat-item > svg.row-icon { width: 15px; height: 15px; flex: none; }
-.proj:hover, .chat-item:hover { background: var(--hover); }
-.proj.active, .chat-item.active { background: var(--active); }
-.proj .t, .chat-item .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.x { visibility: hidden; background: none; border: none; color: var(--muted); padding: 0 6px; border-radius: 4px; }
-.proj:hover .x, .chat-item:hover .x { visibility: visible; }
-.x:hover { color: var(--danger); background: var(--hover); }
-.search { border: 1px solid var(--border); background: var(--bg); border-radius: var(--r-md); padding: 7px 10px; font-size: var(--fs-ui); outline: none; margin-top: 4px; }
-.chat-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; min-height: 0; }
-.group-label, .side-head { font-size: var(--fs-xs); line-height: 1.2; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding: 10px 8px 3px; }
+.nav-item .count[title] { padding: 1px 6px; border-radius: 8px; background: var(--fill-2); color: var(--text); }
+.nav-item .state { margin-left: auto; font-size: var(--fs-xs); color: var(--muted); }
+.nav-item .state.on { color: var(--ok); }
+
+/* section headers: Workspace, Notes, Pinned, Projects, and the day groups of the chat list */
+.group-label, .side-head { padding: 16px 9px 5px; font-size: 11px; font-weight: 600; line-height: 1.2; letter-spacing: .01em; color: var(--muted); }
 .side-head { display: flex; align-items: center; gap: 4px; cursor: pointer; user-select: none; }
-.side-head:hover { color: var(--text); }
-.chat-list > .side-head:first-child { padding-top: 4px; }
+.side-head > svg { order: 2; width: 11px; height: 11px; opacity: 0; transition: opacity .12s; }
+.side-head:hover { color: var(--text-2); }
+.side-head:hover > svg, .side-head:focus-visible > svg { opacity: 1; }
+.chat-list > .side-head:first-child, .chat-list > .notes-sec:first-child > .side-head { padding-top: 6px; }
+
+.chat-list { flex: 1 1 140px; min-height: 120px; display: flex; flex-direction: column; gap: 1px; margin-top: 2px; padding-right: 2px; overflow-y: auto; }
+.chat-item { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 9px; border-radius: var(--r-sm); color: var(--text-2); font-size: var(--fs-ui); cursor: pointer; }
+.chat-item > svg.row-icon { width: 14px; height: 14px; flex: none; }
+.chat-item:hover { background: var(--fill); }
+.chat-item.active { background: var(--fill-2); color: var(--text); }
+.chat-item .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.x { visibility: hidden; padding: 0 6px; border: none; border-radius: 4px; background: none; color: var(--muted); }
+.chat-item:hover .x, .chat-item:focus-within .x { visibility: visible; }
+.x:hover { color: var(--text); background: var(--fill); }
+.x.pin.on { visibility: visible; color: var(--accent); }
+.rename { flex: 1; min-width: 0; padding: 2px 6px; border: 1px solid var(--accent); border-radius: var(--r-sm); background: var(--field-bg); outline: none; }
+
 .project-group { margin: 1px 0; }
-.project-group-head { display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 0 8px; border-radius: 7px; cursor: pointer; font-size: var(--fs-ui); font-weight: 500; }
-.project-group-head .row-icon { width: 15px; height: 15px; flex: none; }
-.project-group-head:hover { background: var(--hover); }
-.project-group-head .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.project-chevron { color: var(--muted); flex: none; }
-.project-open { visibility: hidden; border: none; background: none; color: var(--muted); padding: 2px 4px; border-radius: 5px; display: inline-flex; }
+.project-group-head { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 9px; border-radius: var(--r-sm); font-size: var(--fs-ui); font-weight: 500; cursor: pointer; }
+.project-group-head:hover { background: var(--fill); }
+.project-group-head .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-chevron { flex: none; color: var(--muted); }
+.project-open { visibility: hidden; display: inline-flex; padding: 2px 4px; border: none; border-radius: 5px; background: none; color: var(--muted); }
 .project-group-head:hover .project-open { visibility: visible; }
-.project-open:hover { color: var(--text); background: var(--active); }
-.project-submenu { margin-left: 15px; padding-left: 6px; border-left: 1px solid var(--border); display: flex; flex-direction: column; gap: 1px; }
-.rename { flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--accent); border-radius: var(--r-sm); padding: 2px 6px; outline: none; }
-.side-btn { background: none; border: none; text-align: left; padding: 8px 10px; border-radius: 8px; color: var(--muted); }
-.side-btn:hover { color: var(--text); }
+.project-open:hover { color: var(--text); background: var(--fill-2); }
+.project-submenu { display: flex; flex-direction: column; gap: 1px; margin-left: 15px; padding-left: 6px; border-left: 1px solid var(--line); }
 
-.side-foot .profile-btn { flex: 1 1 auto; min-width: 0; }
-.side-foot .side-user { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.foot-icons { display: flex; gap: 0; flex: none; }
-.foot-icons button { position: relative; width: 26px; height: 28px; border: 0; background: transparent; border-radius: 7px; color: var(--muted); display: grid; place-items: center; cursor: pointer; padding: 0; }
-.foot-icons button:hover { background: var(--hover); color: var(--text); }
-.foot-icons .nb { position: absolute; top: 0; right: 0; font: 600 9px/1 system-ui, sans-serif; font-style: normal; background: var(--active); color: var(--text); border-radius: 7px; padding: 2px 4px; }
-.nav-item .count[title] { background: var(--active); border-radius: 8px; padding: 1px 6px; color: var(--text); }
-
-.nav-row { display: flex; align-items: center; gap: 2px; }
-.nav-row .nav-item { flex: 1; min-width: 0; }
-.nav-mini { flex: none; width: 28px; height: 28px; border: 0; background: transparent; color: var(--muted); border-radius: 7px; display: grid; place-items: center; cursor: pointer; padding: 0; }
-.nav-mini:hover { background: var(--hover); color: var(--text); }
-.more-peek { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; opacity: .55; }
-.more-peek svg { width: 13px; height: 13px; }
-.more-peek .dot { width: 7px; height: 7px; border-radius: 50%; background: #3fb950; opacity: 1; }
 .found-group { margin-bottom: 6px; }
-.found-title { padding: 6px 10px 3px; font-size: var(--fs-xs); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.found-title { padding: 6px 9px 3px; font-size: 11px; font-weight: 600; color: var(--muted); }
+
+.side-foot { flex: none; display: flex; align-items: center; gap: 4px; margin-top: 6px; padding: 8px 0 0; border-top: .5px solid var(--line); }
+.profile-btn { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 9px; padding: 4px 6px; border: 0; border-radius: var(--r-md); background: transparent; }
+.profile-btn:hover { background: var(--fill); }
+.avatar { width: 26px; height: 26px; flex: none; display: inline-grid; place-items: center; border-radius: 50%; background: var(--text); color: var(--bg); font-size: 11.5px; font-weight: 600; }
+img.avatar { object-fit: cover; }
+.side-user { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-ui); font-weight: 500; }
+
+.chat-item:focus-visible, .side-head:focus-visible, .project-group-head:focus-visible { outline-offset: -2px; }
+.chat-item.running .row-icon { color: var(--accent); }
+.chat-item.awaiting .row-icon { color: var(--warn); }
+@media (prefers-reduced-motion: reduce) { .sidebar, .side-head > svg { transition: none; } }

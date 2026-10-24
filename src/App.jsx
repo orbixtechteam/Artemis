@@ -1,6 +1,7 @@
 import { startDrag, clamp, loadWidth, saveWidth } from './lib/resize.js';
 import { installDropGuard } from './lib/attach.js';
-import { applyTextSize, applyTheme, loadThemes, SYSTEM_THEME, TEXT_SIZES } from './lib/themes.js';
+import { applyTextSize, applySettingsTheme, loadThemes, SYSTEM_THEME, TEXT_SIZES } from './lib/themes.js';
+import { families as paletteFamilies, customThemes } from './lib/palette.mjs';
 import { askConfirm } from './lib/dialog.js';
 import { speak, stopSpeaking, createSpeaker, prepareVoice, ttsConfig } from './lib/voice.js';
 import { normLang, detectTextLang, replyLangHint } from './lib/lang.mjs';
@@ -103,8 +104,9 @@ export default function App() {
   const settingsTabRef = useRef('general');
   const setSettingsTab = (t) => { settingsTabRef.current = t || 'general'; setSettingsTabState(t || 'general'); };
   const [panel, setPanel] = useState(null); // { type: 'file', file } | { type: 'artifact', id }
-  const [showProgress, setShowProgress] = useState(() => { try { return localStorage.getItem('artemis-chatbar') !== '0'; } catch { return true; } }); // the right bar: chat controls + progress
-  useEffect(() => { try { localStorage.setItem('artemis-chatbar', showProgress ? '1' : '0'); } catch {} }, [showProgress]);
+  // the right bar (chat controls + progress) starts closed so the chat gets the room; the toolbar's Chat button opens it
+  const [showProgress, setShowProgress] = useState(() => { try { return localStorage.getItem('artemis-chatbar-open') === '1'; } catch { return false; } });
+  useEffect(() => { try { localStorage.setItem('artemis-chatbar-open', showProgress ? '1' : '0'); } catch {} }, [showProgress]);
   const [wide, setWide] = useState(false);
   const [spW, setSpW] = useState(() => loadWidth('zero.spW', 460));
   const [sbW, setSbW] = useState(() => loadWidth('zero.sbW', 280));
@@ -916,15 +918,15 @@ export default function App() {
     // before the palettes are loaded every theme id is "unknown" and would be painted as System: wait (main.jsx already painted the cached theme)
     if (!settings || !themesLoaded.current) return;
     document.documentElement.dataset.vars = '1';
-    applyTheme(settings.theme, themeChoices);
-  }, [settings?.theme, settings?.activeProjectId, themeChoices]);
+    applySettingsTheme(settings, themeChoices);
+  }, [settings?.theme, settings?.palette, settings?.appearance, settings?.accent, settings?.activeProjectId, themeChoices]);
 
   // Themes are JSON: main reads <userData>/themes and <project>/.artemis/themes, we inject them and repaint.
   useEffect(() => {
     let alive = true;
     const run = async () => {
       const t = await loadThemes(api, project?.folder);
-      if (alive) { themesLoaded.current = true; setThemeChoices([SYSTEM_THEME, ...t]); const s = settingsRef.current; if (s) applyTheme(s.theme, t); }
+      if (alive) { themesLoaded.current = true; setThemeChoices([SYSTEM_THEME, ...t]); const s = settingsRef.current; if (s) applySettingsTheme(s, t); }
       return t;
     };
     run();
@@ -1820,6 +1822,7 @@ export default function App() {
     if (k === 'newnote') { noteActions.create(''); return; }
     if (k === 'sentinel') { toggleSentinel(); return; }
     if (k === 'palette') { setPalette(true); return; }
+    if (k === 'providers') { setSettingsTab('providers'); setModal('settings'); return; }
     sideApi.current.goNav(k);
   };
   const startHomeChat = (text, atts, d = {}) => {
@@ -1855,7 +1858,7 @@ export default function App() {
     if (kind === 'connectors') body = <ConnectorsModal onClose={close} onChanged={(n) => setConnectorCount(n)} settings={settings} onApply={async (patch) => { try { setSettings({ ...(await api.setSettings(patch)) }); } catch {} }} />;
     return body && <PageContext.Provider value={true}><div className="page-host">{body}</div></PageContext.Provider>;
   };
-  const SETTING_TABS = [['general', 'General', 'sliders', 'default model personality startup import'], ['appearance', 'Appearance', 'eye', 'theme text size dark light'], ['shortcuts', 'Keyboard shortcuts', 'keyboard', 'shortcut hotkey keys'], ['providers', 'Providers', 'plug', 'api keys models'], ['tools', 'Tools & safety', 'wrench', 'terminal permissions'], ['access', 'Access & permissions', 'shield', 'folders computer control'], ['agents', 'Agents', 'layers', 'helpers delegate'], ['brains', 'Brains', 'bulb', 'council'], ['limits', 'Usage limits', 'chart', 'budget cost'], ['voice', 'Voice', 'mic', 'sentinel speech'], ['make', 'Make', 'bolt', 'webhook automation'], ['phone', 'Phone', 'phone', 'telegram mobile remote']];
+  const SETTING_TABS = [['general', 'General', 'sliders', 'default model personality startup import'], ['appearance', 'Appearance', 'eye', 'theme text size dark light'], ['shortcuts', 'Keyboard shortcuts', 'keyboard', 'shortcut hotkey keys'], ['providers', 'Providers', 'plug', 'api keys models'], ['tools', 'Tools & safety', 'wrench', 'terminal permissions'], ['access', 'Access & permissions', 'shield', 'folders computer control'], ['agents', 'Agents', 'layers', 'helpers delegate'], ['brains', 'Brains', 'bulb', 'council'], ['limits', 'Usage & limits', 'chart', 'budget cost usage'], ['voice', 'Voice', 'mic', 'sentinel speech'], ['make', 'Make', 'bolt', 'webhook automation'], ['phone', 'Phone', 'phone', 'telegram mobile remote']];
   const paletteActions = [
     { id: 'newtab', group: 'Create', label: 'New tab', icon: 'plus', hint: '⌘T', run: () => newTab() },
     { id: 'newchat', group: 'Create', label: 'New chat', icon: 'plus', hint: '⌘N', run: () => newChat() },
@@ -1886,7 +1889,9 @@ export default function App() {
     { id: 'graph', group: 'Go to', label: 'Notes graph', icon: 'graph', run: () => navView('graph') },
     { id: 'sentinel', group: 'Go to', label: 'Toggle Sentinel (voice)', icon: 'shield', hint: formatAccelerator(settings.sentinelShortcut ?? 'CommandOrControl+Shift+A', api.platform === 'darwin'), run: toggleSentinel },
     ...SETTING_TABS.map(([id, label, icon, words]) => ({ id: 'set-' + id, group: 'Settings', label: id === 'general' ? 'Settings' : 'Settings: ' + label, icon, hint: id === 'general' ? '⌘,' : '', words, run: () => openSettings(id) })),
-    ...themeChoices.map((t) => ({ id: 'theme-' + t.id, group: 'Theme', label: 'Theme: ' + t.name, icon: 'sparkle', swatch: t.preview, current: (settings.theme || 'system') === t.id, onlyTyped: true, words: 'appearance color ' + t.group, run: () => setPref({ theme: t.id }) })),
+    ...paletteFamilies(themeChoices).map((f) => { const t = f.dark || f.light; return { id: 'palette-' + f.id, group: 'Theme', label: 'Palette: ' + f.name, icon: 'sparkle', swatch: t.preview, current: (settings.theme || 'system') === 'system' && (settings.palette || 'artemis') === f.id, onlyTyped: true, words: 'appearance theme color ' + f.about, run: () => setPref({ palette: f.id, theme: 'system' }) }; }),
+    ...[['system', 'Automatic'], ['light', 'Light'], ['dark', 'Dark']].map(([id, name]) => ({ id: 'appearance-' + id, group: 'Theme', label: 'Appearance: ' + name, icon: 'sparkle', current: (settings.appearance || 'system') === id, onlyTyped: true, words: 'theme mode dark light', run: () => setPref({ appearance: id, theme: 'system' }) })),
+    ...customThemes(themeChoices).map((t) => ({ id: 'theme-' + t.id, group: 'Theme', label: 'Theme: ' + t.name, icon: 'sparkle', swatch: t.preview, current: settings.theme === t.id, onlyTyped: true, words: 'appearance color ' + t.group, run: () => setPref({ theme: t.id }) })),
     ...TEXT_SIZES.map(([id, name, px]) => ({ id: 'size-' + id, group: 'Theme', label: `Text size: ${name} (${px}px)`, icon: 'edit', current: (settings.textSize || 'medium') === id, onlyTyped: true, words: 'font appearance', run: () => setPref({ textSize: id }) })),
     ...(chatView ? groups.flatMap((g) => g.items.map(([id, name]) => ({ id: 'model-' + id, group: 'Model', label: 'Model: ' + name, icon: 'bulb', current: chat.model === id, onlyTyped: true, words: g.label + ' switch chat', run: () => updateChat(chat.id, { model: id }) }))) : [])
   ];

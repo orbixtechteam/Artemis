@@ -1,0 +1,33 @@
+{
+  "id": "ember-dark",
+  "name": "Ember",
+  "family": "ember",
+  "about": "Charcoal and copper",
+  "group": "Palettes",
+  "dark": true,
+  "preview": [
+    "#161210",
+    "#E08A5C",
+    "#201A17"
+  ],
+  "vars": {
+    "--theme-bg": "#161210",
+    "--theme-side": "#201A17",
+    "--theme-panel": "#261F1B",
+    "--theme-elev": "#261F1B",
+    "--theme-user": "rgba(245,236,230,.10)",
+    "--theme-code": "#100D0B",
+    "--theme-border": "rgba(245,236,230,.09)",
+    "--theme-text": "#F5ECE6",
+    "--theme-muted": "rgba(245,236,230,.56)",
+    "--theme-accent": "#E08A5C",
+    "--theme-accent-text": "#1E0F07",
+    "--theme-hover": "rgba(245,236,230,.06)",
+    "--theme-active": "rgba(245,236,230,.10)",
+    "--theme-danger": "#F08A80",
+    "--theme-ok": "#7FC79A",
+    "--theme-warn": "#E8B45A",
+    "--theme-add": "rgba(127,199,154,.16)",
+    "--theme-del": "rgba(240,138,128,.16)"
+  }
+}

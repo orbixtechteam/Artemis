@@ -1,7 +1,9 @@
 {
-  "id": "dark",
-  "name": "Dark",
-  "group": "Basic",
+  "id": "classic-dark",
+  "name": "Classic",
+  "family": "classic",
+  "about": "The original Artemis look",
+  "group": "Palettes",
   "dark": true,
   "preview": [
     "#191919",

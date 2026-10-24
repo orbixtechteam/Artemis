@@ -2,6 +2,8 @@
 // and <project>/.artemis/themes), so a new theme never needs a rebuild: main reads them and hands the list
 // to the renderer, drop a .json in the folder and press Refresh in Settings.
 // Light/Dark stay in styles.css (they carry the @media (prefers-color-scheme: dark) fallback).
+import { resolveTheme, accentVars } from './palette.mjs';
+
 export const SYSTEM_THEME = { id: 'system', name: 'System', group: 'Basic', preview: ['#faf9f5', '#c96442', '#262624'] };
 
 export const TEXT_SIZES = [['small', 'Small', 13], ['medium', 'Medium', 14], ['large', 'Large', 16]];
@@ -31,28 +33,43 @@ export function applyThemeVars() {
 /** Paints the active theme (its --theme-* values go on the root); System follows the OS. */
 const CACHE = 'artemis.themeCache';
 
-export function applyTheme(id, themes = []) {
+function paint(t, extra = {}) {
   const el = document.documentElement;
   clearVars(el);
-  if (!id || id === SYSTEM_THEME.id || !isKnownTheme(id)) {
+  if (!t) {
     delete el.dataset.theme;
     delete el.dataset.scheme;
     el.style.colorScheme = '';
     saveCache({ id: SYSTEM_THEME.id });
     return;
   }
-  el.dataset.theme = id;
-  const t = (themes || []).find((x) => x && x.id === id);
+  el.dataset.vars = '1';
+  el.dataset.theme = t.id;
   const vars = {};
-  if (t && t.vars) {
-    for (const [k, v] of Object.entries(t.vars)) {
-      if (typeof k === 'string' && k.startsWith('--theme-') && typeof v === 'string' && v) { el.style.setProperty(k, v); vars[k] = v; }
-    }
+  for (const [k, v] of Object.entries({ ...(t.vars || {}), ...extra })) {
+    if (typeof k === 'string' && k.startsWith('--theme-') && typeof v === 'string' && v) { el.style.setProperty(k, v); vars[k] = v; }
   }
-  const scheme = t ? (t.dark === false ? 'light' : 'dark') : '';
+  const scheme = t.dark === undefined ? '' : t.dark === false ? 'light' : 'dark';
   el.style.colorScheme = scheme;
   if (scheme) el.dataset.scheme = scheme; else delete el.dataset.scheme; // lets CSS pick light or dark code colours for JSON themes
-  saveCache({ id, vars, scheme });
+  saveCache({ id: t.id, vars, scheme });
+}
+
+/** One theme by id, nothing else (System = the CSS defaults). */
+export function applyTheme(id, themes = []) {
+  if (!id || id === SYSTEM_THEME.id || !isKnownTheme(id)) return paint(null);
+  paint((themes || []).find((x) => x && x.id === id) || { id });
+}
+
+/** What every window calls: the palette for the current Appearance plus the accent, or the chosen custom theme. */
+let last = null;
+let watching = false;
+export function applySettingsTheme(settings, themes = []) {
+  last = { settings: settings || {}, themes: themes || [] };
+  const mq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+  if (mq && !watching) { watching = true; mq.addEventListener('change', () => { if (last) applySettingsTheme(last.settings, last.themes); }); }
+  const { theme, dark, custom } = resolveTheme(last.settings, last.themes, mq ? mq.matches : false);
+  paint(theme, custom ? {} : accentVars(last.settings.accent, dark));
 }
 
 function saveCache(c) { try { localStorage.setItem(CACHE, JSON.stringify(c)); } catch {} }

@@ -1,0 +1,33 @@
+{
+  "id": "artemis-dark",
+  "name": "Artemis",
+  "family": "artemis",
+  "about": "Ink, ivory and gold",
+  "group": "Palettes",
+  "dark": true,
+  "preview": [
+    "#121316",
+    "#D4B06A",
+    "#1A1B1E"
+  ],
+  "vars": {
+    "--theme-bg": "#121316",
+    "--theme-side": "#1A1B1E",
+    "--theme-panel": "#1E1F23",
+    "--theme-elev": "#1E1F23",
+    "--theme-user": "rgba(243,239,231,.10)",
+    "--theme-code": "#0C0D0F",
+    "--theme-border": "rgba(243,239,231,.09)",
+    "--theme-text": "#F3EFE7",
+    "--theme-muted": "rgba(243,239,231,.56)",
+    "--theme-accent": "#D4B06A",
+    "--theme-accent-text": "#1A1408",
+    "--theme-hover": "rgba(243,239,231,.06)",
+    "--theme-active": "rgba(243,239,231,.10)",
+    "--theme-danger": "#F08A80",
+    "--theme-ok": "#7FC79A",
+    "--theme-warn": "#E8B45A",
+    "--theme-add": "rgba(127,199,154,.16)",
+    "--theme-del": "rgba(240,138,128,.16)"
+  }
+}

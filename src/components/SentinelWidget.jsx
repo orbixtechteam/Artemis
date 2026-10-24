@@ -5,7 +5,7 @@ import CommandPalette from './CommandPalette.jsx';
 import { Icon } from './Icons.jsx';
 import Markdown from './Markdown.jsx';
 import { CodeView } from './SidePanel.jsx';
-import { applyTextSize, applyTheme, loadThemes } from '../lib/themes.js';
+import { applyTextSize, applySettingsTheme, loadThemes } from '../lib/themes.js';
 import { languageOf, viewKind } from '../lib/langs.js';
 import { parseCsv, detectDelimiter, splitSheets } from '../lib/preview.js';
 
@@ -254,7 +254,7 @@ export default function SentinelWidget() {
   const pin = (v) => { setPinned(v); store('sn-pin', v ? '1' : '0'); if (v) setOpen(true); };
   useEffect(() => {
     document.documentElement.classList.add('sw-root');
-    const theme = () => api.getSettings().then((s) => { applyTextSize(s.textSize); return loadThemes(api).then((t) => applyTheme(s.theme, t)); }).catch(() => {});
+    const theme = () => api.getSettings().then((s) => { applyTextSize(s.textSize); return loadThemes(api).then((t) => applySettingsTheme(s, t)); }).catch(() => {});
     theme();
     const offTheme = api.onThemeChanged ? api.onThemeChanged(theme) : null; // a new theme in Settings repaints the widget too
     api.sentinelCurrent().then((i) => i && setInfo(i)).catch(() => {});

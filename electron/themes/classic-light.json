@@ -1,7 +1,9 @@
 {
-  "id": "light",
-  "name": "Light",
-  "group": "Basic",
+  "id": "classic-light",
+  "name": "Classic",
+  "family": "classic",
+  "about": "The original Artemis look",
+  "group": "Palettes",
   "dark": false,
   "preview": [
     "#ffffff",

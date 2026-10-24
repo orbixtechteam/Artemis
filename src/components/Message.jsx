@@ -181,8 +181,7 @@ function MessageView({ m, live, chatId, h, canDelete = true, artifacts }) {
       <div className="msg user" data-msg={m.id}>
         {m.attachments?.length > 0 && <div className="chips right">{m.attachments.map((a, i) => <AttachmentChip key={i} a={a} />)}</div>}
         {m.content && <div className="bubble">{m.mentions?.length ? splitMentions(m.content, m.mentions).map((p, i) => (p.mention ? <span key={i} className="mention">{p.text}</span> : <React.Fragment key={i}>{p.text}</React.Fragment>)) : m.content}</div>}
-        <div className="actions"><CopyButton getText={() => m.content} />{onDelete && <DeleteButton onDelete={onDelete} />}</div>
-        {m.createdAt && <div className="timestamp">{fmtTime(m.createdAt)}</div>}
+        <div className="actions">{m.createdAt && <time className="ts">{fmtTime(m.createdAt)}</time>}<CopyButton getText={() => m.content} />{onDelete && <DeleteButton onDelete={onDelete} />}</div>
       </div>
     );
   }
@@ -223,9 +222,9 @@ function MessageView({ m, live, chatId, h, canDelete = true, artifacts }) {
           <ReadButton msgId={m.id} getText={() => assistantText(m, true)} />
           <button onClick={() => h && h.regenerate && h.regenerate(chatId, m)}>Regenerate</button>
           {onDelete && <DeleteButton onDelete={onDelete} />}
+          {m.createdAt && <time className="ts">{fmtTime(m.createdAt)}</time>}
         </div>
       )}
-      {m.createdAt && <div className="timestamp">{fmtTime(m.createdAt)}</div>}
     </div>
   );
 }
