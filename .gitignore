@@ -9,3 +9,4 @@ release
 .piper-voices/
 *.log
 vite.config.mjs.timestamp-*
+finetune
