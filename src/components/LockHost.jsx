@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from './Icons.jsx';
+import Logo from './Logo.jsx';
 import { captureFrame } from '../lib/speaker.js';
 
 /*
@@ -144,7 +145,7 @@ export default function LockHost({ sentinel }) {
     <>
       <div className="lock-screen" role="dialog" aria-modal="true" aria-label="Artemis is locked">
         <form className="lock-card" onSubmit={submit}>
-          <div className="lock-mark" aria-hidden="true"><Icon name="lock" size={26} /></div>
+          <div className="lock-mark" aria-hidden="true"><Logo size={72} /><span className="lock-badge"><Icon name="lock" size={13} /></span></div>
           <h1 className="lock-title">Artemis is locked</h1>
           <p className="lock-sub">{why}</p>
           {inLockdown ? (

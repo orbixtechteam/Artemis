@@ -1,0 +1,43 @@
+/* Settings → Appearance: mode cards, palette grid, accent dots; plus the shared segmented control. */
+
+.pref-seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--fill-2); }
+.pref-seg button { height: 22px; padding: 0 11px; border: 0 !important; border-radius: 6px; background: transparent; color: var(--text-2); font: inherit; font-size: 12px; line-height: 22px; cursor: pointer; }
+.pref-seg button:hover:not(.on) { background: transparent; color: var(--text); }
+.pref-seg button.on { background: var(--elev); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.22), 0 0 0 .5px var(--line); }
+
+/* a tiny window drawn in the theme's own colours (vars come from the theme file, see AppearanceTab.jsx) */
+.ap-thumb { display: flex; width: 100%; height: 100%; border-radius: 9px; overflow: hidden; background: var(--t-bg); box-shadow: 0 0 0 .5px var(--line-2), 0 4px 12px -6px rgba(0,0,0,.35); }
+.ap-ts { width: 30%; background: var(--t-side); display: flex; flex-direction: column; gap: 4px; padding: 9px 6px; }
+.ap-ts i { display: block; height: 3px; border-radius: 2px; background: color-mix(in srgb, var(--t-text) 16%, transparent); }
+.ap-ts i:first-child { width: 60%; background: var(--t-accent); }
+.ap-tm { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; gap: 4px; padding: 9px; }
+.ap-tm .l1, .ap-tm .l2 { display: block; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--t-text) 16%, transparent); }
+.ap-tm .l1 { width: 72%; }
+.ap-tm .l2 { width: 48%; margin-bottom: 3px; }
+.ap-tp { display: flex; justify-content: flex-end; align-items: center; height: 14px; border-radius: 7px; background: var(--t-elev); padding: 0 3px; box-shadow: 0 0 0 .5px var(--t-line); }
+.ap-tp i { width: 9px; height: 9px; border-radius: 50%; background: var(--t-accent); }
+
+.ap-modes { display: flex; flex-wrap: wrap; gap: 22px; padding: 16px; }
+.ap-mode { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 0 !important; border: 0 !important; background: transparent !important; color: var(--text-2); font: inherit; font-size: 12px; cursor: pointer; }
+.ap-mode > .ap-thumb, .ap-mode > .ap-auto { width: 100px; height: 64px; border-radius: 9px; outline: 2px solid transparent; outline-offset: 3px; transition: outline-color .15s; }
+.ap-mode.on { color: var(--text); font-weight: 600; }
+.ap-mode.on > .ap-thumb, .ap-mode.on > .ap-auto { outline-color: var(--accent); }
+.ap-auto { position: relative; display: block; }
+.ap-auto .ap-thumb { position: absolute; inset: 0; }
+.ap-auto .ap-thumb.half { clip-path: polygon(100% 0, 100% 100%, 0 100%); box-shadow: none; }
+
+.ap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 18px 14px; padding: 16px; }
+.ap-pal { display: flex; flex-direction: column; align-items: stretch; gap: 2px; padding: 0 !important; border: 0 !important; background: transparent !important; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.ap-pal > .ap-thumb { height: 80px; margin-bottom: 7px; outline: 2px solid transparent; outline-offset: 3px; transition: outline-color .15s; }
+.ap-pal.on > .ap-thumb { outline-color: var(--accent); }
+.ap-pal .ap-name { font-size: 12.5px; font-weight: 500; padding: 0 2px; }
+.ap-pal .ap-about { font-size: 11.5px; color: var(--muted); padding: 0 2px; }
+.ap-mode:focus-visible, .ap-pal:focus-visible { outline: none; }
+.ap-mode:focus-visible > .ap-thumb, .ap-mode:focus-visible > .ap-auto, .ap-pal:focus-visible > .ap-thumb { outline-color: color-mix(in srgb, var(--accent) 60%, transparent); }
+
+.ap-dots { display: flex; flex-wrap: wrap; gap: 9px; align-items: center; }
+.ap-dot { position: relative; width: 18px; height: 18px; padding: 0 !important; border: 0 !important; border-radius: 50% !important; cursor: pointer; box-shadow: inset 0 0 0 .5px rgba(0,0,0,.25); }
+.ap-dot.multi { background: conic-gradient(#E5645A, #E89A4F, #D4B06A, #6CC28A, #4C9BFF, #9B87F5, #E57A9A, #E5645A) !important; }
+.ap-dot.on::after { content: ""; position: absolute; inset: 6px; border-radius: 50%; background: #fff; }
+.ap-dot:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ap-dot:disabled { opacity: .35; cursor: default; }

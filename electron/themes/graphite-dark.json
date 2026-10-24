@@ -1,0 +1,33 @@
+{
+  "id": "graphite-dark",
+  "name": "Graphite",
+  "family": "graphite",
+  "about": "Neutral with blue",
+  "group": "Palettes",
+  "dark": true,
+  "preview": [
+    "#151517",
+    "#4C9BFF",
+    "#1E1E21"
+  ],
+  "vars": {
+    "--theme-bg": "#151517",
+    "--theme-side": "#1E1E21",
+    "--theme-panel": "#232326",
+    "--theme-elev": "#232326",
+    "--theme-user": "rgba(242,242,244,.10)",
+    "--theme-code": "#0E0E10",
+    "--theme-border": "rgba(242,242,244,.09)",
+    "--theme-text": "#F2F2F4",
+    "--theme-muted": "rgba(242,242,244,.56)",
+    "--theme-accent": "#4C9BFF",
+    "--theme-accent-text": "#FFFFFF",
+    "--theme-hover": "rgba(242,242,244,.06)",
+    "--theme-active": "rgba(242,242,244,.10)",
+    "--theme-danger": "#F08A80",
+    "--theme-ok": "#7FC79A",
+    "--theme-warn": "#E8B45A",
+    "--theme-add": "rgba(127,199,154,.16)",
+    "--theme-del": "rgba(240,138,128,.16)"
+  }
+}

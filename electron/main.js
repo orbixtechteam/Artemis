@@ -60,6 +60,8 @@ try {
     if (fs.existsSync(legacy)) { app.setPath('userData', legacy); break; }
   }
 } catch {}
+// Dev only: run against a separate data folder (screenshots, UI work) without touching real chats and settings.
+if (IS_DEV && process.env.ARTEMIS_USER_DATA) app.setPath('userData', path.resolve(process.env.ARTEMIS_USER_DATA));
 const dataFile = (name) => path.join(app.getPath('userData'), `${name}.json`);
 // Stores whose file did not parse: name -> where the bad file was moved. store:set for them is refused until the user has been told.
 const corruptStores = new Map();
@@ -184,7 +186,10 @@ const DEFAULT_SETTINGS = {
   videoModel: '',
   systemPrompt: '',
   personality: '', personalityCustom: '', // how Artemis talks: a preset from electron/personality.json plus your own notes
-  theme: 'system',
+  theme: 'system', // a single custom theme id; 'system' = use the palette below
+  palette: 'artemis', // a theme family (electron/themes/<family>-light|dark.json)
+  appearance: 'system', // system | light | dark
+  accent: '', // '' = the palette's own accent, else a name from ACCENTS in src/lib/palette.mjs
   textSize: 'medium',
   maxTokens: 8192,
   reasoningEffort: '', // '' = leave it to the model; low / medium / high is sent as reasoning_effort. A chat can override it.
@@ -315,11 +320,7 @@ const themeDirs = (folderArg) => {
 };
 /** Settings reads the themes: the folder of project "latest", or the project the renderer names. */
 const listThemes = (folderArg) => { const d = themeDirs(folderArg); return { ...themes.list(d), folders: { user: d.user, project: d.project || null } }; };
-const nativeThemeFor = () => {
-  const id = getSettings().theme || 'system';
-  if (id === 'system') nativeTheme.themeSource = 'system';
-  else { const t = listThemes().themes.find((x) => x.id === id); nativeTheme.themeSource = t && t.dark === false ? 'light' : 'dark'; }
-};
+const nativeThemeFor = () => { nativeTheme.themeSource = themes.nativeSource(getSettings(), listThemes().themes); };
 /** Palette changes have to reach the main window, the palette window and the sticky widget. */
 const broadcastTheme = () => {
   try { win?.webContents.send('theme:changed'); } catch {}
@@ -393,8 +394,9 @@ ipcMain.handle('settings:set', async (_e, patch) => {
   if (typeof braveKey === 'string' && braveKey.trim()) setSecret('braveKey', braveKey.trim());
   const before = getSettings();
   saveSettings(rest);
-  if (rest.theme) nativeThemeFor();
-  if (('theme' in rest && rest.theme !== before.theme) || ('textSize' in rest && rest.textSize !== before.textSize)) broadcastTheme();
+  const looks = ['theme', 'appearance', 'palette', 'accent', 'textSize'].filter((k) => k in rest && rest[k] !== before[k]);
+  if (looks.some((k) => k !== 'textSize')) nativeThemeFor();
+  if (looks.length) broadcastTheme();
   // Restart the Telegram bot only when something about them changed, and never make the Save button wait for it
   // (stopping Telegram long-polling or a busy port can take a long time).
   const remoteKeys = ['telegramEnabled'];
@@ -1510,7 +1512,7 @@ const mcpToken = () => { let t = getSecret('mcpToken'); if (!t) { t = require('c
 // Settings changed from outside the window: save, apply the native theme and tell the window to reload them.
 function applyOutsideSettings(patch) {
   saveSettings(patch);
-  if (patch.theme) { nativeThemeFor(); broadcastTheme(); }
+  if (['theme', 'palette', 'appearance', 'accent', 'textSize'].some((k) => k in patch)) { nativeThemeFor(); broadcastTheme(); }
   toWinSafe('app:changed', {});
 }
 async function confirmOutside({ title, detail }) {
@@ -1547,7 +1549,7 @@ const mcpServer = createMcpServer({
       run: (name, args, o) => tools.run(name, args, { root: o.root, approve: o.approve, session: new Set(), autoApprove: false, userData: app.getPath('userData') })
     },
     computer: { run: (a) => { if (!computer) throw new Error('Computer control is only available on macOS.'); return computer.run(a); } },
-    themes: () => listThemes().themes.map((t) => ({ id: t.id, name: t.name, group: t.group, dark: t.dark }))
+    themes: () => listThemes().themes.map((t) => ({ id: t.id, name: t.name, group: t.group, dark: t.dark, family: t.family }))
   })
 });
 async function syncMcpServer() {
@@ -1596,7 +1598,7 @@ app.whenReady().then(() => {
     const st = getSettings(); const provs = readProviders();
     logger.info('app', 'Saved keys check', { userData: app.getPath('userData'), encryption: safeStorage.isEncryptionAvailable(), providers: provs.map((p) => ({ name: p.name, needsKey: p.needsKey, key: !!getProviderKey(p.id), models: (p.models || []).length })) });
   } catch (e) { logger.error('app', 'Key check failed: ' + e.message); }
-  { const th = getSettings().theme; nativeTheme.themeSource = th === 'light' || th === 'notion' ? 'light' : th === 'system' ? 'system' : 'dark'; }
+  try { nativeThemeFor(); } catch {}
   // the app page's CSP is a meta tag in index.html; the integrated browser has its own session (electron/browser.js)
   buildAppMenu();
   try { updater.start(); } catch (e) { logger.warn('update', 'Could not start the update checks: ' + e.message); }

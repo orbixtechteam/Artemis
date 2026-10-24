@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 // rows built from divs act like buttons for the keyboard too
 const asButton = (fn) => ({ role: 'button', tabIndex: 0, onKeyDown: (e) => { if (e.target !== e.currentTarget) return; if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn(e); } } });
@@ -20,7 +20,7 @@ function ChatRow({ c, active, status, inProject, onSelect, onRename, onPin }) {
   const icon = status === 'running' ? 'spinner' : status === 'awaiting' ? 'warning' : c.incognito ? 'ghost' : c.sentinel ? 'mic' : inProject ? 'folder' : c.source === 'phone' ? 'phone' : c.source === 'schedule' ? 'clock' : 'chat';
   return (
     <div className={`chat-item ${active ? 'active' : ''} ${status || ''}`} data-chat={c.id} onClick={() => onSelect(c.id)} {...asButton(() => onSelect(c.id))} aria-current={active ? 'page' : undefined}>
-      <Icon name={icon} size={15} className="row-icon" title={status === 'running' ? 'Running' : status === 'awaiting' ? 'Needs your approval' : undefined} />
+      {icon !== 'chat' && <Icon name={icon} size={14} className="row-icon" title={status === 'running' ? 'Running' : status === 'awaiting' ? 'Needs your approval' : undefined} />}
       {editing ? (
         <input
           className="rename" autoFocus value={val}
@@ -67,39 +67,9 @@ export default function Sidebar({
     }, 180);
     return () => { live = false; clearTimeout(t); };
   }, [q]);
-  const navRef = useRef(null);
-  const [navH, setNavH] = useState(() => { try { const v = parseInt(localStorage.getItem('artemis-nav-h') || localStorage.getItem('ares-nav-h'), 10); return v > 60 ? v : null; } catch { return null; } });
-  const moreRef = useRef(null);
-  // the menu can never be dragged shorter than the row that holds "More"
-  const minNav = () => { const b = moreRef.current, n = navRef.current; if (!b || !n) return 60; return Math.ceil(b.getBoundingClientRect().bottom - n.getBoundingClientRect().top + n.scrollTop + 4); };
-  useEffect(() => { if (navH != null) { const m = minNav(); if (navH < m) setNavH(m); } }, []); // (a saved menu height only applies while More is open: closed, the menu fits its rows, so no empty gap is left under "More")
-  const openMore = () => setMore((m) => (m ? m : true));
-  const closeMore = () => setMore((m) => (m ? false : m));
-  const startSplit = (e) => {
-    e.preventDefault();
-    const y0 = e.clientY, h0 = navRef.current ? navRef.current.offsetHeight : 200;
-    const max = () => Math.max(100, (navRef.current?.closest('.sidebar')?.clientHeight || 700) - 230);
-    let cur = h0;
-    const mv = (ev) => { cur = Math.round(Math.max(minNav(), Math.min(Math.max(max(), minNav()), h0 + ev.clientY - y0))); setNavH(cur); if (ev.clientY - y0 > 24) openMore(); else if (ev.clientY - y0 < -24) closeMore(); };
-    const up = () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up); document.body.style.cursor = ''; try { localStorage.setItem('artemis-nav-h', String(cur)); } catch {} };
-    document.body.style.cursor = 'row-resize';
-    window.addEventListener('mousemove', mv); window.addEventListener('mouseup', up);
-  };
-  const resetSplit = () => { setNavH(null); try { { localStorage.removeItem('artemis-nav-h'); localStorage.removeItem('ares-nav-h'); }; } catch {} };
-  const [more, setMore] = useState(false); // More is closed every time the app starts (the open state is no longer remembered)
-  const toggleMore = () => setMore((m) => !m);
-  // opening or closing More moves the divider down or up to fit it (only when the menu height was set by hand)
-  const firstMore = useRef(true);
-  useEffect(() => {
-    if (firstMore.current) { firstMore.current = false; return; }
-    if (navH == null) return;
-    requestAnimationFrame(() => {
-      const n = navRef.current; if (!n) return;
-      const cap = Math.max(100, (n.closest('.sidebar')?.clientHeight || 700) - 230);
-      if (more) setNavH((h) => Math.max(h || 0, Math.min(cap, n.scrollHeight)));
-      else setNavH(minNav());
-    });
-  }, [more]);
+  // Workspace (agents, skills, automations …) is a section that can be folded away; it starts open
+  const [work, setWork] = useState(() => { try { return localStorage.getItem('artemis-side-work') !== '0'; } catch { return true; } });
+  const toggleWork = () => setWork((w) => { try { localStorage.setItem('artemis-side-work', w ? '0' : '1'); } catch {} return !w; });
   const [openProjects, setOpenProjects] = useState(() => {
     try { return JSON.parse(localStorage.getItem('zero-open-projects') || '{}'); } catch { return {}; }
   });
@@ -185,38 +155,29 @@ export default function Sidebar({
   return (
     <aside className={`sidebar ${hidden ? 'hidden' : ''}`}>
       {!hidden && <div className="resize-grip right" onMouseDown={onResizeStart} title="Drag to resize" />}
-      <div className="drag" style={{ height: mac ? 34 : 6 }} />
-      <div className="side-search"><Icon name="search" size={16} /><input type="search" placeholder="Search" aria-label="Search chats, notes and files" value={q} onChange={(e) => setQ(e.target.value)} /></div>
-      <nav className="side-nav" ref={navRef} style={navH && more ? { height: navH, maxHeight: 'none', flex: 'none' } : undefined}>
-        <button className="nav-item" data-nav="home" onClick={onHome}><Icon name="home" size={18} /> Home</button>
-        <div className="nav-row">
-          <button className="nav-item" onClick={onNewChat}><span className="nav-ico new"><Icon name="plus" size={15} /></span> New</button>
-          <button className="nav-mini" onClick={onNewIncognito} title="New incognito chat: not saved, no memory" aria-label="New incognito chat: not saved, no memory"><Icon name="ghost" size={16} /></button>
-        </div>
-        <button className={`nav-item ${view === 'other' ? '' : ''}`} data-nav="projects" onClick={onProjects}><Icon name="folders" size={18} /> Projects</button>
-        {onFiles && <button className="nav-item" data-nav="files" onClick={onFiles}><Icon name="folder" size={18} /> Files</button>}
-        <button className="nav-item" data-nav="schedule" onClick={onSchedule}><Icon name="clock" size={18} /> Scheduled</button>
-        <button ref={moreRef} className="nav-item muted-item" onClick={toggleMore} title={more ? 'Hide' : 'Skills, Agents, Automations, Sentinel, Connectors, Memory…'}>
-          <Icon name={more ? 'chevronDown' : 'chevronRight'} size={18} /> More
-          {!more && <span className="more-peek"><Icon name="sparkle" size={13} /><Icon name="user" size={13} /><Icon name="bolt" size={13} /><Icon name="terminal" size={13} />{agentCount ? <i className="dot" title={agentCount + ' agents running'} /> : null}</span>}
-        </button>
-        {more && (
-          
+      <div className={`side-top drag ${mac ? 'mac' : ''}`}>
+        <span className="sp" />
+        <button className="side-ib nodrag" onClick={onNewIncognito} title="New incognito chat: not saved, no memory" aria-label="New incognito chat: not saved, no memory"><Icon name="ghost" size={16} /></button>
+        <button className="side-ib nodrag" onClick={onNewChat} title="New chat (⌘N)" aria-label="New chat"><Icon name="edit" size={16} /></button>
+      </div>
+      <div className="side-search"><Icon name="search" size={14} /><input type="search" placeholder="Search" aria-label="Search chats, notes and files" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+      <nav className="side-nav" aria-label="Main">
+        <button className="nav-item" data-nav="home" onClick={onHome}><Icon name="home" size={16} /> Home</button>
+        <button className="nav-item" data-nav="projects" onClick={onProjects}><Icon name="folders" size={16} /> Projects</button>
+        {onFiles && <button className="nav-item" data-nav="files" onClick={onFiles}><Icon name="folder" size={16} /> Files</button>}
+        <button className="nav-item" data-nav="schedule" onClick={onSchedule}><Icon name="clock" size={16} /> Scheduled</button>
+        <SideHead label="Workspace" open={work} onToggle={toggleWork} />
+        {work && (
           <div className="nav-more">
-               <button className="nav-item" data-nav="skills" onClick={onSkills}><Icon name="sparkle" size={18} /> Skills</button>
-        <button className="nav-item" data-nav="agents" onClick={onAgents}><Icon name="user" size={18} /> Agents{agentCount ? <span className="count" title={agentCount + " running"}>{agentCount}</span> : null}</button>
-     
-              {onAutomations && <button className="nav-item" data-nav="automations" onClick={onAutomations}><Icon name="bolt" size={18} /> Automations</button>}
-        {onLogs && <button className="nav-item" data-nav="logs" onClick={onLogs}><Icon name="terminal" size={18} /> Logs</button>}
-        {onSentinel && <button className={`nav-item ${sentinel !== 'off' ? 'on' : ''}`} onClick={onSentinel} title={`Talk to Artemis hands-free${sKey}`}><Icon name="mic" size={18} /> Sentinel<span className="count">{sentinel === 'off' ? 'Off' : 'On'}</span></button>}
-        <button className="nav-item" data-nav="connectors" onClick={onConnectors}><Icon name="plug" size={18} /> Connectors{connectorCount ? <span className="count">{connectorCount}</span> : null}</button>
-        <button className="nav-item" data-nav="memory" onClick={onMemory}><Icon name="bulb" size={18} /> Memory{memoryCount ? <span className="count">{memoryCount}</span> : null}</button>
-        <button className="nav-item" onClick={onPermissions}><Icon name="shield" size={18} /> Permissions</button>
-
+            <button className="nav-item" data-nav="agents" onClick={onAgents}><Icon name="user" size={16} /> Agents{agentCount ? <span className="count" title={agentCount + ' running'}>{agentCount}</span> : null}</button>
+            <button className="nav-item" data-nav="skills" onClick={onSkills}><Icon name="sparkle" size={16} /> Skills</button>
+            {onAutomations && <button className="nav-item" data-nav="automations" onClick={onAutomations}><Icon name="bolt" size={16} /> Automations</button>}
+            <button className="nav-item" data-nav="connectors" onClick={onConnectors}><Icon name="plug" size={16} /> Connectors{connectorCount ? <span className="count">{connectorCount}</span> : null}</button>
+            <button className="nav-item" data-nav="memory" onClick={onMemory}><Icon name="bulb" size={16} /> Memory{memoryCount ? <span className="count">{memoryCount}</span> : null}</button>
+            {onSentinel && <button className={`nav-item ${sentinel !== 'off' ? 'on' : ''}`} onClick={onSentinel} title={`Talk to Artemis hands-free${sKey}`}><Icon name="mic" size={16} /> Sentinel<span className={`state ${sentinel !== 'off' ? 'on' : ''}`}>{sentinel === 'off' ? 'Off' : 'On'}</span></button>}
           </div>
         )}
       </nav>
-      <div className="nav-split" onMouseDown={startSplit} onDoubleClick={resetSplit} title="Drag to resize the menu and the chat list. Double-click to reset."><span /></div>
       <div className="chat-list">
         {ql && found.notes.length > 0 && (
           <div className="found-group"><div className="found-title">Notes</div>
@@ -232,15 +193,23 @@ export default function Sidebar({
         {rows.length ? rows : <div className="muted pad">No chats</div>}
       </div>
       <div className="side-foot">
-        <button className="profile-btn" title="Profile and settings" aria-label="Profile and settings" onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setGear({ x: r.left, y: r.top - 76, items: [{ label: 'Profile', onClick: onProfile }, { label: 'Settings', hint: '⌘,', onClick: onSettings }] }); }}>
-          {profile.avatar ? <img className="avatar" src={profile.avatar} alt="" /> : <span className="avatar">{(profile.name || '').trim().slice(0, 1).toUpperCase() || <Icon name="user" size={15} />}</span>}
+        <button className="profile-btn" title="Profile, usage and more" aria-label="Profile, usage and more" aria-haspopup="menu" onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          const items = [
+            { label: 'Profile', onClick: onProfile },
+            { label: 'Settings', hint: '⌘,', onClick: onSettings },
+            { sep: true },
+            { label: 'Usage', onClick: onUsage },
+            onTerminal && { label: 'Terminal', hint: '⌃`', onClick: onTerminal },
+            onLogs && { label: 'Logs', onClick: onLogs },
+            onPermissions && { label: 'Permissions', onClick: onPermissions },
+          ].filter(Boolean);
+          setGear({ x: r.left, y: r.top - 8 - items.length * 30, items });
+        }}>
+          {profile.avatar ? <img className="avatar" src={profile.avatar} alt="" /> : <span className="avatar">{(profile.name || '').trim().slice(0, 1).toUpperCase() || <Icon name="user" size={14} />}</span>}
           <span className="side-user">{profile.name || 'Set up profile'}</span>
         </button>
-        <span style={{ flex: 1 }} />
-    <div className="foot-icons">
-      <button title="Usage" aria-label="Usage" data-nav="usage" onClick={onUsage}><Icon name="chart" size={17} /></button>
-      {onTerminal && <button title="Terminal (Ctrl/Cmd + `)" aria-label="Terminal (Ctrl/Cmd + `)" data-nav="terminal" onClick={onTerminal}><Icon name="terminal" size={17} /></button>}
-    </div>
+        <button className="side-ib" title="Settings (⌘,)" aria-label="Settings" data-nav="settings" onClick={onSettings}><Icon name="sliders" size={16} /></button>
         <ContextMenu menu={gear} onClose={() => setGear(null)} />
       </div>
     </aside>

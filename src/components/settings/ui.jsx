@@ -9,6 +9,7 @@ import React, { useEffect, useId, useState } from 'react';
  *   <SwitchRow>                       a Row with a Switch
  *   <Switch>                          role="switch" toggle (Space / Enter work because it is a button)
  *   <SecretInput>                     password field that commits on blur / Enter, never per keystroke
+ *   <Segmented>                       a macOS segmented control for 2–4 short choices
  *   <Note>                            muted paragraph between groups
  */
 
@@ -106,3 +107,15 @@ export function Note({ children, tone = '' }) {
 export function Buttons({ children, end = false }) {
   return <div className={`pref-buttons ${end ? 'end' : ''}`}>{children}</div>;
 }
+
+/** A few mutually exclusive choices side by side (macOS segmented control). options: [[value, label], ...] */
+export function Segmented({ value, options, onChange, label, ...rest }) {
+  return (
+    <div className="pref-seg" role="radiogroup" aria-label={rest['aria-labelledby'] ? undefined : label} {...rest}>
+      {options.map(([v, text]) => (
+        <button key={v} type="button" role="radio" aria-checked={value === v} className={value === v ? 'on' : ''} onClick={() => onChange && onChange(v)}>{text}</button>
+      ))}
+    </div>
+  );
+}
+Segmented.acceptsLabel = true;

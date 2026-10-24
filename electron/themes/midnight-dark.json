@@ -1,0 +1,33 @@
+{
+  "id": "midnight-dark",
+  "name": "Midnight",
+  "family": "midnight",
+  "about": "Navy and moonlight",
+  "group": "Palettes",
+  "dark": true,
+  "preview": [
+    "#0E1220",
+    "#E6C27D",
+    "#141A2B"
+  ],
+  "vars": {
+    "--theme-bg": "#0E1220",
+    "--theme-side": "#141A2B",
+    "--theme-panel": "#182036",
+    "--theme-elev": "#182036",
+    "--theme-user": "rgba(233,236,246,.10)",
+    "--theme-code": "#0A0D18",
+    "--theme-border": "rgba(233,236,246,.09)",
+    "--theme-text": "#E9ECF6",
+    "--theme-muted": "rgba(233,236,246,.56)",
+    "--theme-accent": "#E6C27D",
+    "--theme-accent-text": "#1B1407",
+    "--theme-hover": "rgba(233,236,246,.06)",
+    "--theme-active": "rgba(233,236,246,.10)",
+    "--theme-danger": "#F08A80",
+    "--theme-ok": "#7FC79A",
+    "--theme-warn": "#E8B45A",
+    "--theme-add": "rgba(127,199,154,.16)",
+    "--theme-del": "rgba(240,138,128,.16)"
+  }
+}

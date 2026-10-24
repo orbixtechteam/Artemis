@@ -1,8 +1,8 @@
 /* ---- Notes ---- */
-.notes-modes button, .notes-bar > button { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 9px; border: 1px solid var(--border); border-radius: 7px; background: var(--panel); color: var(--text); cursor: pointer; font-size: 12.5px; }
+.notes-modes button, .notes-bar > button { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 9px; border: .5px solid var(--line-2); border-radius: 7px; background: var(--panel); color: var(--text); cursor: pointer; font-size: 12.5px; }
 .notes-bar > button:hover { background: var(--hover); }
 .notes-main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
-.notes-bar { flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 16px; border-bottom: 1px solid var(--border); }
+.notes-bar { flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 16px; border-bottom: .5px solid var(--line-2); }
 .notes-title { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .notes-modes { display: inline-flex; }
 .notes-modes button { border-radius: 0; margin-left: -1px; }
@@ -13,8 +13,8 @@
 .notes-panes.stack { flex-direction: column; }
 .notes-panes.dragging::after { content: 'Drop to add to this note'; position: absolute; inset: 8px; z-index: 5; display: grid; place-items: center; border: 2px dashed var(--accent); border-radius: 12px; background: color-mix(in srgb, var(--accent) 10%, var(--bg)); color: var(--text); font-size: 14px; pointer-events: none; }
 .ne-pane { position: relative; flex: 1 1 0; min-width: 0; min-height: 0; display: flex; background: var(--bg); }
-.notes-panes.mode-split.side .ne-pane + .ne-pane { border-left: 1px solid var(--border); }
-.notes-panes.mode-split.stack .ne-pane + .ne-pane { border-top: 1px solid var(--border); }
+.notes-panes.mode-split.side .ne-pane + .ne-pane { border-left: .5px solid var(--line-2); }
+.notes-panes.mode-split.stack .ne-pane + .ne-pane { border-top: .5px solid var(--line-2); }
 .ne-pane.ne-prev { overflow-y: auto; overflow-x: hidden; overflow-anchor: none; display: block; }
 .notes-editor, .ne-hl { font: 14px/1.65 ui-monospace, Menlo, Consolas, monospace; padding: 18px 22px; box-sizing: border-box; white-space: pre-wrap; overflow-wrap: break-word; tab-size: 2; scrollbar-gutter: stable; }
 .notes-editor { position: relative; flex: 1; min-width: 0; resize: none; border: 0; outline: 0; background: transparent; color: var(--text); overflow-y: auto; }
@@ -28,10 +28,10 @@
 .ne-title:focus { border-color: var(--accent); background: var(--panel); outline: 0; }
 .ne-crumbs { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: -6px; }
 .ne-meta { white-space: nowrap; }
-.ne-find { flex: none; display: flex; align-items: center; gap: 6px; padding: 6px 16px; border-bottom: 1px solid var(--border); background: var(--panel); flex-wrap: wrap; }
-.ne-find input { height: 26px; width: 170px; padding: 0 8px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--bg); color: var(--text); font-size: 12.5px; }
+.ne-find { flex: none; display: flex; align-items: center; gap: 6px; padding: 6px 16px; border-bottom: .5px solid var(--line-2); background: var(--panel); flex-wrap: wrap; }
+.ne-find input { height: 26px; width: 170px; padding: 0 8px; border: .5px solid var(--line-2); border-radius: var(--r-sm); background: var(--bg); color: var(--text); font-size: 12.5px; }
 .ne-find input:focus { outline: 0; border-color: var(--accent); }
-.ne-find button { display: inline-flex; align-items: center; height: 26px; padding: 0 8px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--panel); color: var(--text); font-size: var(--fs-sm); cursor: pointer; }
+.ne-find button { display: inline-flex; align-items: center; height: 26px; padding: 0 8px; border: .5px solid var(--line-2); border-radius: var(--r-sm); background: var(--panel); color: var(--text); font-size: var(--fs-sm); cursor: pointer; }
 .ne-find button:hover:not(:disabled) { background: var(--hover); }
 .ne-find button:disabled { opacity: .4; cursor: default; }
 .ne-find-count { min-width: 38px; text-align: center; font-size: var(--fs-sm); color: var(--muted); white-space: nowrap; }
@@ -42,7 +42,7 @@
 ::highlight(find-all) { background-color: rgba(255, 213, 0, .4); color: inherit; }
 ::highlight(find-current) { background-color: #ff9632; color: #1a1a1a; }
 .find-bar { position: absolute; right: 18px; z-index: 30; display: flex; align-items: center; gap: 2px; padding: 4px 4px 4px 10px;
-  background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--panel); color: var(--text); border: .5px solid var(--line-2); border-radius: var(--r-md);
   box-shadow: 0 6px 24px rgba(0, 0, 0, .14), 0 1px 3px rgba(0, 0, 0, .08); max-width: calc(100% - 36px); }
 .find-bar .find-ico { flex: none; color: var(--muted); margin-right: 4px; }
 .find-bar input { width: 190px; min-width: 60px; flex: 1 1 auto; height: 26px; padding: 0 4px; border: 0; outline: 0; background: transparent; color: var(--text); font-size: var(--fs-ui); }
@@ -50,9 +50,9 @@
 .find-bar button { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text); cursor: pointer; }
 .find-bar button:hover:not(:disabled) { background: var(--hover); }
 .find-bar button:disabled { opacity: .35; cursor: default; }
-.ne-backlinks { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 16px; border-top: 1px solid var(--border); font-size: 12.5px; }
+.ne-backlinks { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 16px; border-top: .5px solid var(--line-2); font-size: 12.5px; }
 .ne-backlinks b { color: var(--muted); font-weight: 600; margin-right: 4px; }
-.ne-backlinks button { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); color: var(--text); font-size: var(--fs-sm); cursor: pointer; }
+.ne-backlinks button { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px; border: .5px solid var(--line-2); border-radius: 12px; background: var(--panel); color: var(--text); font-size: var(--fs-sm); cursor: pointer; }
 .ne-backlinks button:hover { background: var(--hover); }
 /* rendered note */
 .np { min-height: 100%; box-sizing: border-box; padding: 18px 26px 0; }
@@ -71,15 +71,15 @@
 .np mark.md-find-match { background: color-mix(in srgb, #ffd54a 55%, transparent); color: inherit; border-radius: 2px; }
 .np mark.md-find-match-active { background: color-mix(in srgb, #ff9f1a 85%, transparent); }
 .np img { max-width: 100%; border-radius: var(--r-sm); }
-.np-img-missing { color: var(--muted); font-size: 12.5px; border: 1px dashed var(--border); border-radius: var(--r-sm); padding: 2px 8px; }
-.wikiembed { margin: 10px 0; border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 8px; background: color-mix(in srgb, var(--text) 3%, transparent); overflow: hidden; }
-.wikiembed-header { padding: 5px 12px; font-size: var(--fs-sm); font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--border); cursor: pointer; }
+.np-img-missing { color: var(--muted); font-size: 12.5px; border: 1px dashed var(--line-2); border-radius: var(--r-sm); padding: 2px 8px; }
+.wikiembed { margin: 10px 0; border: .5px solid var(--line-2); border-left: 3px solid var(--accent); border-radius: 8px; background: color-mix(in srgb, var(--text) 3%, transparent); overflow: hidden; }
+.wikiembed-header { padding: 5px 12px; font-size: var(--fs-sm); font-weight: 600; color: var(--muted); border-bottom: .5px solid var(--line-2); cursor: pointer; }
 .wikiembed-header:hover { color: var(--text); }
 .wikiembed-body { padding: 4px 14px; }
 .wikiembed-missing { cursor: pointer; border-style: dashed; }
 .wikiembed-empty { padding: 8px 12px; color: var(--muted); font-size: 12.5px; }
 /* [[ suggestions */
-.wiki-suggest { position: fixed; z-index: 9800; width: 250px; max-height: 220px; overflow-y: auto; padding: 4px; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: 0 10px 30px rgba(0,0,0,.3); }
+.wiki-suggest { position: fixed; z-index: 9800; width: 250px; max-height: 220px; overflow-y: auto; padding: 4px; background: var(--panel); color: var(--text); border: .5px solid var(--line-2); border-radius: var(--r-md); box-shadow: 0 10px 30px rgba(0,0,0,.3); }
 .wiki-suggest-item { padding: 5px 9px; border-radius: var(--r-sm); font-size: var(--fs-ui); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wiki-suggest-item.on, .wiki-suggest-item:hover { background: var(--active); }
 /* sidebar inline rename */
@@ -89,7 +89,7 @@
 .graph-wrap { position: relative; flex: 1; min-height: 0; overflow: hidden; background: var(--bg); }
 .graph-svg { width: 100%; height: 100%; display: block; cursor: grab; user-select: none; }
 .graph-svg:active { cursor: grabbing; }
-.graph-filter { height: 28px; width: 170px; padding: 0 9px; border: 1px solid var(--border); border-radius: 7px; background: var(--bg); color: var(--text); font-size: 12.5px; }
+.graph-filter { height: 28px; width: 170px; padding: 0 9px; border: .5px solid var(--line-2); border-radius: 7px; background: var(--bg); color: var(--text); font-size: 12.5px; }
 .graph-filter:focus { outline: 0; border-color: var(--accent); }
 .graph-edge { stroke: color-mix(in srgb, var(--text) 28%, transparent); stroke-width: 1.2; transition: opacity .15s; }
 .graph-edge.lit { stroke: var(--accent); stroke-width: 1.8; }
@@ -102,21 +102,21 @@
 .graph-node.dim { opacity: .18; }
 .graph-node.hot circle { stroke: var(--text); }
 .notes-empty { margin: auto; text-align: center; max-width: 420px; display: flex; flex-direction: column; align-items: center; gap: 8px; color: var(--muted); }
-.notes-err { background: color-mix(in srgb, #e5484d 15%, transparent); color: var(--text); padding: 6px 16px; font-size: 12.5px; cursor: pointer; }
+.notes-err { background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--text); padding: 6px 16px; font-size: 12.5px; cursor: pointer; }
 .notes-prompt-back { position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 9999; display: flex; align-items: center; justify-content: center; }
-.notes-prompt { width: 320px; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
-.notes-prompt input { height: 32px; border: 1px solid var(--border); border-radius: 7px; background: var(--bg); color: var(--text); padding: 0 10px; }
+.notes-prompt { width: 320px; background: var(--panel); color: var(--text); border: .5px solid var(--line-2); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+.notes-prompt input { height: 32px; border: .5px solid var(--line-2); border-radius: 7px; background: var(--bg); color: var(--text); padding: 0 10px; }
 .notes-prompt .row { display: flex; justify-content: flex-end; gap: 8px; }
 
 /* ---- Command palette ---- */
-.cmdk-back { position: fixed; inset: 0; z-index: 9000; background: rgba(0,0,0,.3); display: flex; justify-content: center; align-items: flex-start; padding-top: 12vh; }
-.cmdk { width: min(620px, 92vw); max-height: 70vh; display: flex; flex-direction: column; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 20px 60px rgba(0,0,0,.35); overflow: hidden; }
-.cmdk-bar { display: flex; align-items: center; gap: 10px; height: 50px; padding: 0 14px 0 18px; border-bottom: 1px solid var(--border); color: var(--muted); flex: none; }
+.cmdk-back { position: fixed; inset: 0; z-index: 9000; background: var(--scrim); display: flex; justify-content: center; align-items: flex-start; padding-top: 12vh; }
+.cmdk { width: min(620px, 92vw); max-height: 70vh; display: flex; flex-direction: column; color: var(--text); overflow: hidden; }
+.cmdk-bar { display: flex; align-items: center; gap: 10px; height: 50px; padding: 0 14px 0 18px; border-bottom: .5px solid var(--line-2); color: var(--muted); flex: none; }
 .cmdk-input { flex: 1; min-width: 0; height: 100%; border: 0; background: transparent; color: var(--text); font-size: 15px; outline: 0; }
 .cmdk-list { overflow: auto; padding: 4px 6px 6px; flex: 1; }
-.cmdk-head { padding: 10px 10px 4px; font-size: var(--fs-xs); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
-.cmdk-item { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; background: none; color: var(--text); text-align: left; padding: 6px 10px; border-radius: 8px; cursor: pointer; font-size: 13.5px; }
-.cmdk-item.on { background: var(--active); }
+.cmdk-head { padding: 10px 10px 4px; font-weight: 600; color: var(--muted); }
+.cmdk-item { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; background: none; color: var(--text); text-align: left; cursor: pointer; }
+.cmdk-item.on { ; }
 .cmdk-ic { width: 24px; height: 24px; border-radius: var(--r-sm); display: grid; place-items: center; flex: none; color: var(--muted); background: color-mix(in srgb, var(--text) 6%, transparent); }
 .cmdk-item.on .cmdk-ic { color: var(--text); }
 .cmdk-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
@@ -128,8 +128,8 @@
 .cmdk-item > :last-child:not(.cmdk-label):not(.cmdk-hint) { margin-left: auto; }
 .cmdk-label { text-align: left; }
 .cmdk-m { background: transparent; color: var(--accent, var(--text)); font-weight: 600; padding: 0; }
-.cmdk-kbd, .cmdk-esc, .cmdk-foot kbd { font: 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); border: 1px solid var(--border); border-radius: 5px; padding: 3px 6px; background: color-mix(in srgb, var(--text) 4%, transparent); }
-.cmdk-foot { display: flex; gap: 16px; padding: 7px 14px; border-top: 1px solid var(--border); font-size: 11.5px; color: var(--muted); flex: none; }
+.cmdk-kbd, .cmdk-esc, .cmdk-foot kbd { font: 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); border: .5px solid var(--line-2); border-radius: 5px; padding: 3px 6px; background: color-mix(in srgb, var(--text) 4%, transparent); }
+.cmdk-foot { display: flex; gap: 16px; padding: 7px 14px; border-top: .5px solid var(--line-2); font-size: 11.5px; color: var(--muted); flex: none; }
 .cmdk-foot span { display: inline-flex; align-items: center; gap: 4px; }
 .cmdk-foot kbd { padding: 2px 5px; }
 .cmdk-empty { padding: 22px; text-align: center; color: var(--muted); }
@@ -144,8 +144,8 @@ html.palette-page .cmdk { width: 100%; max-height: 484px; box-shadow: 0 10px 30p
 .files-page { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 18px 28px 20px; max-width: 980px; width: 100%; margin: 0 auto; position: relative; }
 .files-page.dropping::after { content: 'Drop to add to Files'; position: absolute; inset: 8px; display: grid; place-items: center; border: 2px dashed var(--accent); border-radius: 14px; background: color-mix(in srgb, var(--bg) 85%, transparent); font-size: 15px; z-index: 3; }
 .files-sub { margin: -8px 0 12px; }
-.files-sub kbd { font: 11px ui-monospace, Menlo, monospace; border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; }
-.files-search { display: flex; align-items: center; gap: 8px; border: 1px solid var(--border); border-radius: var(--r-md); padding: 0 12px; height: 38px; color: var(--muted); margin-bottom: 10px; }
+.files-sub kbd { font: 11px ui-monospace, Menlo, monospace; border: .5px solid var(--line-2); border-radius: 4px; padding: 1px 5px; }
+.files-search { display: flex; align-items: center; gap: 8px; border: .5px solid var(--line-2); border-radius: var(--r-md); padding: 0 12px; height: 38px; color: var(--muted); margin-bottom: 10px; }
 .files-search input { flex: 1; border: 0; background: transparent; outline: 0; color: var(--text); font-size: 14px; }
 .files-note { font-size: 12.5px; color: var(--muted); padding: 2px 4px 8px; }
 .files-list { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 2px; }

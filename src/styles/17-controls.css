@@ -1,0 +1,37 @@
+/* Menus and popovers: one surface for every floating list in every window (the dropdown listbox, context and
+   notes menus, the usage, slash and model popovers, the command palette). Each component's own file keeps
+   only its position and size; the colours, corners, shadow and row style live here. */
+
+.sel-pop, .um-pop, .slash-pop, .mp-pop, .notes-menu, .ctx-menu, .cmdk {
+  background: var(--elev); border: 0; border-radius: 12px; box-shadow: var(--menu-shadow);
+}
+.sel-pop, .notes-menu, .ctx-menu { padding: 5px; }
+.sel-search { border-bottom: .5px solid var(--line); background: var(--elev); }
+
+.sel-item, .menu-item, .slash-item, .mp-item, .notes-menu button, .ctx-item, .cmdk-item {
+  min-height: 28px; padding: 5px 9px; border-radius: var(--r-sm); font-size: var(--fs-ui); line-height: 1.3;
+}
+.sel-item.act, .slash-item.on, .mp-item.on, .cmdk-item.on,
+:is(.menu-item, .notes-menu button, .ctx-item):hover:not(:disabled) { background: var(--fill-2); }
+.notes-menu button.danger, .ctx-item.danger { color: var(--danger); }
+.sel-group, .cmdk-head { font-size: 11.5px; font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--muted); opacity: 1; }
+.sel-check { color: var(--accent); }
+
+/* segmented control in dialogs, Logs and Automations (same look as .pref-seg in Settings) */
+.seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--fill-2); }
+.seg > button { height: 24px; padding: 0 12px; border: 0; border-radius: 6px; background: transparent; color: var(--text-2); font-size: 12.5px; }
+.seg > button:hover:not(.on) { background: transparent; color: var(--text); }
+.seg > button.on { background: var(--elev); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.22), 0 0 0 .5px var(--line); }
+
+/* small search fields in page toolbars */
+.logs-search { height: 28px; padding: 0 10px; border: .5px solid var(--line-2); border-radius: var(--r-sm); background: var(--field-bg); color: var(--text); font-size: 12.5px; outline: none; }
+.logs-search:focus { border-color: var(--accent); box-shadow: var(--ring); }
+
+/* dialogs: title, message, a right-aligned button row of equal-height push buttons */
+.modal .actions-row button, .modal.dialog .actions-row button { height: 28px; }
+.modal.dialog .dialog-msg { color: var(--text-2); font-size: var(--fs-ui); line-height: 1.45; }
+button.danger-solid { box-shadow: 0 1px 2px rgba(0,0,0,.18), inset 0 1px 0 rgba(255,255,255,.15); font-weight: 500; }
+
+@media (prefers-reduced-motion: reduce) {
+  .overlay { -webkit-backdrop-filter: none; backdrop-filter: none; }
+}

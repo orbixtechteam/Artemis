@@ -288,7 +288,6 @@ export default function Composer({ streaming, onSend, onStop, queue = [], queueH
     window.addEventListener('artemis:composer-fill', h);
     return () => window.removeEventListener('artemis:composer-fill', h);
   }, [chatId]);
-  const [focused, setFocused] = useState(false);
   const mac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || '');
 
   useEffect(() => onWindowDrop((fl) => addFiles(fl)), []);
@@ -408,8 +407,7 @@ export default function Composer({ streaming, onSend, onStop, queue = [], queueH
           placeholder={disabledReason || placeholder || 'Message Artemis…'}
           aria-label="Message"
           onChange={(e) => { setSlashOff(false); setText(e.target.value); }}
-          onFocus={() => setFocused(true)}
-          onBlur={() => { setSlashOff(true); setFocused(false); }}
+          onBlur={() => setSlashOff(true)}
           onPaste={onPaste}
           onKeyDown={(e) => {
             if (slashOpen && entries.length) {
@@ -430,7 +428,6 @@ export default function Composer({ streaming, onSend, onStop, queue = [], queueH
           }}
         />
         </div>
-        {focused && !text && <div className="kbd-hints" aria-hidden="true"><kbd>↵</kbd> send · <kbd>⇧↵</kbd> newline{streaming ? <> · <kbd>⌘↵</kbd> send now · <kbd>Esc</kbd> stop</> : null}</div>}
         {micErr && <div className="mic-err" onClick={() => setMicErr('')}>{micErr}</div>}
         <div className="composer-bar">
           <button className="icon-btn" title="Attach any file. Text, code, Excel, CSV, Word, PDF, ZIP and images are read; other files (audio, video, apps) are passed with their name and location. You can also drag or paste files here." aria-label="Attach any file. Text, code, Excel, CSV, Word, PDF, ZIP and images are read; other files (audio, video, apps) are passed with their name and location. You can also drag or paste files here." onClick={pick}><Icon name="paperclip" size={18} /></button>

@@ -81,7 +81,7 @@ export default function Select({ value, onChange, children, className = '', titl
     <>
       <button type="button" id={id} ref={btn} className={`sel ${pill ? '' : 'field-sel'} ${className} ${open ? 'open' : ''}`} style={style} title={title} disabled={disabled} onClick={toggle} onKeyDown={onKey} aria-haspopup="listbox" aria-expanded={open} aria-label={ariaLabel} aria-labelledby={ariaLabelledby ? ariaLabelledby + ' ' + valueId : undefined}>
         <span className="sel-label" id={valueId}>{cur ? cur.label : (v || placeholder)}</span>
-        <Icon name="chevronDown" size={13} />
+        <Icon name={pill ? 'chevronDown' : 'chevronUpDown'} size={pill ? 13 : 12} />
       </button>
       {open && pos && createPortal(
         <div ref={pop} className="sel-pop" role="listbox" style={pos}>

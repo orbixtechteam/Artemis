@@ -1,13 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Select from './Select.jsx';
 import PERSONALITIES from '../../electron/personality.json';
-import { SYSTEM_THEME, TEXT_SIZES } from '../lib/themes.js';
 import { ImportRow } from './Modals.jsx';
 import { Icon } from './Icons.jsx';
 import { Page, Group, Row, SwitchRow, Note } from './settings/ui.jsx';
 import { PhoneTab } from './settings/PhoneTab.jsx';
 import { ProvidersTab } from './settings/ProvidersTab.jsx';
 import { LimitsTab } from './settings/LimitsTab.jsx';
+import { AppearanceTab } from './settings/AppearanceTab.jsx';
 import { AccessTab } from './settings/AccessTab.jsx';
 import { SecurityTab } from './settings/SecurityTab.jsx';
 import { VoiceTab } from './settings/VoiceTab.jsx';
@@ -52,27 +52,27 @@ function ShortcutField({ label, about, value, onChange, placeholder, error }) {
   );
 }
 
-// id, sidebar label, icon, one-line description
+// id, sidebar label, icon, one-line description, group (the sidebar leaves a gap between groups, like System Settings)
 export const SECTIONS = [
-  ['general', 'General', 'sliders', 'Default model, personality and how Artemis starts.'],
-  ['appearance', 'Appearance', 'eye', 'Theme, text size and how the model’s reasoning shows.'],
-  ['shortcuts', 'Keyboard shortcuts', 'keyboard', 'Shortcuts that work from any app, and inside Artemis.'],
-  ['providers', 'Providers', 'plug', 'Model providers, endpoints and API keys.'],
-  ['tools', 'Tools & safety', 'wrench', 'What the assistant may do, and when it asks first.'],
-  ['access', 'Access', 'shield', 'macOS permissions, folders and features Artemis can reach.'],
-  ['security', 'Security', 'lock', 'App lock, Touch ID, voice recognition and what happens on unauthorized access.'],
-  ['agents', 'Agents', 'layers', 'Helper agents Artemis can hand parts of a task to.'],
-  ['brains', 'Brains', 'bulb', 'Personalities with their own model, and the council that picks one.'],
-  ['limits', 'Usage limits', 'chart', 'Spending and token limits, and the length of one answer.'],
-  ['voice', 'Voice', 'mic', 'Dictation, reading answers aloud and Sentinel voice mode.'],
-  ['make', 'Make', 'bolt', 'Let Artemis use your Make.com scenarios.'],
-  ['phone', 'Phone', 'phone', 'Chat with Artemis from Telegram.']
+  ['general', 'General', 'sliders', 'Default model, personality and how Artemis starts.', 'app'],
+  ['appearance', 'Appearance', 'eye', 'Light or dark, palette, accent colour and text size.', 'app'],
+  ['shortcuts', 'Keyboard shortcuts', 'keyboard', 'Shortcuts that work from any app, and inside Artemis.', 'app'],
+  ['providers', 'Providers', 'plug', 'Model providers, endpoints and API keys.', 'models'],
+  ['agents', 'Agents', 'layers', 'Helper agents Artemis can hand parts of a task to.', 'models'],
+  ['brains', 'Brains', 'bulb', 'Personalities with their own model, and the council that picks one.', 'models'],
+  ['voice', 'Voice', 'mic', 'Dictation, reading answers aloud and Sentinel voice mode.', 'models'],
+  ['tools', 'Tools & safety', 'wrench', 'What the assistant may do, and when it asks first.', 'safety'],
+  ['access', 'Access', 'shield', 'macOS permissions, folders and features Artemis can reach.', 'safety'],
+  ['security', 'Security', 'lock', 'App lock, Touch ID, voice recognition and what happens on unauthorized access.', 'safety'],
+  ['limits', 'Usage & limits', 'chart', 'What Artemis has used, and the limits that pause it.', 'more'],
+  ['make', 'Make', 'bolt', 'Let Artemis use your Make.com scenarios.', 'more'],
+  ['phone', 'Phone', 'phone', 'Chat with Artemis from Telegram.', 'more']
 ];
 
 // words people look for, so the search finds a setting by what it does and not only by its section name
 const KEYWORDS = {
   general: 'language model default reasoning effort image video system prompt instructions personality tray background dock launch login startup import chatgpt claude export notes folder files memory use ram',
-  appearance: 'theme appearance dark light colors color text size font thinking reasoning display',
+  appearance: 'theme appearance palette accent dark light automatic colors color text size font thinking reasoning display custom',
   shortcuts: 'shortcut shortcuts keyboard hotkey keys palette command quick chat search sentinel global',
   providers: 'api key keys openai anthropic claude gemini ollama openrouter model models endpoint base url provider',
   tools: 'permissions approve approval auto allow safety safe terminal shell commands web search computer use browser connectors mcp files skills learning lazy tokens',
@@ -176,7 +176,6 @@ export function SettingsModal({ settings, groups = [], projects = [], providers 
   };
   useEffect(() => { refreshThemes(); }, []);
   useEffect(() => window.api.onThemeChanged ? window.api.onThemeChanged(() => refreshThemes()) : undefined, []);
-  const themeList = [SYSTEM_THEME, ...themeInfo.themes];
   const mediaGroups = providers.filter((p) => p.enabled !== false && (p.models || []).length).map((p) => <optgroup key={p.id} label={p.name}>{p.models.map((m) => <option key={m.id} value={`prov:${p.id}:${m.id}`}>{m.name || m.id}</option>)}</optgroup>);
   const known = !s.model || chatGroups.some((g) => g.items.some(([id]) => id === s.model));
   const modelOptions = chatGroups.map((g) => <optgroup key={g.label} label={g.label}>{g.items.map(([id, n]) => <option key={id} value={id}>{n}</option>)}</optgroup>);
@@ -223,12 +222,15 @@ export function SettingsModal({ settings, groups = [], projects = [], providers 
             onKeyDown={(e) => { if (e.key === 'Enter' && shown[0]) { setTab(shown[0][0]); } else if (e.key === 'Escape') { e.stopPropagation(); setTq(''); } else if (e.key === 'ArrowDown') { e.preventDefault(); navRef.current?.querySelector('[data-sec]')?.focus(); } }} />
         </div>
         <div className="prefs-nav" ref={navRef} onKeyDown={onNavKey}>
-          {shown.map(([id, label, icon]) => (
-            <button key={id} type="button" data-sec={id} className={`prefs-nav-item ${tab === id ? 'active' : ''} ${terms.length ? 'match' : ''}`} aria-current={tab === id ? 'page' : undefined}
+          {shown.map(([id, label, icon, , group], i) => (
+            <React.Fragment key={id}>
+            {i > 0 && !terms.length && group !== shown[i - 1][4] && <div className="prefs-nav-gap" aria-hidden="true" />}
+            <button type="button" data-sec={id} className={`prefs-nav-item ${tab === id ? 'active' : ''} ${terms.length ? 'match' : ''}`} aria-current={tab === id ? 'page' : undefined}
               tabIndex={tab === id || !shown.some(([x]) => x === tab) ? 0 : -1} onClick={() => setTab(id)}>
               <span className={`prefs-nav-icon ic-${id}`}><Icon name={icon} size={14} /></span>
               <span className="prefs-nav-label">{label}</span>
             </button>
+            </React.Fragment>
           ))}
           {terms.length > 0 && !shown.length && <div className="prefs-none">No settings match “{tq.trim()}”.</div>}
         </div>
@@ -308,39 +310,8 @@ export function SettingsModal({ settings, groups = [], projects = [], providers 
             </>
           )}
           {tab === 'appearance' && (
-            <>
-              <Group title="Theme" footer={<>Drop a theme .json in the themes folder and press Refresh — no rebuild. A file is <code>{'{ "id": "my-theme", "name": "My theme", "group": "Gods", "dark": true, "preview": ["#130808","#c9923a","#8c1c1c"], "vars": { "--theme-bg": "#130808", "…": "…" } }'}</code>. A project can also carry its own themes in .artemis/themes; those win over this folder.</>}>
-                <div className="pref-block">
-                  <div className="theme-grid" role="radiogroup" aria-label="Theme">
-                    {themeList.map((t) => (
-                      <button key={t.id} type="button" role="radio" aria-checked={(s.theme || 'system') === t.id} className={`theme-sw ${(s.theme || 'system') === t.id ? 'on' : ''}`} onClick={() => setS((x) => ({ ...x, theme: t.id }))} title={t.source === 'builtin' ? t.name : `${t.name} (${t.source})`} aria-label={t.source === 'builtin' ? t.name : `${t.name} (${t.source})`}>
-                        <i style={{ background: t.id === 'system' ? `linear-gradient(135deg, ${t.preview[0]} 50%, ${t.preview[2]} 50%)` : t.preview[0] }}><b style={{ background: t.preview[1] }} /><b style={{ background: t.preview[2] }} /></i>
-                        <span>{t.name}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <Row label="Custom themes" description={themeMsg || `${themeList.length} themes${themeInfo.folder ? ' · ' + themeInfo.folder : ''}`}>
-                  <div className="pref-inline">
-                    <button type="button" className="pref-btn" onClick={refreshThemes} disabled={themeBusy}>{themeBusy ? 'Refreshing…' : 'Refresh'}</button>
-                    <button type="button" className="pref-btn" onClick={() => window.api.themesOpen('user').then(refreshThemes).catch(() => {})}>Open folder</button>
-                    <button type="button" className="pref-btn" onClick={importThemes} disabled={themeBusy}>Import .json</button>
-                  </div>
-                </Row>
-              </Group>
-              <Group title="Text">
-                <Row label="Text size" description="Size of the text across the whole app.">
-                  <Select value={s.textSize || 'medium'} onChange={set('textSize')}>{TEXT_SIZES.map(([id, n, px]) => <option key={id} value={id}>{n} ({px}px)</option>)}</Select>
-                </Row>
-                <Row label="Thinking" description="How the model's reasoning shows in replies: a collapsed “Thought for Ns” block you can open, open by default, or not shown. It is never sent back to the model or read aloud.">
-                  <Select value={s.showThinking || 'collapsed'} onChange={set('showThinking')}>
-                    <option value="collapsed">Collapsed</option>
-                    <option value="expanded">Expanded</option>
-                    <option value="hidden">Hidden</option>
-                  </Select>
-                </Row>
-              </Group>
-            </>
+            <AppearanceTab s={s} setS={setS} themes={themeInfo.themes} themeMsg={themeMsg} themeBusy={themeBusy}
+              onRefresh={refreshThemes} onImport={importThemes} onOpenFolder={() => window.api.themesOpen('user').then(refreshThemes).catch(() => {})} />
           )}
           {tab === 'shortcuts' && (
             <>
