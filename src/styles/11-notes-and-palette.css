@@ -109,14 +109,14 @@
 .notes-prompt .row { display: flex; justify-content: flex-end; gap: 8px; }
 
 /* ---- Command palette ---- */
-.cmdk-back { position: fixed; inset: 0; z-index: 9000; background: rgba(0,0,0,.3); display: flex; justify-content: center; align-items: flex-start; padding-top: 12vh; }
-.cmdk { width: min(620px, 92vw); max-height: 70vh; display: flex; flex-direction: column; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 20px 60px rgba(0,0,0,.35); overflow: hidden; }
+.cmdk-back { position: fixed; inset: 0; z-index: 9000; background: var(--scrim); display: flex; justify-content: center; align-items: flex-start; padding-top: 12vh; }
+.cmdk { width: min(620px, 92vw); max-height: 70vh; display: flex; flex-direction: column; color: var(--text); overflow: hidden; }
 .cmdk-bar { display: flex; align-items: center; gap: 10px; height: 50px; padding: 0 14px 0 18px; border-bottom: 1px solid var(--border); color: var(--muted); flex: none; }
 .cmdk-input { flex: 1; min-width: 0; height: 100%; border: 0; background: transparent; color: var(--text); font-size: 15px; outline: 0; }
 .cmdk-list { overflow: auto; padding: 4px 6px 6px; flex: 1; }
-.cmdk-head { padding: 10px 10px 4px; font-size: var(--fs-xs); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
-.cmdk-item { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; background: none; color: var(--text); text-align: left; padding: 6px 10px; border-radius: 8px; cursor: pointer; font-size: 13.5px; }
-.cmdk-item.on { background: var(--active); }
+.cmdk-head { padding: 10px 10px 4px; font-weight: 600; color: var(--muted); }
+.cmdk-item { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; background: none; color: var(--text); text-align: left; cursor: pointer; }
+.cmdk-item.on { ; }
 .cmdk-ic { width: 24px; height: 24px; border-radius: var(--r-sm); display: grid; place-items: center; flex: none; color: var(--muted); background: color-mix(in srgb, var(--text) 6%, transparent); }
 .cmdk-item.on .cmdk-ic { color: var(--text); }
 .cmdk-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }

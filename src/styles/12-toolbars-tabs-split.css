@@ -29,9 +29,8 @@
 .notes-tree:hover .notes-root span { opacity: .8; }
 .notes-menu-back { position: fixed; inset: 0; z-index: 9500; }
 .notes-menu-back.center { background: rgba(0,0,0,.35); display: flex; align-items: center; justify-content: center; }
-.notes-menu { position: fixed; min-width: 160px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--r-md); padding: 4px; box-shadow: 0 10px 30px rgba(0,0,0,.3); display: flex; flex-direction: column; }
-.notes-menu button { text-align: left; border: 0; background: none; color: var(--text); padding: 7px 10px; border-radius: var(--r-sm); font-size: var(--fs-ui); cursor: pointer; }
-.notes-menu button:hover { background: var(--hover); }
+.notes-menu { position: fixed; min-width: 160px; padding: 4px; display: flex; flex-direction: column; }
+.notes-menu button { text-align: left; border: 0; background: none; color: var(--text); cursor: pointer; }
 .notes-menu button.danger { color: var(--danger, #e5484d); }
 .notes-move { width: 340px; max-height: 70vh; display: flex; flex-direction: column; gap: 8px; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
 .notes-move-title { font-size: 13.5px; font-weight: 500; }
@@ -83,11 +82,10 @@
 .atab.pinned .atab-key { display: none; }
 .atab-new { flex: none; width: 28px; height: 28px; padding: 0; display: grid; place-items: center; border: none; background: transparent; border-radius: 8px; color: var(--muted); }
 .atab-new:hover { background: var(--hover); color: var(--text); }
-.ctx-menu { position: fixed; z-index: 10000; min-width: 200px; padding: 5px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: 0 10px 30px rgba(0,0,0,.28); display: flex; flex-direction: column; }
-.ctx-item { display: flex; justify-content: space-between; gap: 18px; text-align: left; border: none; background: transparent; padding: 6px 10px; border-radius: var(--r-sm); font-size: var(--fs-ui); }
-.ctx-item:hover:not(:disabled) { background: var(--hover); }
+.ctx-menu { position: fixed; z-index: 10000; min-width: 200px; padding: 5px; display: flex; flex-direction: column; }
+.ctx-item { display: flex; justify-content: space-between; gap: 18px; text-align: left; border: none; background: transparent; }
 .ctx-item:disabled { opacity: .4; cursor: default; }
-.ctx-item.danger { color: #d9534f; }
+.ctx-item.danger { color: var(--danger); }
 .ctx-hint { color: var(--muted); font-size: var(--fs-sm); }
 .ctx-sep { height: 1px; background: var(--border); margin: 4px 6px; }
 .browser-panel.full { width: auto; flex: 1; border-left: none; }
@@ -125,7 +123,7 @@
 .top-pills.stacked .sel.pill-select, .top-pills.stacked .pill-select.revote { width: 100%; max-width: none; height: 30px; padding: 0 10px; font-size: var(--fs-ui); border-radius: 8px; justify-content: space-between; }
 .top-pills.stacked .sel.pill-select svg { display: inline-block; margin-left: auto; }
 .top-pills.stacked .um-wrap, .top-pills.stacked .um-wrap > button { width: 100%; }
-.um-row-btn { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px; font-size: var(--fs-ui); color: var(--muted); justify-content: flex-start; }
+.um-row-btn { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; border: .5px solid var(--line-2); border-radius: var(--r-sm); font-size: var(--fs-ui); color: var(--muted); justify-content: flex-start; }
 .um-row-btn:hover { background: var(--hover); color: var(--text); }
 .top-pills.stacked .um-pop { left: 0; right: 0; width: auto; }
 .sp-body.prog h4.first { margin-top: 0; }
@@ -161,14 +159,6 @@
 .queue-note { font-size: var(--fs-sm); opacity: 0.7; padding: 0 4px; }
 
 /* theme picker */
-.theme-grid { display: flex; flex-wrap: wrap; gap: 8px; }
-.theme-sw { display: flex; align-items: center; gap: 8px; padding: 6px 12px 6px 6px; border: 1px solid var(--border); border-radius: var(--r-md); background: transparent; color: var(--text); cursor: pointer; font-size: var(--fs-ui); }
-.theme-sw:hover { background: var(--hover); }
-.theme-sw.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-.theme-sw i { position: relative; width: 30px; height: 30px; border-radius: 8px; border: 1px solid rgba(128,128,128,.35); overflow: hidden; flex: none; display: block; }
-.theme-sw i b { position: absolute; bottom: 4px; width: 9px; height: 9px; border-radius: 50%; }
-.theme-sw i b:nth-child(1) { left: 4px; }
-.theme-sw i b:nth-child(2) { right: 4px; }
 
 /* ---- notes in the sidebar ---- */
 .notes-head { padding-right: 4px; }
@@ -204,17 +194,8 @@
 /* Settings: no outlines or divider lines, plus the search box */
 .settings-nav { border-right: 0 !important; }
 .settings-foot { border-top: 0 !important; }
-.page-host > .modal.page.settings { border: 0 !important; }
 .settings-search { height: 30px; margin: 0 4px 8px; padding: 0 10px; border: 0; border-radius: 8px; background: var(--hover); color: var(--text); font-size: var(--fs-ui); outline: 0; }
 .settings-search::placeholder { color: var(--muted); }
 .settings-none { padding: 6px 10px; }
 
 /* Settings: no outlines anywhere; controls get a soft fill instead */
-.modal.settings, .modal.page.settings, .page-host > .modal.page.settings { border: 0 !important; }
-.modal.settings :is(button, input, select, textarea, .sel, .field-sel, .theme-sw, fieldset, .group):not(.primary):not(.on):not(.settings-nav button):not(.sel-item),
-.modal.page.settings :is(button, input, select, textarea, .sel, .field-sel, .theme-sw, fieldset, .group):not(.primary):not(.on):not(.settings-nav button):not(.sel-item) { border-color: transparent !important; }
-.modal.settings :is(button, input:not([type=checkbox]):not([type=radio]), select, textarea, .sel, .theme-sw):not(.primary):not(.on):not(.settings-nav button):not(.sel-item) { background: var(--hover); }
-.modal.settings :is(button, .sel, .theme-sw):not(.primary):not(.on):hover:not(:disabled) { background: var(--active); }
-.modal.settings .settings-nav button { background: transparent; }
-.modal.settings .settings-nav button.active { background: var(--hover); }
-.modal.settings hr, .modal.settings .settings-foot { border: 0 !important; }

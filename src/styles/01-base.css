@@ -38,15 +38,30 @@
   --fill: var(--hover); --fill-2: var(--active);
   --shadow-raised: 0 0 0 .5px rgba(0,0,0,.08), 0 24px 50px -18px rgba(40,30,10,.22), 0 4px 12px -4px rgba(40,30,10,.10);
   --hi: inset 0 1px 0 rgba(255,255,255,.8);
+  /* controls: field and push-button surfaces, the focus ring, menus and dialogs */
+  --field-bg: var(--elev);
+  --ring: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent);
+  --btn-shadow: 0 .5px 1px rgba(0,0,0,.12);
+  --menu-shadow: 0 0 0 .5px rgba(0,0,0,.10), 0 14px 36px -8px rgba(40,30,10,.24), 0 3px 8px -2px rgba(40,30,10,.10);
+  --dialog-shadow: 0 0 0 .5px rgba(0,0,0,.10), 0 30px 70px -20px rgba(40,30,10,.35), 0 8px 20px -8px rgba(40,30,10,.14);
+  --scrim: rgba(20,16,8,.28);
 }
 :root[data-scheme="dark"], :root[data-theme="dark"] {
   --shadow-raised: 0 0 0 .5px rgba(0,0,0,.55), 0 24px 60px -16px rgba(0,0,0,.7), 0 6px 16px -4px rgba(0,0,0,.35);
   --hi: inset 0 1px 0 rgba(255,255,255,.06);
+  --btn-shadow: 0 .5px 1px rgba(0,0,0,.4);
+  --menu-shadow: 0 0 0 .5px rgba(255,255,255,.08), 0 0 0 1px rgba(0,0,0,.5), 0 16px 40px -8px rgba(0,0,0,.6);
+  --dialog-shadow: 0 0 0 .5px rgba(255,255,255,.08), 0 0 0 1px rgba(0,0,0,.5), 0 30px 80px -16px rgba(0,0,0,.75);
+  --scrim: rgba(0,0,0,.5);
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-scheme="light"]):not([data-theme="light"]) {
     --shadow-raised: 0 0 0 .5px rgba(0,0,0,.55), 0 24px 60px -16px rgba(0,0,0,.7), 0 6px 16px -4px rgba(0,0,0,.35);
     --hi: inset 0 1px 0 rgba(255,255,255,.06);
+    --btn-shadow: 0 .5px 1px rgba(0,0,0,.4);
+    --menu-shadow: 0 0 0 .5px rgba(255,255,255,.08), 0 0 0 1px rgba(0,0,0,.5), 0 16px 40px -8px rgba(0,0,0,.6);
+    --dialog-shadow: 0 0 0 .5px rgba(255,255,255,.08), 0 0 0 1px rgba(0,0,0,.5), 0 30px 80px -16px rgba(0,0,0,.75);
+    --scrim: rgba(0,0,0,.5);
   }
 }
 
@@ -87,9 +102,11 @@
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
 body { background: var(--bg); color: var(--text); font: var(--fs, 14px)/1.6 var(--font-sans); letter-spacing: -0.003em; -webkit-font-smoothing: antialiased; font-feature-settings: "kern"; overflow: hidden; }
-button { font: inherit; color: inherit; cursor: pointer; border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; background: transparent; }
+button { font: inherit; color: inherit; cursor: pointer; border: .5px solid var(--line-2); border-radius: var(--r-sm); padding: 6px 12px; background: transparent; transition: background-color .12s, border-color .12s, color .12s, box-shadow .12s, filter .12s; }
 button:hover:not(:disabled) { background: var(--hover); }
 button:disabled { opacity: .5; cursor: default; }
+:where(button, a, [role="button"], [role="tab"], [role="switch"], [role="radio"], [role="option"]):focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 75%, transparent); outline-offset: 1px; }
+@media (prefers-reduced-motion: reduce) { button { transition: none; } }
 input, select, textarea { font: inherit; color: var(--text); }
 .drag { -webkit-app-region: drag; }
 .nodrag, button, input, select, textarea { -webkit-app-region: no-drag; }
