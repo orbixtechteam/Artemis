@@ -3,6 +3,7 @@ import { applyTextSize, applySettingsTheme, loadThemes } from './lib/themes.js';
 import Markdown from './components/Markdown.jsx';
 import ToolCard from './components/ToolCard.jsx';
 import { Icon } from './components/Icons.jsx';
+import Logo from './components/Logo.jsx';
 import { toApiMessages, uid } from './lib/history.js';
 import { AttachmentChip, Thinking, ThinkBlock, thinkMode } from './components/Message.jsx';
 import { addThinking, stepParts } from './lib/think.mjs';
@@ -182,7 +183,7 @@ export default function QuickChat({ embedded = false, onClose, onKeepOpen, focus
           onOpenChat={(id) => api.paletteRun({ kind: 'chat', id })} onOpenNote={(p) => api.paletteRun({ kind: 'note', path: p })} onOpenFile={(p) => api.paletteRun({ kind: 'file', path: p })} />
       ) : (<>
       <div className="quick-bar drag">
-        <Icon name="chat" size={18} className="quick-icon" />
+        <Logo size={26} className="quick-logo" />
         <textarea
           ref={inputRef} className="nodrag quick-input" rows={1} autoFocus value={text} onChange={(e) => setText(e.target.value)} onKeyDown={onKey} onPaste={onPaste}
           placeholder={settings.hasApiKey ? 'Ask anything…' : 'Add a provider in Settings first'}

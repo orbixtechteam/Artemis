@@ -46,7 +46,7 @@
 /* ---- jump to latest ---- */
 .jump-anchor { position: relative; height: 0; z-index: 3; }
 .jump-latest { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 6px;
-  background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-full); padding: 5px 14px;
+  background: var(--panel); color: var(--text); border: .5px solid var(--line-2); border-radius: var(--r-full); padding: 5px 14px;
   font-size: var(--fs-sm); box-shadow: 0 4px 16px rgba(0,0,0,.14); animation: pop-in .15s ease-out; }
 .jump-latest:hover:not(:disabled) { background: var(--panel); border-color: var(--accent); }
 .flip { transform: rotate(180deg); }
@@ -58,11 +58,11 @@
 .chat-pane.is-empty .empty { margin-top: 0; }
 .chat-pane.is-empty .composer-wrap { padding-bottom: 12vh; }
 .suggestions { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--sp-2); margin: var(--sp-5) auto 0; max-width: 640px; }
-.suggestion { font-size: var(--fs-ui); color: var(--muted); background: var(--panel); border: 1px solid var(--border); border-radius: var(--r-full); padding: 6px 14px; }
+.suggestion { font-size: var(--fs-ui); color: var(--muted); background: var(--panel); border: .5px solid var(--line-2); border-radius: var(--r-full); padding: 6px 14px; }
 .suggestion:hover:not(:disabled) { color: var(--text); border-color: var(--accent); background: var(--panel); }
 
 /* ---- composer ---- */
-kbd { font: 500 .85em var(--font-mono); padding: 0 4px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; background: var(--side); color: inherit; }
+kbd { font: 500 .85em var(--font-mono); padding: 0 4px; border: .5px solid var(--line-2); border-bottom-width: 2px; border-radius: 4px; background: var(--side); color: inherit; }
 button.primary kbd { background: transparent; border-color: rgba(255,255,255,.4); color: inherit; opacity: .85; }
 .composer .chip.has-thumb { padding: 3px 8px 3px 3px; }
 .composer .chip.has-thumb img { width: 40px; height: 40px; border-radius: var(--r-sm); }
@@ -93,7 +93,7 @@ button.primary kbd { background: transparent; border-color: rgba(255,255,255,.4)
 .approve-actions button.ghost { border-color: transparent; color: var(--muted); }
 .hint-more { font-size: var(--fs-sm); color: var(--muted); }
 .hint-more summary { cursor: pointer; }
-.udiff { margin: 0; max-height: 300px; overflow: auto; font: var(--fs-sm)/1.5 var(--font-mono); background: var(--code); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 4px 0; }
+.udiff { margin: 0; max-height: 300px; overflow: auto; font: var(--fs-sm)/1.5 var(--font-mono); background: var(--code); border: .5px solid var(--line-2); border-radius: var(--r-sm); padding: 4px 0; }
 .ud-row { white-space: pre-wrap; word-break: break-word; padding: 0 10px 0 0; }
 .ud-row.add { background: var(--add); }
 .ud-row.del { background: var(--del); }
@@ -113,7 +113,7 @@ button.primary kbd { background: transparent; border-color: rgba(255,255,255,.4)
 .error-raw pre { margin: 6px 0 0; white-space: pre-wrap; word-break: break-word; max-height: 200px; overflow: auto; font: var(--fs-sm)/1.5 var(--font-mono); background: var(--code); border-radius: var(--r-sm); padding: 8px; }
 .msg-broken { color: var(--muted); font-size: var(--fs-ui); }
 .link-btn { border: none; background: none; padding: 0; color: var(--accent); text-decoration: underline; }
-.crash-card { margin: 24px auto; max-width: 520px; border: 1px solid var(--border); border-radius: var(--r-md); padding: 16px; background: var(--panel); }
+.crash-card { margin: 24px auto; max-width: 520px; border: .5px solid var(--line-2); border-radius: var(--r-md); padding: 16px; background: var(--panel); }
 .crash-title { font-weight: 600; margin-bottom: 4px; }
 .crash-msg { color: var(--muted); font: var(--fs-sm)/1.5 var(--font-mono); margin-bottom: 10px; word-break: break-word; }
 
@@ -155,7 +155,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 .thinkblock-body .md { font-size: var(--fs-sm); line-height: 1.6; color: var(--muted); }
 .thinkblock-body .md p { margin: .5em 0; }
 .thinkblock-body .md :is(h1, h2, h3, h4) { font-size: 1em; margin: .8em 0 .3em; color: var(--muted); }
-.thinkblock-copy { position: sticky; float: right; bottom: 0; margin-top: 4px; font-size: var(--fs-xs); padding: 2px 8px; border: 1px solid var(--border);
+.thinkblock-copy { position: sticky; float: right; bottom: 0; margin-top: 4px; font-size: var(--fs-xs); padding: 2px 8px; border: .5px solid var(--line-2);
   background: var(--panel); color: var(--muted); border-radius: var(--r-sm); cursor: pointer; }
 .thinkblock-copy:hover { color: var(--text); }
 :root[data-thinking="hidden"] .thinkblock { display: none; }

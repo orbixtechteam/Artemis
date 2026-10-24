@@ -164,7 +164,32 @@
 .pref-chips button { height: 24px; padding: 0 10px; border-radius: var(--r-full); border: .5px solid var(--pref-field-line); background: var(--elev); box-shadow: var(--btn-shadow); font-size: var(--fs-sm); }
 .pref-chips button.active { background: var(--accent); border-color: transparent; color: var(--accent-text); }
 .prefs .pref-chips input { width: 150px; height: 26px; border-radius: var(--r-full); padding: 0 10px; }
-.pref-row .limit-bar { margin-top: 8px; }
+/* Usage & limits (settings/LimitsTab.jsx): period switch, four figures, tokens per day, by model, limits */
+.lim-period { display: flex; justify-content: flex-end; margin: -52px 0 22px; }
+.lim-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
+.lim-tiles > div { position: relative; padding: 14px 16px; min-width: 0; }
+.lim-tiles > div + div::before { content: ''; position: absolute; left: 0; top: 14px; bottom: 14px; width: 1px; background: var(--pref-line); }
+.lim-tiles span { display: block; font-size: var(--fs-sm); color: var(--muted); }
+.lim-tiles b { display: block; margin-top: 4px; font-family: var(--font-display); font-size: 24px; font-weight: 600; letter-spacing: -.02em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.lim-tiles small { display: block; margin-top: 3px; font-size: var(--fs-sm); color: var(--muted); }
+.lim-tiles .limit-meter { margin-top: 9px; }
+.lim-chart { padding: 14px 16px 12px; }
+.lim-axis { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
+.lim-bars { display: grid; grid-template-columns: repeat(14, minmax(0, 1fr)); gap: 6px; align-items: end; height: 120px; border-bottom: 1px solid var(--line-2); }
+.lim-bars i { display: block; border-radius: 4px 4px 0 0; background: color-mix(in srgb, var(--accent) 80%, transparent); }
+.lim-bars i:hover, .lim-bars i.today { background: var(--accent); }
+.lim-days { display: grid; grid-template-columns: repeat(14, minmax(0, 1fr)); gap: 6px; margin-top: 6px; text-align: center; font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.lim-model { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 2fr) 64px 56px; gap: 14px; align-items: center; min-height: 40px; padding: 6px var(--pref-pad); font-size: var(--fs-ui); font-variant-numeric: tabular-nums; }
+.lim-model .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lim-model .tr { height: 6px; border-radius: 3px; background: var(--fill-2); overflow: hidden; }
+.lim-model .tr i { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
+.lim-model .n { text-align: right; }
+.lim-model .c { text-align: right; color: var(--muted); }
+.limit-meter { height: 6px; margin-top: 8px; border-radius: 3px; background: var(--fill-2); overflow: hidden; }
+.limit-meter i { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
+.limit-meter i.warn { background: var(--warn); }
+.limit-meter i.bad { background: var(--danger); }
+@container (max-width: 520px) { .lim-period { margin-top: 0; justify-content: flex-start; } .lim-model { grid-template-columns: minmax(0, 1fr) 64px 56px; } .lim-model .tr { display: none; } }
 
 /* full-bleed in its pane; a narrow pane (split view) stacks label and control */
 .pane > .prefs, .split-pane > .prefs { flex: 1; }

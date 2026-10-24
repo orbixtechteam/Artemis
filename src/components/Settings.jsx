@@ -64,7 +64,7 @@ export const SECTIONS = [
   ['tools', 'Tools & safety', 'wrench', 'What the assistant may do, and when it asks first.', 'safety'],
   ['access', 'Access', 'shield', 'macOS permissions, folders and features Artemis can reach.', 'safety'],
   ['security', 'Security', 'lock', 'App lock, Touch ID, voice recognition and what happens on unauthorized access.', 'safety'],
-  ['limits', 'Usage & limits', 'chart', 'Spending and token limits, and the length of one answer.', 'more'],
+  ['limits', 'Usage & limits', 'chart', 'What Artemis has used, and the limits that pause it.', 'more'],
   ['make', 'Make', 'bolt', 'Let Artemis use your Make.com scenarios.', 'more'],
   ['phone', 'Phone', 'phone', 'Chat with Artemis from Telegram.', 'more']
 ];

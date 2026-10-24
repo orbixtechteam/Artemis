@@ -1,15 +1,16 @@
 /* App lock screen and Settings → Security. */
 .lock-screen { position: fixed; inset: 0; z-index: 100000; display: flex; align-items: center; justify-content: center; padding: 24px; background: color-mix(in srgb, var(--bg) 94%, transparent); -webkit-backdrop-filter: blur(28px) saturate(1.2); backdrop-filter: blur(28px) saturate(1.2); -webkit-app-region: no-drag; }
 .lock-card { width: min(360px, 100%); display: flex; flex-direction: column; align-items: stretch; gap: 10px; text-align: center; }
-.lock-mark { align-self: center; display: grid; place-items: center; width: 54px; height: 54px; border-radius: 50%; color: var(--muted); background: var(--hover); margin-bottom: 4px; }
-.lock-title { margin: 0; font-size: var(--fs-lg); font-weight: 600; color: var(--text); }
+.lock-mark { position: relative; align-self: center; width: 72px; height: 72px; margin-bottom: 10px; }
+.lock-mark img { display: block; width: 72px; height: 72px; border-radius: 17px; box-shadow: 0 0 0 .5px var(--line-2), 0 16px 36px -12px rgba(0,0,0,.55); }
+.lock-badge { position: absolute; right: -6px; bottom: -6px; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--elev); color: var(--text); box-shadow: 0 0 0 .5px var(--line-2), 0 4px 10px -2px rgba(0,0,0,.3); }
+.lock-title { margin: 0; font-family: var(--font-display); font-size: 22px; font-weight: 600; letter-spacing: -.018em; color: var(--text); }
 .lock-sub { margin: -4px 0 6px; color: var(--muted); font-size: var(--fs-ui); }
-.lock-input { width: 100%; height: 38px; padding: 0 12px; border-radius: var(--r-md); border: 1px solid var(--border); background: var(--panel); color: var(--text); font-size: var(--fs-body); text-align: center; outline: none; }
+.lock-input { width: 100%; height: 40px; padding: 0 14px; border-radius: 12px; border: 1px solid transparent; background: var(--fill-2); color: var(--text); font-size: var(--fs-body); text-align: center; outline: none; }
 .lock-input.mono { font-family: var(--font-mono); font-size: var(--fs-ui); letter-spacing: .04em; }
-.lock-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+.lock-input:focus { border-color: var(--accent); box-shadow: var(--ring); background: var(--field-bg); }
 .lock-actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
-.lock-actions button { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 16px; border-radius: var(--r-md); border: 1px solid var(--border); background: var(--panel); color: var(--text); font-size: var(--fs-ui); }
-.lock-actions button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.lock-actions button { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 18px; border-radius: var(--r-sm); border: .5px solid var(--line-2); background: var(--elev); box-shadow: var(--btn-shadow), var(--hi); color: var(--text); font-size: var(--fs-ui); }
 .lock-actions button:disabled { opacity: .5; }
 .lock-err { color: var(--danger); font-size: var(--fs-sm); }
 .lock-link { align-self: center; background: none; border: 0; color: var(--muted); font-size: var(--fs-sm); text-decoration: underline; text-underline-offset: 2px; padding: 4px; }
@@ -24,8 +25,8 @@
 body.app-locked { overflow: hidden; }
 
 /* Settings → Security */
-.sec-code { font-family: var(--font-mono); font-size: var(--fs-ui); letter-spacing: .05em; padding: 5px 10px; border-radius: var(--r-sm); background: var(--code); border: 1px solid var(--border); user-select: all; }
+.sec-code { font-family: var(--font-mono); font-size: var(--fs-ui); letter-spacing: .05em; padding: 5px 10px; border-radius: var(--r-sm); background: var(--code); border: .5px solid var(--line-2); user-select: all; }
 .sec-enroll { display: flex; flex-direction: column; gap: 10px; }
-.sec-phrase { margin: 0; padding: 10px 12px; border-radius: var(--r-md); background: var(--hover); font-size: var(--fs-body); line-height: 1.45; }
+.sec-phrase { margin: 0; padding: 10px 12px; border-radius: var(--r-md); background: var(--fill); font-size: var(--fs-body); line-height: 1.45; }
 .sec-meter { height: 6px; border-radius: var(--r-full); background: var(--hover); overflow: hidden; }
 .sec-meter > span { display: block; height: 100%; background: var(--ok); transition: width .08s linear; }

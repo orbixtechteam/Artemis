@@ -17,11 +17,15 @@
 .sel-group, .cmdk-head { font-size: 11.5px; font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--muted); opacity: 1; }
 .sel-check { color: var(--accent); }
 
-/* segmented control inside dialogs (same look as .pref-seg in Settings) */
-.modal .seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--fill-2); }
-.modal .seg button { height: 24px; padding: 0 12px; border: 0; border-radius: 6px; background: transparent; color: var(--text-2); font-size: 12.5px; }
-.modal .seg button:hover:not(.on) { background: transparent; color: var(--text); }
-.modal .seg button.on { background: var(--elev); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.22), 0 0 0 .5px var(--line); }
+/* segmented control in dialogs, Logs and Automations (same look as .pref-seg in Settings) */
+.seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--fill-2); }
+.seg > button { height: 24px; padding: 0 12px; border: 0; border-radius: 6px; background: transparent; color: var(--text-2); font-size: 12.5px; }
+.seg > button:hover:not(.on) { background: transparent; color: var(--text); }
+.seg > button.on { background: var(--elev); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.22), 0 0 0 .5px var(--line); }
+
+/* small search fields in page toolbars */
+.logs-search { height: 28px; padding: 0 10px; border: .5px solid var(--line-2); border-radius: var(--r-sm); background: var(--field-bg); color: var(--text); font-size: 12.5px; outline: none; }
+.logs-search:focus { border-color: var(--accent); box-shadow: var(--ring); }
 
 /* dialogs: title, message, a right-aligned button row of equal-height push buttons */
 .modal .actions-row button, .modal.dialog .actions-row button { height: 28px; }

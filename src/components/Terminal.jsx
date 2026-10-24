@@ -16,7 +16,7 @@ const FALLBACK = {
 function themeFromCss() {
   const cs = getComputedStyle(document.documentElement);
   const v = (n, fb) => (cs.getPropertyValue(n) || '').trim() || fb;
-  const bg = v('--bg', FALLBACK.background);
+  const bg = v('--code', v('--bg', FALLBACK.background)); // the same surface as the terminal's frame
   const text = v('--text', FALLBACK.foreground);
   const accent = v('--accent', FALLBACK.blue);
   const border = v('--border', FALLBACK.black);
@@ -59,7 +59,7 @@ export function TerminalView({ id, cwd, active = true, onId, onExit }) {
   }, []);
 
   useEffect(() => {
-    const t = new XTerm({ fontFamily: 'Menlo, "SF Mono", Monaco, Consolas, monospace', fontSize: 13, cursorBlink: true, scrollback: 5000, allowProposedApi: true, macOptionIsMeta: true, theme: themeFromCss() });
+    const t = new XTerm({ fontFamily: '"SF Mono", ui-monospace, Menlo, Monaco, Consolas, monospace', fontSize: 12.5, lineHeight: 1.25, cursorBlink: true, scrollback: 5000, allowProposedApi: true, macOptionIsMeta: true, theme: themeFromCss() });
     const f = new FitAddon();
     t.loadAddon(f);
     t.loadAddon(new WebLinksAddon((_e, url) => api.openExternalUrl ? api.openExternalUrl(url) : window.open(url)));

@@ -3,7 +3,7 @@
 .topbar { height: 48px; flex: none; display: flex; align-items: center; gap: 6px; padding: 0 12px; min-width: 0; }
 .topbar.pad-mac { padding-left: 84px; }
 .chat-title { flex: 1; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.topbar select, .modal select { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 5px 8px; font-size: var(--fs-ui); }
+.topbar select, .modal select { background: var(--panel); border: .5px solid var(--line-2); border-radius: 8px; padding: 5px 8px; font-size: var(--fs-ui); }
 .topbar select { max-width: 270px; }
 .modal select { width: 100%; }
 .icon-btn { background: none; border: none; font-size: 18px; padding: 4px 8px; border-radius: var(--r-sm); color: var(--text-2); }
@@ -12,7 +12,7 @@
 
 .messages { flex: 1; min-height: 0; overflow-y: auto; overflow-anchor: none; padding: 8px 0 28px; }
 .empty { max-width: 640px; margin: 13vh auto 0; text-align: center; padding: 0 20px; }
-.empty h1 { font-family: Georgia, "Times New Roman", serif; font-weight: 400; font-size: 38px; margin: 8px 0; }
+.empty h1 { font-family: var(--font-serif); font-weight: 400; font-size: 38px; letter-spacing: -.018em; margin: 8px 0; }
 .empty p { color: var(--muted); margin: 6px 0; }
 
 .msg { max-width: 780px; margin: 0 auto; padding: 8px 24px; position: relative; }
@@ -39,7 +39,7 @@
 .md p { margin: .6em 0; } .md ul, .md ol { padding-left: 1.5em; margin: .6em 0; }
 .md a { color: var(--accent); }
 .md blockquote { border-left: 3px solid var(--border); margin: .6em 0; padding: 0 14px; color: var(--muted); }
-.md hr { border: none; border-top: 1px solid var(--border); margin: 1.2em 0; }
+.md hr { border: none; border-top: .5px solid var(--line-2); margin: 1.2em 0; }
 .md code { background: var(--fill-2); border-radius: 6px; padding: .1em .35em; font: 13px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
 .table-wrap { overflow-x: auto; margin: .8em 0; }
 .md table { border-collapse: collapse; }
