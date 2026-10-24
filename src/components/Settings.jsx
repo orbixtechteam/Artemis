@@ -16,6 +16,8 @@ import { MakeTab } from './settings/MakeTab.jsx';
 import { AgentsTab } from './settings/AgentsTab.jsx';
 import { BrainsTab } from './settings/BrainsTab.jsx';
 import MemoryPanel from './MemoryPanel.jsx';
+import { MemoryGroup } from './settings/MemoryGroup.jsx';
+import { SandboxGroup } from './settings/SandboxGroup.jsx';
 import { eventToAccelerator, formatAccelerator, parseAccelerator } from '../lib/shortcuts.mjs';
 
 const IS_MAC = window.api?.platform === 'darwin';
@@ -426,6 +428,8 @@ export function SettingsModal({ settings, groups = [], projects = [], providers 
                 )}
                 <SwitchRow label="Search my earlier chats" description="Lets Artemis look things up in your saved chats when you refer to them. Incognito chats are never searched." checked={s.chatSearchEnabled !== false} onChange={put('chatSearchEnabled')} />
               </Group>
+              {s.memoryEnabled && <MemoryGroup s={s} setS={setS} put={put} providers={providers} modelOptions={modelOptions} />}
+              {s.shellEnabled && <SandboxGroup s={s} setS={setS} put={put} />}
             </>
           )}
           {tab === 'access' && <AccessTab s={s} set={set} setS={setS} projects={projects} goTo={setTab} />}

@@ -1622,18 +1622,45 @@ export default function App() {
   useEffect(() => api.onPhoneStart((p) => {
     const asst = { id: uid(), role: 'assistant', steps: [{ text: '', toolCalls: [] }] };
     const user = { id: uid(), role: 'user', content: p.text || (p.images.length ? '(image)' : ''), attachments: p.images.map((u, i) => ({ kind: 'image', name: `photo-${i + 1}`, dataUrl: u })) };
-    const into = p.chatId || null; // the phone is continuing one of the desktop chats
-    streamsRef.current[p.requestId] = { chatId: into || 'phone-' + p.session, msgId: asst.id };
-    setRunningIds((ids) => [...ids, into || 'phone-' + p.session]);
+    const into = p.chatId || null; // the phone (or the gateway) is continuing one of the desktop chats
+    const pre = p.prefix != null ? p.prefix : 'phone-'; // gateway runs send prefix '' and their own session id
+    const via = p.via || 'telegram';
+    streamsRef.current[p.requestId] = { chatId: into || pre + p.session, msgId: asst.id };
+    setRunningIds((ids) => [...ids, into || pre + p.session]);
     setChats((cs) => {
-      if (into && cs.some((c) => c.id === into)) return cs.map((c) => (c.id === into ? { ...c, updatedAt: Date.now(), messages: [...c.messages, { ...user, via: 'telegram' }, { ...asst, via: 'telegram' }] } : c));
-      const id = 'phone-' + p.session;
+      if (into && cs.some((c) => c.id === into)) return cs.map((c) => (c.id === into ? { ...c, updatedAt: Date.now(), messages: [...c.messages, { ...user, via }, { ...asst, via }] } : c));
+      const id = pre + p.session;
       const ex = cs.find((c) => c.id === id);
       if (ex) return cs.map((c) => (c.id === id ? { ...c, model: p.model, updatedAt: Date.now(), messages: [...c.messages, user, asst] } : c));
-      const title = (p.text || 'Phone chat').replace(/\s+/g, ' ').slice(0, 48);
-      return [{ id, title, source: 'phone', model: p.model, projectId: p.projectId, messages: [user, asst], updatedAt: Date.now() }, ...cs];
+      const title = (p.text || (p.source === 'gateway' ? 'Gateway chat' : 'Phone chat')).replace(/\s+/g, ' ').slice(0, 48);
+      return [{ id, title, source: p.source || 'phone', model: p.model, projectId: p.projectId, messages: [user, asst], updatedAt: Date.now() }, ...cs];
     });
   }), []);
+
+  // Chats changed outside this window (the headless gateway, its Telegram bot or scheduled tasks): merged in by message id.
+  useEffect(() => (api.onChatsExternal ? api.onChatsExternal((p) => {
+    const incoming = Array.isArray(p && p.chats) ? p.chats : [];
+    const busy = new Set(Object.values(streamsRef.current || {}).map((x) => x && x.chatId).filter(Boolean));
+    const gone = new Set((Array.isArray(p && p.deleted) ? p.deleted : []).filter((id) => !busy.has(id)));
+    setChats((cs) => {
+      let out = gone.size ? cs.filter((c) => !gone.has(c.id)) : cs;
+      for (const ext of incoming) {
+        const i = out.findIndex((c) => c.id === ext.id);
+        if (i < 0) { out = [ext, ...out]; continue; }
+        const cur = out[i];
+        const have = new Set((cur.messages || []).map((m) => m && m.id));
+        const extra = (ext.messages || []).filter((m) => m && m.id && !have.has(m.id));
+        if (!extra.length) continue;
+        const merged = { ...cur, messages: [...(cur.messages || []), ...extra], updatedAt: Math.max(cur.updatedAt || 0, ext.updatedAt || 0) };
+        out = out.map((c, j) => (j === i ? merged : c));
+      }
+      return out;
+    });
+    if (gone.has(currentRef.current)) {
+      const rest = (chatsRef.current || []).filter((c) => !gone.has(c.id));
+      if (rest.length) setCurrentId([...rest].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0].id);
+    }
+  }) : undefined), []);
 
   // Scheduled task runs show up as their own chat, live.
   useEffect(() => api.onScheduleStart((p) => {

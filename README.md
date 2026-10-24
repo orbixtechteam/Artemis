@@ -31,7 +31,10 @@ Chats, notes and memory are plain files on your disk. Every line of code is open
 - **Brains**: named personalities (Lancelot, Galahad, Percival) that each answer with their own model, or a council that votes on who answers and which skills and agents to use.
 - **Skills**: reusable `SKILL.md` folders (same layout as [agentskills.io](https://agentskills.io)), per user or per project, learned and improved with use.
 - **Scheduled tasks**: once, every N minutes, daily, weekdays, weekly or monthly, with a cheap default model for scheduled runs. Make.com scenarios by asking.
-- **Memory and notes**: durable facts across chats; Markdown notes with folders, search, `[[wiki links]]` and a graph.
+- **Long-term memory**: plain Markdown files (`SOUL.md`, `USER.md`, `MEMORY.md`, one daily note per day), searched by keywords and optionally by meaning; lasting facts are saved automatically before a long chat is compacted.
+- **Notes**: Markdown notes with folders, search, `[[wiki links]]` and a graph.
+- **Gateway and command line**: a local API and an `artemis` command (`artemis chat`, `artemis search`, `artemis memory search`), and a headless mode (`artemis gateway`) that runs the agent, chats, memory and scheduled tasks without a window.
+- **Chats in SQLite**: saved chats live in `artemis.db` with full-text search (`chats.json` is still written as a backup copy).
 - **Voice (Sentinel)**: wake word or push-to-talk, speech recognition on your machine, local voices (Piper, Kokoro, Chatterbox or any OpenAI-compatible speech endpoint), and a floating widget that stays on screen.
 - **Themes**: built-in light and dark, plus community themes as plain JSON files (see [`custom-themes/`](custom-themes/README.md)).
 - **App lock and voice recognition**: password, recovery code, Touch ID, offline speaker recognition, escalating lockdown with a Telegram alert.
@@ -69,7 +72,7 @@ The wiki explains how to use every feature, step by step. Start at [docs/wiki/Ho
 | Everyday use | [Chat and Projects](docs/wiki/Chat-and-Projects.md) · [Files and Attachments](docs/wiki/Files-and-Attachments.md) · [Notes](docs/wiki/Notes.md) · [Memory](docs/wiki/Memory.md) · [Quick Window and Shortcuts](docs/wiki/Quick-Window-and-Shortcuts.md) |
 | Agents and automation | [Sub-Agents](docs/wiki/Sub-Agents.md) · [Brains](docs/wiki/Brains.md) · [Skills](docs/wiki/Skills.md) · [Scheduled Tasks](docs/wiki/Scheduled-Tasks.md) · [Make](docs/wiki/Make.md) |
 | Tools and control | [Tools and Approvals](docs/wiki/Tools-and-Approvals.md) · [Terminal](docs/wiki/Terminal.md) · [Browser](docs/wiki/Browser.md) · [Computer Control](docs/wiki/Computer-Control.md) |
-| Voice and integrations | [Sentinel Voice](docs/wiki/Sentinel-Voice.md) · [Phone (Telegram)](docs/wiki/Phone-Telegram.md) · [MCP](docs/wiki/MCP.md) |
+| Voice and integrations | [Sentinel Voice](docs/wiki/Sentinel-Voice.md) · [Phone (Telegram)](docs/wiki/Phone-Telegram.md) · [MCP](docs/wiki/MCP.md) · [Gateway and CLI](docs/wiki/Gateway.md) |
 | Security and help | [Security and App Lock](docs/wiki/Security-and-App-Lock.md) · [Troubleshooting](docs/wiki/Troubleshooting.md) |
 
 ## Install
@@ -113,7 +116,7 @@ Only the macOS arm64 build is packaged. Computer control, Touch ID and the macOS
 - **Approvals**: writes, edits, moves and deletes show an approval card. Writes can be auto-approved in Settings; deletes always ask. Connector tools ask once per task per server (read-only tools under a separate "read" approval); reading credentials, browser profiles or Artemis's own data folder asks every time.
 - **Notes**: a folder of Markdown files shown in the sidebar (folders, search, `[[wiki links]]`, graph view). A note opens like a chat: in the current tab, in a new tab (⌘/Ctrl-click) or next to a chat in split view. Artemis can search and read notes when you allow it.
 - **Tabs and split view**: chats and notes open in tabs; right-click a tab or a sidebar item and choose "Open in split view".
-- **Memory**: the assistant saves durable facts via `memory_save`; edit them in the Memory panel; they are added to every chat's system prompt.
+- **Memory**: Markdown files in the memory folder (`<userData>/workspace`): `SOUL.md` and `USER.md` (yours, added to every chat), `MEMORY.md` (facts saved with `memory_save`, editable in the Memory panel or any editor) and daily notes (`memory/YYYY-MM-DD.md`, today's and yesterday's are added to every chat). `memory_search` / `memory_get` / `memory_note` search, read and write them. See [Memory](docs/wiki/Memory.md).
 - **Usage**: tokens and cost per model, with daily and monthly limits (prices are set per model in Settings → Providers).
 
 ### Agents, Brains, skills and automations
@@ -128,7 +131,7 @@ Full guides: [Sub-Agents](docs/wiki/Sub-Agents.md), [Brains](docs/wiki/Brains.md
 ### Web, terminal, browser and computer control
 - **Web**: `web_search` (through the Brave Search API with your key, or an AI search model on one of your providers; pick one in Settings → Tools) and `web_fetch` (blocks local and private addresses).
 - **Browser**: an integrated browser with tabs and its own persistent session (cookies and logins stay). The agent drives it with `browser_*` tools. It is separate from your everyday browser.
-- **Terminal**: `run_command` runs in your real shell, and an integrated PTY terminal can be read by the agent. A small blocklist stops obvious disasters (sudo, `rm -rf /`, shutdown…) but it is **not a sandbox**.
+- **Terminal**: `run_command` runs in your real shell, and an integrated PTY terminal can be read by the agent. A small blocklist stops obvious disasters (sudo, `rm -rf /`, shutdown…) but it is **not a sandbox**; turn on the [sandbox](docs/wiki/Sandbox.md) (Docker or SSH) to keep commands off this computer.
 - **Computer (macOS only)**: screenshots, mouse and keyboard. Grant **Screen Recording** and **Accessibility** to the app that launches Artemis (Terminal/iTerm/Electron) in System Settings → Privacy & Security. Check with `pnpm selftest:computer`.
 - **Safety**: terminal and computer ask for approval **once per task**. While the computer is controlled the window minimizes and a small always-on-top panel shows progress; press **Cmd/Ctrl+Shift+Esc** (or Stop) to abort. Web pages, files and screenshots are treated as untrusted. Each tool group can be turned off in Settings.
 
@@ -136,6 +139,12 @@ Full guides: [Sub-Agents](docs/wiki/Sub-Agents.md), [Brains](docs/wiki/Brains.md
 - **Sentinel widget**: a small always-on-top window that shows what Sentinel is doing. It stays visible while Artemis is open (turn on "Hide the widget while Artemis is open" in Settings → Voice to change that) and stays compact while the computer is controlled. Click it to expand.
 - **Sentinel**: say "Wake up" (recognised offline on your computer) or use push-to-talk. Spoken commands work hands-free (for example "Artemis, lock"), and replies can be spoken through local voice servers (Piper, Kokoro, Chatterbox, or any OpenAI-compatible `/audio/speech` endpoint).
 - **Telegram**: pair a private chat and talk to the same agent from your phone (same memory and projects). Ask for a screenshot of your desktop. Artemis keeps running in the tray for this.
+
+### Gateway and command line
+- **Gateway**: Settings → Access → Gateway starts a local HTTP API (`127.0.0.1`, bearer token, browser requests refused). Messages that come through it appear live as chats in the window. API: `POST /v1/chat` (server-sent events), `/v1/sessions`, `/v1/search`, `/v1/memory`, approvals and abort. See [Gateway](docs/wiki/Gateway.md).
+- **`artemis` command** (`bin/artemis.js`, Node.js 22.13+): `artemis chat "…"`, interactive `artemis chat`, `artemis sessions`, `artemis search …`, `artemis memory search|list|add|note …`.
+- **Headless**: `artemis gateway` runs the agent, saved chats, memory, skills, agents, scheduled tasks, Telegram, connectors, the browser (Playwright) and computer control (macOS) without Electron. It can run next to the app on the same data folder: chats are shared and merged, and the background jobs (scheduled tasks, Telegram, the API) move to the gateway while it runs. Provider keys come from environment variables, `headless.json` or the app's saved keys (macOS keychain).
+- **Sandbox**: Settings → Tools can run `run_command` in a Docker container (only the project folder, at `/workspace`) or on another machine over SSH. See [Sandbox](docs/wiki/Sandbox.md).
 
 ### MCP
 - **Connectors**: add MCP servers in Settings. Their secrets (env values, headers, client secret, OAuth tokens) are encrypted at rest.
@@ -156,7 +165,7 @@ Ollama and LM Studio are in the provider list. A few things to know:
 
 ## Privacy, data and network access
 
-Data is stored locally as JSON under `userData`. API keys and tokens are encrypted with the OS keychain (Electron `safeStorage`); connector secrets in `mcp.json` are encrypted the same way. If the OS offers no encryption (some Linux setups) they are stored in plain text in that folder. If `chats.json` (or projects/memory) cannot be read, it is set aside as `chats.json.corrupt-<time>` instead of being overwritten, and `chats.json.bak` keeps a copy at most 10 minutes old.
+Data is stored locally under `userData`: chats in `artemis.db` (SQLite, with `chats.json` kept as a backup copy), memory as Markdown files in `workspace/`, everything else as JSON. API keys and tokens are encrypted with the OS keychain (Electron `safeStorage`); connector secrets in `mcp.json` are encrypted the same way. If the OS offers no encryption (some Linux setups) they are stored in plain text in that folder. If `chats.json` (or projects/memory) cannot be read, it is set aside as `chats.json.corrupt-<time>` instead of being overwritten, and `chats.json.bak` keeps a copy at most 10 minutes old.
 
 Artemis contains no analytics or crash reporting. It only talks to the internet when you use a feature that needs it, or to ask GitHub for the latest release (Settings → General → Updates; the first switch there turns it off, see [Updates](docs/wiki/Updates.md)):
 

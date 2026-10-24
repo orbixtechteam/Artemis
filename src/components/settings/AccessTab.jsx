@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { askConfirm } from '../../lib/dialog.js';
 import { Group, Row, SwitchRow, Note } from './ui.jsx';
+import { GatewayCard } from './GatewayCard.jsx';
 
 /** Lets other apps (Claude Code, the Claude proxy, Claude Desktop …) control Artemis through MCP. */
 export function McpServerCard() {
@@ -139,6 +140,7 @@ export function AccessTab({ s, set, setS, projects = [], goTo }) {
           checked={!!s.autoApproveEdits} onChange={put('autoApproveEdits')} />
       </Group>
       <McpServerCard />
+      <GatewayCard />
     </>
   );
 }
