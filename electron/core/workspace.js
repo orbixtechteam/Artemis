@@ -18,11 +18,44 @@ const TEMPLATES = {
 const memKey = (t) => String(t || '').toLowerCase().normalize('NFKC').replace(/[^\p{L}\p{N}]+/gu, ' ').trim().slice(0, 500);
 /** Stable id of an entry: derived from its words, so hand edits need no bookkeeping. */
 const idOf = (t) => crypto.createHash('sha1').update(memKey(t)).digest('base64').replace(/[^a-z0-9]/gi, '').toLowerCase().slice(0, 6);
-/** Removes HTML comments, also nested or unclosed ones ("<!<!-- -->-- x"): repeated until nothing changes, then any leftover marker. */
+/**
+ * Removes HTML comments (<!-- … --> or --!>, an unclosed one runs to the end). No regex: a scan from start to end, repeated
+ * until no "<!--" is left, so pieces of nested comments cannot join into a new one.
+ */
 function stripComments(t) {
-  let s = String(t || ''), prev;
-  do { prev = s; s = s.replace(/<!--[\s\S]*?-->/g, ''); } while (s !== prev);
-  return s.replace(/<!--[\s\S]*$/, '').replace(/<!--|-->/g, '');
+  let s = String(t || '');
+  for (let guard = 0; guard < 50 && s.includes('<!--'); guard++) {
+    let out = '', i = 0;
+    for (;;) {
+      const open = s.indexOf('<!--', i);
+      if (open < 0) { out += s.slice(i); break; }
+      out += s.slice(i, open);
+      const a = s.indexOf('-->', open + 4), b = s.indexOf('--!>', open + 4);
+      const end = a < 0 ? b : b < 0 ? a : Math.min(a, b);
+      if (end < 0) break; // unclosed: the rest is inside the comment
+      i = end + (end === b ? 4 : 3);
+    }
+    s = out;
+  }
+  return s.split('<!--').join('');
+}
+
+/** Same comments, but each one is replaced by its line breaks only, so line numbers of the rest stay the same. */
+function blankComments(t, fill = '') {
+  const s = String(t || '');
+  let out = '', i = 0;
+  for (;;) {
+    const open = s.indexOf('<!--', i);
+    if (open < 0) { out += s.slice(i); break; }
+    out += s.slice(i, open);
+    const a = s.indexOf('-->', open + 4), b = s.indexOf('--!>', open + 4);
+    const end = a < 0 ? b : b < 0 ? a : Math.min(a, b);
+    const stop = end < 0 ? s.length : end + (end === b ? 4 : 3);
+    out += s.slice(open, stop).split('').map((c) => (c === '\n' ? '\n' : fill)).join('');
+    i = stop;
+    if (end < 0) break;
+  }
+  return out;
 }
 /** The part of a file that says something: comments and a lone top heading do not count. */
 function meaningful(text) {
@@ -65,7 +98,7 @@ function createWorkspace({ dir, log = () => {}, onChange = () => {} }) {
   function parseMemory(text) {
     const lines = String(text || '').split('\n');
     // comments are blanked (line numbers kept), so lines inside them are never entries
-    const visible = String(text || '').replace(/<!--[\s\S]*?(-->|$)/g, (m) => m.replace(/[^\n]/g, ' ')).split('\n');
+    const visible = blankComments(text, ' ').split('\n');
     const entries = [];
     let fence = false;
     visible.forEach((line, i) => {
@@ -198,4 +231,4 @@ function createWorkspace({ dir, log = () => {}, onChange = () => {} }) {
   return { dir, ensure, list, add, remove, replaceAll, note, context, read, files, dailyPath, readText: (rel) => readText(rel), abs };
 }
 
-module.exports = { createWorkspace, memKey, idOf, meaningful, dateStr };
+module.exports = { createWorkspace, memKey, idOf, meaningful, dateStr, stripComments, blankComments };

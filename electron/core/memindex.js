@@ -3,6 +3,7 @@
 const fs = require('fs');
 const crypto = require('crypto');
 const { ftsQuery, fold } = require('./db');
+const { blankComments } = require('./workspace');
 
 const CHUNK_CHARS = 700;
 const sha1 = (s) => crypto.createHash('sha1').update(s).digest('hex');
@@ -58,7 +59,7 @@ function createMemIndex({ db, workspace, log = () => {}, embedder = () => null }
         const h = sha1(text);
         if (k && k.hash === h) { db.run('UPDATE mem_files SET mtime = ? WHERE path = ?', Math.floor(st.mtimeMs), rel); continue; }
         drop(rel);
-        const visible = text.replace(/<!--[\s\S]*?(-->|$)/g, (m) => m.replace(/[^\n]/g, '')); // comments are not memory; line numbers stay
+        const visible = blankComments(text); // comments are not memory; line numbers stay
         for (const c of chunk(visible)) {
           const ch = sha1(c.text);
           const r = db.run('INSERT INTO mem_chunks (path, start_line, end_line, text, hash) VALUES (?, ?, ?, ?, ?)', rel, c.start, c.end, c.text, ch);

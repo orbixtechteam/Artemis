@@ -52,8 +52,9 @@ const { createSandbox, runProc } = require('../electron/core/sandbox');
   fs.writeFileSync(bin, `#!/bin/sh
 case "$1" in
   inspect) echo true; exit 0 ;;
-  exec) shift; while [ "$1" = "-e" ]; do shift 2; done; shift; shift; shift   # name, sh, -c
-        script="$1"; dir=$(printf '%s' "$3" | sed "s#^/workspace#${proj}#"); exec sh -c "$script" sh "$dir" "$4" ;;
+  exec) shift; dir=''; while [ "$1" = "-e" ] || [ "$1" = "-w" ]; do [ "$1" = "-w" ] && dir="$2"; shift 2; done; shift; shift; shift   # name, sh, -c
+        script="$1"; d=$(printf '%s' "$dir" | sed "s#^/workspace#${proj}#"); cd "$d" 2>/dev/null || { echo "OCI runtime exec failed: chdir to cwd (\"$dir\") set in config.json failed: no such file or directory" >&2; exit 126; }
+        exec sh -c "$script" sh "$3" ;;
   *) exit 0 ;;
 esac
 `, { mode: 0o755 });
