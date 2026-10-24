@@ -33,7 +33,7 @@ const { createMemoryApi, embedderFrom } = require('./memory-api');
 const { flushMemory } = require('./memflush');
 const { createSecretReader } = require('./secrets');
 const gatewayLib = require('./gateway');
-const { sandboxFromSettings } = require('./sandbox');
+const { sandboxFromSettings, hideHostShellTools } = require('./sandbox');
 const { createPwBrowser, loadPlaywright } = require('./pwbrowser');
 const { createMcpManager } = require('../mcp');
 const { createRemote } = require('../remote');
@@ -199,7 +199,7 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
         shellEnabled: st.shellEnabled !== false && (!!sandbox() || (allowShell && !restrict)),
         computer: computer && st.computerEnabled !== false && !restrict && !unattended ? computer : null,
         browser: browserOn && st.browserTools !== false && !restrict && !unattended && browserAvailable() ? browserFor() : null,
-        mcp: mcp && st.connectorsEnabled !== false ? mcp : null, mcpLazy: st.connectorsLazy !== false, lazyTools: st.toolsLazy !== false, fullFileAccess: st.fullFileAccess !== false,
+        mcp: mcp && st.connectorsEnabled !== false ? (sandbox() ? hideHostShellTools(mcp) : mcp) : null, mcpLazy: st.connectorsLazy !== false, lazyTools: st.toolsLazy !== false, fullFileAccess: st.fullFileAccess !== false,
         phone: remote ? remote.phone() : null,
         schedule: unattended ? null : { list: () => sched.list(), save: (j) => sched.save(j), remove: (id) => sched.remove(id) },
         notes: st.notesAi !== false ? notes : null,
@@ -274,6 +274,7 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
       return { sessionId: sid, text: res.text };
     },
     abort: (id) => { const c = runs.get(id); if (!c) return false; c.abort(); return true; },
+    phone: () => (remote ? remote.phone() : null),
     approve: (id, ok) => { const r = approvals.get(id); if (!r) return false; approvals.delete(id); r(!!ok); return true; },
     sessions: { recent: (n) => sessions.recent(n, readJson('projects', [])), get: (id) => sessions.get(id), search: (q, n) => sessions.search(q, { limit: n, projects: readJson('projects', []) }) },
     memory: memoryApi ? { search: (q, n) => memoryApi.search(q, n), list: () => memoryApi.list(), add: (t) => memoryApi.add(t), note: (t) => memoryApi.note(t) } : null

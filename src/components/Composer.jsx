@@ -127,7 +127,7 @@ function MicButton({ settings, onText, onVoiceSettings, onError }) {
 }
 
 /** The per-chat switches (project, brain, tools, agents, permissions) and the usage button. In the main chat they are stacked in the right bar (stacked), in a split pane they sit in its header. */
-export function ChatPills({ brains = [], brain, onBrain, councilPick, onRevote, tools, onTools, agents, onAgents, effort = 'auto', onEffort, perm, onPerm, projectId, projects = [], onProject, incognito, settings, chatId, model, onUsageDetails, onOpenSettings, stacked }) {
+export function ChatPills({ brains = [], brain, onBrain, councilPick, onRevote, tools, onTools, agents, onAgents, shell, onShell, effort = 'auto', onEffort, perm, onPerm, projectId, projects = [], onProject, incognito, settings, chatId, model, onUsageDetails, onOpenSettings, stacked }) {
   return (
     <div className={`top-pills nodrag ${stacked ? 'stacked' : ''}`}>
       {onBrain && brains.length > 0 && (
@@ -158,6 +158,12 @@ export function ChatPills({ brains = [], brain, onBrain, councilPick, onRevote, 
         <Select className={`pill-select agents ${agents === 'off' ? 'off' : ''}`} title="Agents in this chat: when on, Artemis can hand parts of the work to your agents (Researcher, Reviewer, …). Off keeps it to one assistant and saves tokens." value={agents} onChange={(e) => onAgents(e.target.value)}>
           <option value="on">Agents</option>
           <option value="off">No agents</option>
+        </Select>
+      )}
+      {onShell && settings && (settings.sandbox === 'docker' || settings.sandbox === 'ssh') && settings.shellEnabled !== false && (
+        <Select className={`pill-select shell ${shell === 'host' ? 'host' : ''}`} title={`Where terminal commands run in this chat. Sandbox: ${settings.sandbox === 'ssh' ? `on ${settings.sandboxSshHost || 'the SSH host'}` : 'in a Docker container that sees only the project folder'} (Settings → Tools & safety → Sandbox). This Mac: your real shell, asks once per task.`} value={shell === 'host' ? 'host' : 'sandbox'} onChange={(e) => onShell(e.target.value)}>
+          <option value="sandbox">Commands: sandbox</option>
+          <option value="host">Commands: this Mac</option>
         </Select>
       )}
       {onPerm && (

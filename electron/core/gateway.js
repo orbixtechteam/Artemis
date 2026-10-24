@@ -134,6 +134,18 @@ function createGateway({ host = '127.0.0.1', port = 8789, token, log = () => {},
     if (m === 'GET' && p === '/v1/runs') return json(res, 200, { ok: true, runs: [...runs].map(([id, r]) => ({ run_id: id, session_id: r.sessionId || null, started: r.started })) });
     if (m === 'POST' && seg[1] === 'runs' && seg[3] === 'abort') return json(res, 200, { ok: !!handlers.abort(seg[2]) });
     if (m === 'POST' && seg[1] === 'approvals' && seg[2]) { const b = await readBody(req); return json(res, 200, { ok: !!handlers.approve(decodeURIComponent(seg[2]), b.approve === true) }); }
+    if (m === 'POST' && seg[1] === 'phone' && seg[2] === 'send') { // send_to_phone for the app while this process owns the Telegram bot
+      const ph = handlers.phone && handlers.phone();
+      if (!ph) return fail(res, 409, 'Telegram is not connected and paired');
+      const b = await readBody(req);
+      if (b.file) await ph.sendFile(String(b.file), b.caption ? String(b.caption) : undefined);
+      else if (b.photo) await ph.sendPhoto(String(b.photo), b.caption ? String(b.caption) : undefined);
+      else if (b.markdown) await ph.sendMd(String(b.markdown));
+      else if (b.text) await ph.send(String(b.text));
+      else return fail(res, 400, 'text, markdown, file or photo is required');
+      return json(res, 200, { ok: true });
+    }
+    if (m === 'GET' && p === '/v1/phone') { const ph = handlers.phone && handlers.phone(); return json(res, 200, { ok: true, paired: !!ph }); }
     if (seg[1] === 'memory') {
       const mem = handlers.memory;
       if (!mem) return fail(res, 404, 'Memory is off');

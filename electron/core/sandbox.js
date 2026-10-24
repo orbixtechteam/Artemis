@@ -12,15 +12,15 @@ const clip = (s, n) => (s.length > n ? s.slice(0, n) + `\n…[truncated, ${s.len
 const q = (s) => "'" + String(s).replace(/'/g, `'\\''`) + "'";
 
 /** Runs a program; resolves { code, stdout, stderr, error }. Never rejects. */
-function runProc(cmd, args, { timeoutMs = 0, signal, input, spawnImpl = spawn } = {}) {
+function runProc(cmd, args, { timeoutMs = 0, signal, input, spawnImpl = spawn, onData } = {}) {
   return new Promise((resolve) => {
     let out = '', err = '', done = false, timer = null;
     let child;
     try { child = spawnImpl(cmd, args, { stdio: ['pipe', 'pipe', 'pipe'] }); } catch (e) { return resolve({ code: 127, stdout: '', stderr: '', error: e.message }); }
     const finish = (r) => { if (done) return; done = true; clearTimeout(timer); if (signal) signal.removeEventListener('abort', onAbort); resolve(r); };
     const onAbort = () => { try { child.kill('SIGKILL'); } catch {} finish({ code: 130, stdout: out, stderr: err, error: 'cancelled' }); };
-    child.stdout.on('data', (d) => { if (out.length < 4e6) out += d; });
-    child.stderr.on('data', (d) => { if (err.length < 1e6) err += d; });
+    child.stdout.on('data', (d) => { if (out.length < 4e6) out += d; if (onData) { try { onData(String(d), 'out'); } catch {} } });
+    child.stderr.on('data', (d) => { if (err.length < 1e6) err += d; if (onData) { try { onData(String(d), 'err'); } catch {} } });
     child.on('error', (e) => finish({ code: 127, stdout: out, stderr: err, error: e.code === 'ENOENT' ? `${cmd} is not installed or not on PATH` : e.message }));
     child.on('close', (code, sig) => finish({ code: code != null ? code : sig === 'SIGKILL' ? 137 : sig === 'SIGTERM' ? 143 : 1, stdout: out, stderr: err }));
     if (timeoutMs) timer = setTimeout(() => { try { child.kill('SIGKILL'); } catch {} finish({ code: 124, stdout: out, stderr: err, error: 'timeout' }); }, timeoutMs);
@@ -39,33 +39,66 @@ function createSandbox(cfg, { run = runProc } = {}) {
   const image = cfg.image || 'node:22-bookworm';
   const ready = new Map(); // container name -> Promise
 
+  const rootTag = (root) => crypto.createHash('sha1').update(path.resolve(root)).digest('hex').slice(0, 12);
   const nameFor = (root) => 'artemis-sb-' + crypto.createHash('sha1').update(path.resolve(root) + '|' + image + '|' + (cfg.network === false ? 'nonet' : 'net')).digest('hex').slice(0, 12);
 
-  async function ensure(root) {
+  /** Makes sure the project's container runs. say(line) reports each step (Settings → Test shows them live). */
+  async function ensure(root, say = () => {}) {
     const name = nameFor(root);
     if (!ready.has(name)) {
       ready.set(name, (async () => {
+        say(`Checking container ${name}…`);
         const st = await run(docker, ['inspect', '-f', '{{.State.Running}}', name], { timeoutMs: 20000 });
         if (st.error && /not installed/.test(st.error)) throw new Error('Docker is not installed (or not on PATH). Install Docker Desktop / OrbStack, or turn the sandbox off in Settings → Tools.');
-        if (st.code === 0 && st.stdout.trim() === 'true') return name;
-        if (st.code === 0) { const r = await run(docker, ['start', name], { timeoutMs: 60000 }); if (r.code === 0) return name; }
-        const args = ['run', '-d', '--name', name, '--label', 'artemis.sandbox=1', '--init',
+        if (st.code !== 0 && /Cannot connect|daemon/i.test(st.stderr || '')) throw new Error('Docker is installed but not running. Start Docker Desktop / OrbStack and try again.');
+        if (st.code === 0 && st.stdout.trim() === 'true') { say('Container is running.'); return name; }
+        if (st.code === 0) {
+          say('Container exists but is stopped: starting it…');
+          const r = await run(docker, ['start', name], { timeoutMs: 60000 });
+          if (r.code === 0) { say('Container started.'); return name; }
+          say('It did not start (' + (r.stderr || r.error || '').trim().slice(0, 200) + '), so it is created again.');
+          await run(docker, ['rm', '-f', name], { timeoutMs: 30000 });
+        }
+        // the image: pulled on its own first, so its progress can be shown
+        const img = await run(docker, ['image', 'inspect', image, '--format', '{{.Id}}'], { timeoutMs: 20000 });
+        if (img.code !== 0) {
+          say(`Image ${image} is not on this computer yet: downloading it (only the first time; parts already downloaded are kept)…`);
+          let last = '';
+          const pull = await run(docker, ['pull', image], { timeoutMs: 30 * 60000, onData: (d) => {
+            for (const line of String(d).split(/\r?\n|\r/)) { const l = line.trim(); if (l && l !== last) { last = l; say('  ' + l); } }
+          } });
+          if (pull.code !== 0) throw new Error('Could not download the image: ' + (pull.stderr || pull.error || '').trim().slice(-600));
+          say('Image downloaded.');
+        } else say(`Image ${image} is already here.`);
+        const args = ['run', '-d', '--name', name, '--label', 'artemis.sandbox=1', '--label', `artemis.root=${rootTag(root)}`, '--init',
           '-v', `${path.resolve(root)}:/workspace`, '-w', '/workspace',
           '--memory', String(cfg.memory || '2g'), '--cpus', String(cfg.cpus || '2'), '--pids-limit', '512',
           '--cap-drop', 'ALL', '--cap-add', 'CHOWN', '--cap-add', 'DAC_OVERRIDE', '--cap-add', 'FOWNER', '--cap-add', 'SETUID', '--cap-add', 'SETGID',
           '--security-opt', 'no-new-privileges',
           ...(cfg.network === false ? ['--network', 'none'] : []),
           image, 'sleep', 'infinity'];
+        // one container per project folder: one made with other settings (image, network) is removed first
+        const old = await run(docker, ['ps', '-aq', '--filter', `label=artemis.root=${rootTag(root)}`], { timeoutMs: 20000 });
+        const oldIds = (old.stdout || '').split(/\s+/).filter(Boolean);
+        if (oldIds.length) { say(`Removing ${oldIds.length} older sandbox container(s) of this folder (made with other settings)…`); await run(docker, ['rm', '-f', ...oldIds], { timeoutMs: 60000 }); }
+        say(`Starting container ${name} (${cfg.network === false ? 'no network' : 'network on'}, ${cfg.memory || '2g'} memory, ${cfg.cpus || '2'} CPUs), folder ${path.resolve(root)} → /workspace…`);
         log('info', `starting sandbox container ${name} (${image}) for ${root}`);
-        const r = await run(docker, args, { timeoutMs: 10 * 60000 }); // the first run may pull the image
+        let r = await run(docker, args, { timeoutMs: 10 * 60000 });
+        if (r.code !== 0 && /already in use|Conflict/i.test(r.stderr || '')) { // left over from an earlier attempt that was cut off
+          say('A container with that name was left from an earlier attempt: removing it and trying again…');
+          await run(docker, ['rm', '-f', name], { timeoutMs: 30000 });
+          r = await run(docker, args, { timeoutMs: 10 * 60000 });
+        }
         if (r.code !== 0) throw new Error('Could not start the sandbox container: ' + (r.stderr || r.error || '').trim().slice(0, 600));
+        say('Container is running.');
         return name;
       })().catch((e) => { ready.delete(name); throw e; }));
     }
     return ready.get(name);
   }
 
-  async function runCommand({ command, cwd, timeout_seconds }, { signal, defaultCwd } = {}) {
+  async function runCommand({ command, cwd, timeout_seconds }, { signal, defaultCwd, onLog } = {}) {
+    const say = typeof onLog === 'function' ? onLog : () => {};
     const cmd = String(command || '').trim();
     if (!cmd) return { ok: false, text: 'Error: command is empty' };
     const why = blockedReason(cmd);
@@ -83,13 +116,15 @@ function createSandbox(cfg, { run = runProc } = {}) {
     if (mode === 'docker') {
       const root = defaultCwd || process.cwd();
       let name;
-      try { name = await ensure(root); } catch (e) { return { ok: false, text: 'Error: ' + e.message }; }
+      try { name = await ensure(root, say); } catch (e) { say('Error: ' + e.message); return { ok: false, text: 'Error: ' + e.message }; }
       const rel = cwd ? path.posix.normalize(String(cwd).replace(/\\/g, '/')) : '.';
       if (rel.startsWith('..') || (path.posix.isAbsolute(rel) && !rel.startsWith('/workspace') && !rel.startsWith('/tmp'))) return { ok: false, text: `Error: in the sandbox only /workspace (the project folder) and /tmp exist; "${cwd}" is outside.` };
       where = path.posix.isAbsolute(rel) ? rel : path.posix.join('/workspace', rel);
       const onAbort = () => { run(docker, ['exec', name, 'sh', '-c', killCmd], { timeoutMs: 10000 }); };
       if (signal) signal.addEventListener('abort', onAbort, { once: true });
-      res = await run(docker, ['exec', '-e', 'TERM=dumb', '-e', 'NO_COLOR=1', name, 'sh', '-c', inner(where)], { timeoutMs: (timeout + 15) * 1000, signal });
+      say(`Running: ${cmd}`);
+      res = await run(docker, ['exec', '-e', 'TERM=dumb', '-e', 'NO_COLOR=1', name, 'sh', '-c', inner(where)], { timeoutMs: (timeout + 15) * 1000, signal, onData: onLog ? (d) => { for (const l of String(d).split(/\r?\n/)) if (l.trim()) say('  ' + l); } : undefined });
+      say(`Finished with exit code ${res.code}.`);
       if (signal) signal.removeEventListener('abort', onAbort);
       where += ` (sandbox: docker ${image}${cfg.network === false ? ', no network' : ''})`;
     } else if (mode === 'ssh') {
@@ -132,4 +167,18 @@ function sandboxFromSettings(st, log) {
   return createSandbox({ mode, image: st.sandboxImage || 'node:22-bookworm', network: st.sandboxNetwork !== false, memory: st.sandboxMemory || '2g', cpus: st.sandboxCpus || '2', sshHost: st.sandboxSshHost || '', sshDir: st.sandboxSshDir || '', log });
 }
 
-module.exports = { createSandbox, sandboxFromSettings, runProc };
+// With the sandbox on, connector tools that run shell commands on this computer (Artemis's own MCP server's terminal tools, a shell
+// MCP server…) would be a way around it: they are left out of the run, so commands go through run_command and into the sandbox.
+const HOST_SHELL_TOOL = /(terminal_run|terminal_read|run_command|exec_command|execute_command|shell_exec|run_shell|^bash$|_bash$|run_in_terminal)/i;
+const hostShellTool = (fnName) => HOST_SHELL_TOOL.test(String(fnName || '').split('__').pop());
+function hideHostShellTools(mcp) {
+  if (!mcp) return mcp;
+  return {
+    ...mcp,
+    definitions: (slugs) => mcp.definitions(slugs).filter((d) => !hostShellTool(d && d.function && d.function.name)),
+    index: () => mcp.index().map((x) => ({ ...x, tools: (x.tools || []).filter((t) => !hostShellTool(t)) })),
+    call: (name, ...rest) => (hostShellTool(name) ? Promise.reject(new Error('Commands run in the sandbox here: use run_command.')) : mcp.call(name, ...rest))
+  };
+}
+
+module.exports = { createSandbox, sandboxFromSettings, runProc, hideHostShellTools, hostShellTool };

@@ -77,3 +77,18 @@ esac
   fs.rmSync(tmp, { recursive: true, force: true });
   console.log('test-sandbox: ok');
 })().catch((e) => { console.error(e); process.exit(1); });
+
+// connector tools that would run commands on this computer are hidden while the sandbox is on
+{
+  const { hideHostShellTools, hostShellTool } = require('../electron/core/sandbox');
+  const fake = { definitions: () => [{ function: { name: 'mcp__artemis__artemis_terminal_run' } }, { function: { name: 'mcp__artemis__artemis_notes_read' } }, { function: { name: 'mcp__sh__bash' } }],
+    index: () => [{ slug: 'artemis', tools: ['artemis_terminal_run', 'artemis_fs_read_file'] }], call: async (n) => 'called ' + n, resolveSlug: () => 'artemis' };
+  const w = hideHostShellTools(fake);
+  if (JSON.stringify(w.definitions().map((d) => d.function.name)) !== JSON.stringify(['mcp__artemis__artemis_notes_read'])) throw new Error('definitions not filtered');
+  if (JSON.stringify(w.index()[0].tools) !== JSON.stringify(['artemis_fs_read_file'])) throw new Error('index not filtered');
+  if (w.resolveSlug() !== 'artemis') throw new Error('other methods kept');
+  w.call('mcp__artemis__artemis_terminal_run').then(() => { throw new Error('call not blocked'); }, () => {});
+  w.call('mcp__artemis__artemis_notes_read').then((r) => { if (r !== 'called mcp__artemis__artemis_notes_read') throw new Error('call'); });
+  if (!hostShellTool('mcp__x__run_command') || hostShellTool('mcp__x__read_file')) throw new Error('hostShellTool');
+  console.log('test-sandbox: connector filter ok');
+}

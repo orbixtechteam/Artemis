@@ -151,6 +151,11 @@ function createWorkspace({ dir, log = () => {}, onChange = () => {} }) {
   /** Reads a workspace file (relative path), lines from..from+count (1-based). Never leaves the workspace folder. */
   function read(rel, from = 1, count = 80) {
     const file = resolveInside(rel);
+    if (!fs.existsSync(file)) {
+      const days = files().filter((x) => /^memory\/\d{4}-\d{2}-\d{2}\.md$/.test(x)).slice(-10).map((x) => x.slice(7, 17));
+      throw new Error(`There is no ${String(rel).replace(/^\/+/, '')}. Today is ${dateStr(new Date())} (local time). ` +
+        (days.length ? `Daily notes exist for: ${days.join(', ')}.` : 'There are no daily notes yet.') + ' Files: SOUL.md, USER.md, MEMORY.md, memory/YYYY-MM-DD.md. Use memory_search when you do not know the file.');
+    }
     const text = fs.readFileSync(file, 'utf8');
     const lines = text.split('\n');
     const start = Math.max(1, Math.floor(Number(from) || 1));

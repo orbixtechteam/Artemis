@@ -7,7 +7,7 @@ function messageText(m) {
   return (m.steps || []).map((s) => s.text).filter(Boolean).join('\n\n');
 }
 const tokens = (q) => String(q || '').toLowerCase().split(/[\s,;]+/).filter((w) => w.length > 1);
-const when = (t) => (t ? new Date(t).toISOString().slice(0, 10) : '');
+const when = (t) => { if (!t) return ''; const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }; // local date, like the user's calendar
 
 function searchChats(chats, query, { limit = 8, projects = [] } = {}) {
   const words = tokens(query);

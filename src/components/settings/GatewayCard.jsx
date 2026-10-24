@@ -9,6 +9,12 @@ export function GatewayCard() {
   const [show, setShow] = useState(false);
   const [copied, setCopied] = useState('');
   useEffect(() => { window.api.gatewayInfo().then((x) => { setI(x); setPort(String(x.port)); }).catch(() => {}); }, []);
+  // background service (launchd / systemd): the gateway keeps running when the app is closed
+  const [svc, setSvc] = useState(null);
+  const [svcBusy, setSvcBusy] = useState(false);
+  const loadSvc = () => window.api.gatewayService && window.api.gatewayService('status').then(setSvc).catch(() => {});
+  useEffect(() => { loadSvc(); const t = setInterval(() => { loadSvc(); window.api.gatewayInfo().then(setI).catch(() => {}); }, 5000); return () => clearInterval(t); }, []);
+  const toggleSvc = async (on) => { setSvcBusy(true); const r = await window.api.gatewayService(on ? 'install' : 'uninstall'); setSvc(r); setSvcBusy(false); setTimeout(() => window.api.gatewayInfo().then(setI).catch(() => {}), 5000); };
   const apply = async (o) => { const x = await window.api.gatewaySet(o); setI(x); setPort(String(x.port)); };
   const url = i ? `http://127.0.0.1:${i.port}` : '';
   const curl = i ? `curl -N ${url}/v1/chat -H "Authorization: Bearer ${i.token || '<token>'}" -H "content-type: application/json" -d '{"message":"What is on my plate today?"}'` : '';
@@ -18,6 +24,11 @@ export function GatewayCard() {
       <SwitchRow label="Gateway" checked={!!(i && i.enabled)} onChange={(v) => i && apply({ enabled: v })} disabled={!i}
         description={<>{i && i.headless ? `The headless gateway (process ${i.headless.pid}) is running on this data folder: it serves the API, scheduled tasks and Telegram until it stops. ` : i && i.running ? `Running on ${url}. ` : 'Off. '}Other programs on this Mac can send messages to Artemis and read your saved chats and memory through a small local API. It listens on this Mac only and needs the token below. Actions still ask for approval: in the app window, or in the terminal that sent the message.</>}
         error={i && i.error ? i.error : ''} />
+      {svc && svc.supported && (
+        <SwitchRow label="Keep running in the background" checked={!!svc.installed} disabled={svcBusy} onChange={toggleSvc}
+          description={<>Starts the gateway at login and restarts it if it stops, so Telegram, scheduled tasks and the API keep working while Artemis is closed. While it runs, this app hands those jobs to it. {svc.installed ? (svc.running ? `Running (process ${svc.pid}).` : 'Installed, not running yet.') : ''} Log: ~/.artemis/logs/gateway.log</>}
+          error={svc.ok === false ? svc.error : ''} />
+      )}
       {i && i.enabled && (
         <>
           <Row label="Port" description="Saved when you leave the field.">

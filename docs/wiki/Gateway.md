@@ -36,6 +36,7 @@ pnpm link --global      # optional: makes `artemis` available everywhere
 | `artemis memory search <words>` | Searches long-term memory |
 | `artemis memory list` / `add <text>` / `note <text>` | The `MEMORY.md` list, add a fact, add a daily note line |
 | `artemis token` | Prints the gateway address and token |
+| `artemis service install` / `status` / `uninstall` | Runs the gateway as a background service (see below) |
 
 `--data <folder>` picks another data folder (default: the desktop app's, or `$ARTEMIS_HOME`). `--json` prints raw events. When a task wants to do something that needs approval, the command line asks `[y/N]`.
 
@@ -84,27 +85,19 @@ Events in the stream are the agent's own: `chunk` (answer text), `step:new`, `to
 - The token is in Settings → Access → Gateway and in `<data folder>/gateway.json` (readable by you only), which is how the command line finds it. **New token** invalidates the old one.
 - "No terminal or computer control from outside" blocks those tools for gateway messages even when approved.
 
-## Run it at login (macOS)
+## Keep it running in the background
 
-Save as `~/Library/LaunchAgents/uk.orbix.artemis-gateway.plist` (fix the two paths), then `launchctl load ~/Library/LaunchAgents/uk.orbix.artemis-gateway.plist`:
+Settings → Privacy & safety → Gateway → **Keep running in the background**, or from a terminal:
 
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-  <key>Label</key><string>uk.orbix.artemis-gateway</string>
-  <key>ProgramArguments</key><array>
-    <string>/opt/homebrew/bin/node</string>
-    <string>/Users/you/Projects/artemis/bin/artemis.js</string>
-    <string>gateway</string>
-  </array>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
-  <key>StandardErrorPath</key><string>/tmp/artemis-gateway.log</string>
-</dict></plist>
+```
+artemis service install      # start at login, restart if it stops
+artemis service status
+artemis service uninstall
 ```
 
-On Linux, a systemd user service with `ExecStart=/usr/bin/node /path/to/artemis/bin/artemis.js gateway --data /path/to/data` does the same.
+This installs a launchd agent on macOS (`~/Library/LaunchAgents/dev.orbixlabs.artemis.gateway.plist`) or a systemd user unit on Linux (`~/.config/systemd/user/artemis-gateway.service`), like `openclaw onboard --install-daemon` or `hermes gateway install`. From the app it runs Artemis's own binary in Node mode, so no separate Node.js is needed. Flags given to `artemis service install` (for example `--no-browser`) are passed to the gateway. The log is `~/.artemis/logs/gateway.log`.
+
+While the service runs, the app hands it scheduled tasks, Telegram and the gateway API, and shows its chats live. Closing the app changes nothing for the service.
 
 ## Where the chats are
 

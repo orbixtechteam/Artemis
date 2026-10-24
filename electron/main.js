@@ -46,7 +46,7 @@ const { createMemIndex } = require('./core/memindex');
 const { createMemoryApi, embedderFrom } = require('./core/memory-api');
 const { flushMemory } = require('./core/memflush');
 const gatewayLib = require('./core/gateway');
-const { sandboxFromSettings } = require('./core/sandbox');
+const { sandboxFromSettings, hideHostShellTools } = require('./core/sandbox');
 const themes = require('./themes');
 
 const IS_DEV = !!process.env.ELECTRON_DEV;
@@ -924,8 +924,10 @@ function stashImages(messages) {
     return { ...m, content: flat ? parts.map((c) => c.text).join('\n\n') : parts };
   });
 }
-async function executeRun({ requestId, model: model0, messages, project, system, maxTokens, send: rawSend, restrict, incognito, source, unattended, allowEdits, permMode, chatId, brain, brainPick, revote, agentsMode, toolsMode, effort, mentions }) {
+async function executeRun({ requestId, model: model0, messages, project, system, maxTokens, send: rawSend, restrict, incognito, source, unattended, allowEdits, permMode, chatId, brain, brainPick, revote, agentsMode, toolsMode, effort, mentions, shellMode }) {
   const model = liveModel(model0);
+  // where run_command goes in this run: the sandbox from Settings, unless the chat picked "this Mac" (only a chat in the window can)
+  const sb = shellMode === 'host' && !unattended && !restrict ? null : currentSandbox();
   let usesFloat = false;
   const t0 = Date.now();
   const logEv = (ev) => {
@@ -1034,7 +1036,7 @@ async function executeRun({ requestId, model: model0, messages, project, system,
       baseUrl: runRoute.baseUrl, key: runRoute.key, model: runRoute.model, noToolCalls: !!runRoute.noTools, messages: runRoute.noTools ? stashImages(messages) : messages, maxTokens: maxTokens || settings.maxTokens, reasoningEffort: effort === 'auto' ? '' : (effort || settings.reasoningEffort || ''),
       custom: system, personality: require('./personality').text(settings), userName: settings.profileName || '', userAbout: settings.profileAbout || '', userLocation: settings.profileLocation || '', project, root: fileRoot, defaultRoot: !root,
       // with a sandbox, run_command never touches this computer, so it is also allowed in phone/gateway (restricted) and scheduled tasks
-      sandbox: currentSandbox(), webEnabled: settings.webEnabled, shellEnabled: settings.shellEnabled && (!restrict || !!currentSandbox()),
+      sandbox: sb, webEnabled: settings.webEnabled, shellEnabled: settings.shellEnabled && (!restrict || !!sb),
       searchVia: (() => { if (settings.searchEngine === 'brave') { const k = getSecret('braveKey'); return k ? (q, sig) => require('./web').braveSearch({ key: k, query: q, signal: sig }) : async () => { throw new Error('Brave Search is selected but no key is saved. Open Settings → Tools → Search engine and paste the Brave key'); }; } if (!settings.searchProvider) return null; const r = providersLib.resolve(`prov:${settings.searchProvider}:x`, readProviders(), getProviderKey); if (r.error) return null; return (q, sig) => require('./web').endpointSearch({ baseUrl: r.baseUrl, key: r.key, query: q, signal: sig, model: settings.searchModel || 'perplexity/sonar' }); })(),
       computer: settings.computerEnabled && !restrict && process.platform === 'darwin' ? computer : null,
       schedule: unattended || restrict ? null : { list: () => scheduler.list(), save: (j) => scheduler.save({ ...j, projectId: j.projectId !== undefined ? j.projectId : (project?.id || null) }), remove: (id) => scheduler.remove(id) },
@@ -1042,9 +1044,9 @@ async function executeRun({ requestId, model: model0, messages, project, system,
       appShot: unattended || restrict ? null : appScreenshot, withArtemisVisible: unattended || restrict ? null : withArtemisVisible,
       notes: settings.notesAi !== false ? notesAi : null,
       library: settings.notesAi !== false ? library : null,
-      term: settings.shellEnabled && !restrict && !unattended && !currentSandbox() && process.platform !== 'win32' ? termApi : null, // the terminal panel is this computer's shell: off while the sandbox is on
+      term: settings.shellEnabled && !restrict && !unattended && !sb && process.platform !== 'win32' ? termApi : null, // the terminal panel is this computer's shell: off while the sandbox is on
       browser: settings.browserTools !== false && !restrict && !unattended ? browser.agent(requestId) : null,
-      phone: remote?.phone() || null, media: mediaApi(settings, controller.signal), mcp: settings.connectorsEnabled === false ? null : mcp, mcpLazy: settings.connectorsLazy !== false, fullFileAccess: settings.fullFileAccess !== false, lazyTools: settings.toolsLazy !== false,
+      phone: phoneNow(), media: mediaApi(settings, controller.signal), mcp: settings.connectorsEnabled === false ? null : sb ? sandboxedMcp() : mcp, mcpLazy: settings.connectorsLazy !== false, fullFileAccess: settings.fullFileAccess !== false, lazyTools: settings.toolsLazy !== false,
       skills: settings.skillsEnabled !== false ? { index: () => skills.indexText(root), get: (n) => skills.get(n, root), save: (o) => skills.save(o, root) } : null,
       autoLearn: settings.autoLearn !== false && !incognito && !unattended,
       chats: settings.chatSearchEnabled !== false && !incognito ? chatsApi() : null,
@@ -1088,7 +1090,7 @@ async function executeRun({ requestId, model: model0, messages, project, system,
       agentAutoApprove: !unattended && (perm === 'auto' || (perm === 'edits' && settings.agentWriteApproval === false)),
       memoryApi: memoryApi(() => send({ type: 'memory:changed' })),
       onCompact: incognito || settings.memoryEnabled === false || settings.memoryFlush === false || !initCore().ws ? null : (text) => flushFromRun(text, { model, chatId, project }),
-      approve: (info) => unattended ? Promise.resolve(info.category === 'phone' || (info.name === 'run_command' && !!currentSandbox())) : new Promise((resolve) => {
+      approve: (info) => unattended ? Promise.resolve(info.category === 'phone' || (info.name === 'run_command' && !!sb)) : new Promise((resolve) => {
         myApprovals.add(info.id);
         approvals.set(info.id, resolve);
         if (approvalMeta.size > 200) approvalMeta.clear();
@@ -1128,10 +1130,10 @@ async function executeRun({ requestId, model: model0, messages, project, system,
   }
 }
 
-ipcMain.handle('chat:run', (e, { requestId, model, messages, project, system, maxTokens, incognito, permMode, chatId, brain, brainPick, revote, agentsMode, toolsMode, effort, mentions }) => {
+ipcMain.handle('chat:run', (e, { requestId, model, messages, project, system, maxTokens, incognito, permMode, chatId, brain, brainPick, revote, agentsMode, toolsMode, effort, mentions, shellMode }) => {
   const wc = e.sender;
   const send = (ev) => { if (!wc.isDestroyed()) wc.send('chat:event', { requestId, ...ev }); };
-  return executeRun({ requestId, model, messages, project, system, maxTokens, send, incognito: !!incognito, permMode, chatId, brain, brainPick, revote, agentsMode, toolsMode, effort, mentions });
+  return executeRun({ requestId, model, messages, project, system, maxTokens, send, incognito: !!incognito, permMode, chatId, brain, brainPick, revote, agentsMode, toolsMode, effort, mentions, shellMode });
 });
 ipcMain.handle('chat:compact', (_e, o = {}) => compactSummary(o));
 async function compactSummary({ model, messages, chatId, incognito } = {}) {
@@ -1240,7 +1242,7 @@ async function flushAlerts() {
   alertTimer = null;
   while (alertQueue.length) {
     const a = alertQueue[0];
-    const ph = remote && remote.phone && remote.phone();
+    const ph = phoneNow();
     try {
       if (!ph) throw new Error('Telegram is not connected and paired (Settings → Phone)');
       if (a.photo) { try { await ph.sendPhoto(a.photo, a.text); } catch { await ph.send(a.text + '\n(The photo could not be sent.)'); } } else await ph.send(a.text);
@@ -1269,7 +1271,7 @@ async function onLockAlert(info) {
 
 /** Settings → Security "Send test": the same message and photo as a real alert, sent now (not queued), so a wrong setup shows up here. */
 async function testLockAlert() {
-  const ph = remote && remote.phone && remote.phone();
+  const ph = phoneNow();
   if (!ph) return { ok: false, error: 'Telegram is not connected and paired yet (Settings → Phone).' };
   const cfg = lock.getConfig();
   const text = `Test alert from Artemis on ${os.hostname()}. This is how an unauthorized-access alert will look.`;
@@ -1470,7 +1472,7 @@ const writeMcpList = (list) => writeJson('mcp', (list || []).map((c) => mapMcpSe
 
 const decideTool = (id, ok) => { const r = approvals.get(id); approvalMeta.delete(id); if (r) { approvals.delete(id); r(!!ok); } };
 ipcMain.handle('phone:send-file', async (_e, p) => {
-  const phone = remote.phone();
+  const phone = phoneNow();
   if (!phone) return { ok: false, error: 'No phone paired. Pair Telegram in Settings → Phone.' };
   if (!p || !fs.existsSync(p) || !fs.statSync(p).isFile()) return { ok: false, error: 'File not found.' };
   try { await phone.sendFile(p, path.basename(p)); return { ok: true }; } catch (e) { return { ok: false, error: e.message }; }
@@ -1504,7 +1506,7 @@ async function runScheduled(job) {
   try { if (Notification.isSupported()) { const n = new Notification({ title: job.name, body: summary.slice(0, 160) }); n.on('click', () => showMain('scheduled task notification clicked')); n.show(); } } catch {}
   if (job.notifyPhone) {
     try {
-      const ph = remote && remote.phone();
+      const ph = phoneNow();
       if (ph) await ph.send(`⏰ ${job.name}\n\n${summary}`);
       else logger.warn('app', 'A scheduled task should be sent to the phone, but Telegram is not connected and paired', { job: job.name });
     } catch (e) { logger.error('app', 'Sending a scheduled task result to Telegram failed: ' + ((e && e.message) || e), { job: job.name }); }
@@ -1664,6 +1666,19 @@ const mcpServerInfo = () => {
 const lockFile = (mode) => path.join(app.getPath('userData'), `${mode}.lock`);
 const readLock = (mode) => { try { const l = JSON.parse(fs.readFileSync(lockFile(mode), 'utf8')); return l && l.pid && gatewayLib.alive(l.pid) ? l : null; } catch { return null; } };
 const headlessActive = () => !!readLock('headless');
+/** While the headless gateway owns the Telegram bot, the app sends to the phone through it (POST /v1/phone/send). */
+function headlessPhone() {
+  if (!headlessActive()) return null;
+  const d = gatewayLib.readDiscovery(gatewayFile());
+  if (!d || d.mode !== 'headless') return null;
+  const post = async (body) => {
+    const r = await fetch(`http://${d.host || '127.0.0.1'}:${d.port}/v1/phone/send`, { method: 'POST', headers: { authorization: `Bearer ${d.token}`, 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(60000) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.ok) throw new Error(j.error || `HTTP ${r.status}`);
+  };
+  return { send: (text) => post({ text }), sendMd: (markdown) => post({ markdown }), sendFile: (file, caption) => post({ file, caption }), sendPhoto: (photo, caption) => post({ photo, caption }) };
+}
+const phoneNow = () => (remote && remote.phone()) || headlessPhone();
 function pushExternal() {
   const c = coreState.db ? coreState : null;
   if (!c || !c.sessions || !win || win.isDestroyed()) return;
@@ -1702,6 +1717,7 @@ const headlessUsage = () => { try { const m = fs.statSync(dataFile('usage-headle
 const allUsage = () => { const h = headlessUsage(); return h.length ? [...getUsage(), ...h].sort((a, b) => (a.t || 0) - (b.t || 0)) : getUsage(); };
 
 // ---------- sandbox for run_command (electron/core/sandbox.js) ----------
+const sandboxedMcp = () => hideHostShellTools(mcp);
 let sbCache = { key: null, sb: null };
 function currentSandbox() {
   const st = getSettings();
@@ -1709,10 +1725,11 @@ function currentSandbox() {
   if (key !== sbCache.key) sbCache = { key, sb: sandboxFromSettings(st, coreLog('sandbox')) };
   return sbCache.sb;
 }
-ipcMain.handle('sandbox:test', async () => {
+ipcMain.handle('sandbox:test', async (e) => {
   const sb = currentSandbox();
   if (!sb) return { ok: false, error: 'The sandbox is off.' };
-  const r = await sb.runCommand({ command: 'uname -srm; id -un; pwd; (node -v || true) 2>/dev/null; (python3 -V || true) 2>/dev/null', timeout_seconds: 120 }, { defaultCwd: defaultFilesDir() });
+  const say = (line) => { try { if (!e.sender.isDestroyed()) e.sender.send('sandbox:log', String(line)); } catch {} logger.info('sandbox', String(line).slice(0, 300)); };
+  const r = await sb.runCommand({ command: 'uname -srm; id -un; pwd; (node -v || true) 2>/dev/null; (python3 -V || true) 2>/dev/null', timeout_seconds: 120 }, { defaultCwd: defaultFilesDir(), onLog: say });
   return { ok: r.ok, text: r.text };
 });
 ipcMain.handle('sandbox:cleanup', async () => { const sb = currentSandbox(); if (!sb) return { ok: true, removed: 0 }; try { return { ok: true, removed: await sb.cleanup() }; } catch (e) { return { ok: false, error: e.message }; } });
@@ -1809,6 +1826,17 @@ const gatewayInfo = () => {
   return { enabled: !!st.gatewayEnabled, running: !!gateway, port: gatewayPort(), token: st.gatewayEnabled ? gatewayToken() : '', error: gatewayError, restrict: !!st.gatewayRestrict, model: st.gatewayModel || '', headless: hl ? { pid: hl.pid, since: hl.startedAt } : null };
 };
 ipcMain.handle('gateway:info', () => gatewayInfo());
+// the headless gateway as a background service (launchd / systemd), run with this app's own binary in Node mode
+const gatewayService = () => require('./core/service').createService();
+const serviceOpts = () => ({ runtime: process.execPath, electronNode: true, entry: path.join(__dirname, 'core', 'cli-entry.js'), dataDir: app.getPath('userData'), args: [], logFile: path.join(app.getPath('home'), '.artemis', 'logs', 'gateway.log') });
+ipcMain.handle('gateway:service', async (_e, action) => {
+  try {
+    const svc = gatewayService();
+    if (action === 'install') { const st = svc.install(serviceOpts()); logger.info('gateway', 'Background service installed: ' + st.file); setTimeout(roleTick, 4000); return { ok: true, ...st }; }
+    if (action === 'uninstall') { const st = svc.uninstall(); logger.info('gateway', 'Background service removed'); setTimeout(roleTick, 1500); return { ok: true, ...st }; }
+    return { ok: true, ...svc.status() };
+  } catch (e) { return { ok: false, error: (e && e.message) || String(e) }; }
+});
 ipcMain.handle('gateway:set', async (_e, o = {}) => {
   const patch = {};
   if (typeof o.enabled === 'boolean') patch.gatewayEnabled = o.enabled;
@@ -1830,6 +1858,24 @@ ipcMain.handle('workspace:open', async (_e, rel) => {
   const target = rel && /^[\w./-]+\.md$/.test(String(rel)) && !String(rel).includes('..') ? c.ws.abs(String(rel)) : c.ws.dir;
   const err = await shell.openPath(target);
   return err ? { ok: false, error: err } : { ok: true };
+});
+// SOUL.md / USER.md / MEMORY.md edited inside the app (Settings → Long-term memory)
+const WS_EDITABLE = ['SOUL.md', 'USER.md', 'MEMORY.md'];
+ipcMain.handle('workspace:read', (_e, rel) => {
+  const c = initCore(); if (!c.ws) return { ok: false, error: 'The memory workspace is off.' };
+  if (!WS_EDITABLE.includes(rel)) return { ok: false, error: 'Only SOUL.md, USER.md and MEMORY.md can be edited here.' };
+  return { ok: true, text: c.ws.readText(rel) || '' };
+});
+ipcMain.handle('workspace:write', (_e, rel, text) => {
+  const c = initCore(); if (!c.ws) return { ok: false, error: 'The memory workspace is off.' };
+  if (!WS_EDITABLE.includes(rel)) return { ok: false, error: 'Only SOUL.md, USER.md and MEMORY.md can be edited here.' };
+  if (typeof text !== 'string' || text.length > 200000) return { ok: false, error: 'The text is too long.' };
+  try {
+    const file = c.ws.abs(rel); const tmp = file + '.tmp';
+    fs.writeFileSync(tmp, text.endsWith('\n') ? text : text + '\n'); fs.renameSync(tmp, file);
+    if (rel === 'MEMORY.md') toWinSafe('chat:event', { type: 'memory:changed' });
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e.message }; }
 });
 ipcMain.handle('workspace:reindex', async () => {
   const c = initCore(); if (!c.index) return { ok: false, error: 'The memory index needs SQLite.' };

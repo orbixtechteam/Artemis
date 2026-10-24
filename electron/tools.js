@@ -105,7 +105,9 @@ function definitions({ makeEnabled, hasFolder, memoryEnabled, memorySearchEnable
   defs.push(fn('lock_app', 'Locks the Artemis app (the app lock from Settings → Security) right now. Use it when the user says "lock", "Artemis lock" or asks you to lock or secure the app. Needs no arguments and no approval. Only the user can unlock it again (password, Touch ID or their voice).', {}, []));
   if (memoryEnabled) {
     defs.push(
-      fn('memory_save', 'Saves a durable fact about the user to memory (preference, context, goal). Use when the user says "remember" or shares a lasting fact. Write one short sentence.', { text: { type: 'string' } }, ['text']),
+      fn('memory_save', memorySearchEnabled
+        ? 'Saves a lasting fact about the user to MEMORY.md (a preference, how they work, a standing rule, a long-term goal): something still true next month. Not for events, progress or what happened today ("we started X today", "finished Y"): use memory_note for those. Write one short sentence.'
+        : 'Saves a durable fact about the user to memory (preference, context, goal). Use when the user says "remember" or shares a lasting fact. Write one short sentence.', { text: { type: 'string' } }, ['text']),
       fn('memory_forget', 'Deletes a memory entry by id.', { id: { type: 'string' } }, ['id'])
     );
     if (memorySearchEnabled) {
@@ -117,7 +119,7 @@ function definitions({ makeEnabled, hasFolder, memoryEnabled, memorySearchEnable
         fn('memory_get', 'Reads lines of a memory file (path from memory_search, e.g. "memory/2026-10-24.md" or "USER.md").', {
           path: { type: 'string' }, from: { type: 'number', description: 'First line (1-based, default 1)' }, lines: { type: 'number', description: 'How many lines (default 80, max 400)' }
         }, ['path']),
-        fn('memory_note', "Adds a line to today's daily note (memory/YYYY-MM-DD.md): a notable event, decision, result or open item worth finding again on another day. Not for lasting facts about the user (use memory_save) and not for task progress (use task_note).", {
+        fn('memory_note', "Adds a line to today's daily note (memory/YYYY-MM-DD.md): an event, decision, result or open item of today worth finding again on another day. Use it when the user asks to note, log or write down what happened (\"bugün X etdik, qeyd et\", \"note that we shipped Y\"). Not for lasting facts about the user (memory_save) and not for the plan of the current task (task_note).", {
           text: { type: 'string', description: 'One or two short sentences' }
         }, ['text'])
       );
@@ -1226,7 +1228,11 @@ async function runTool(name, args, ctx) {
         if (type === 'interval') repeat.every = Number(args.every_minutes) || 60;
         if (type === 'weekly') repeat.days = Array.isArray(args.days) ? args.days.map(Number) : [];
         if (type === 'monthly') repeat.dayOfMonth = Number(args.day_of_month) || 1;
-        const job = ctx.schedule.save({ name: args.name, prompt: args.prompt, repeat, notifyPhone: !!args.notify_phone, reminder: !!args.reminder, allowEdits: !!args.allow_edits });
+        // "reminder" delivers the text as it is, with no AI. A text written as an instruction to the assistant ("Send the user a summary of today's notes")
+        // needs a run, or the user gets the instruction itself.
+        let reminder = !!args.reminder;
+        if (reminder && /\b(the user|user's|summar|xülasə|today's notes|daily note|memory\/|search|look up|check (the|my|if)|find out)/i.test(String(args.prompt || ''))) reminder = false;
+        const job = ctx.schedule.save({ name: args.name, prompt: args.prompt, repeat, notifyPhone: !!args.notify_phone, reminder, allowEdits: !!args.allow_edits });
         const phoneWarn = args.notify_phone && !ctx.phone ? ' Warning: Telegram is not connected and paired, so the result will not reach the phone until the user connects it in Settings → Phone. Tell the user.' : '';
         return { ok: true, text: `Scheduled "${job.name}" (id ${job.id}). It runs: ${ctx.schedule.list().find((j) => j.id === job.id)?.description || type}. Next run: ${job.nextRun ? new Date(job.nextRun).toLocaleString() : 'none'}.${phoneWarn}` };
       }

@@ -6,7 +6,7 @@ const chatSearch = require('../chatsearch');
 const { ftsQuery, fold } = require('./db');
 
 const sha1 = (s) => crypto.createHash('sha1').update(s).digest('hex');
-const day = (t) => (t ? new Date(t).toISOString().slice(0, 10) : '');
+const day = (t) => { if (!t) return ''; const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }; // local date, like the user's calendar
 const uid = () => Math.random().toString(36).slice(2, 10);
 const DAY = 86400000;
 

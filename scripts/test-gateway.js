@@ -241,7 +241,8 @@ function fakeModel(script) {
     fs.writeFileSync(path.join(data, 'mcp.json'), JSON.stringify([{ id: 'a', name: 'Echo Server', type: 'stdio', command: process.execPath, args: [path.join(__dirname, 'fixtures/mcp-echo.js')], enabled: true }]));
     fs.writeFileSync(path.join(data, 'settings.json'), JSON.stringify({ ...JSON.parse(fs.readFileSync(path.join(data, 'settings.json'), 'utf8')), connectorsLazy: false }));
     const h3 = createHeadless({ dataDir: data, port: 0, keychain: false, scheduler: false, browser: false, computer: false, telegramApi: `http://127.0.0.1:${tg.address().port}`, log: () => {} });
-    await h3.start();
+    const a3 = await h3.start();
+    const T3 = readDiscovery(path.join(data, 'gateway.json')).token;
     for (let i = 0; i < 50 && !sent.some((t) => /Phone answer/.test(t)); i++) await new Promise((r) => setTimeout(r, 100));
     assert.ok(sent.some((t) => /Phone answer/.test(t)), 'answer sent to Telegram: ' + JSON.stringify(sent));
     assert.ok(fm2.seen.some((b) => (b.tools || []).some((t) => /^mcp__echo/.test(t.function.name))), 'connector tools offered: ' + JSON.stringify((fm2.seen[0].tools || []).map((t) => t.function.name)));
@@ -251,6 +252,12 @@ function fakeModel(script) {
     const ph = h3.remote().phone();
     await ph.send('direct message');
     assert.ok(sent.includes('direct message'));
+    // the app sends to the phone through the gateway while it owns the bot
+    const pr = await call(a3.port, 'POST', '/v1/phone/send', { token: T3, body: { text: 'from the app' } });
+    assert.strictEqual(pr.json.ok, true);
+    assert.ok(sent.includes('from the app'));
+    assert.strictEqual((await call(a3.port, 'GET', '/v1/phone', { token: T3 })).json.paired, true);
+    assert.strictEqual((await call(a3.port, 'POST', '/v1/phone/send', { token: T3, body: {} })).status, 400);
     await h3.stop();
     tg.close(); fm2.srv.close();
   }

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Select from '../Select.jsx';
 import { Group, Row, SwitchRow } from './ui.jsx';
 
@@ -8,7 +8,16 @@ export function SandboxGroup({ s, setS, put }) {
   const [busy, setBusy] = useState(false);
   const mode = s.sandbox || '';
   const val = (k) => (e) => setS((x) => ({ ...x, [k]: e.target.value }));
-  const test = async () => { setBusy(true); setOut('Starting… the first time Docker may need to download the image.'); const r = await window.api.sandboxTest(); setOut(r.ok ? r.text : (r.error || r.text)); setBusy(false); };
+  const logRef = useRef(null);
+  // live log: every step of the test (container, image download, the command and its output) as it happens
+  useEffect(() => (window.api.onSandboxLog ? window.api.onSandboxLog((line) => setOut((o) => (o ? o + '\n' : '') + line)) : undefined), []);
+  useEffect(() => { const el = logRef.current; if (el) el.scrollTop = el.scrollHeight; }, [out]);
+  const test = async () => {
+    setBusy(true); setOut('');
+    const r = await window.api.sandboxTest();
+    setOut((o) => (o ? o + '\n\n' : '') + (r.ok ? '✓ Sandbox works.\n\n' + r.text : '✗ ' + (r.error || r.text)));
+    setBusy(false);
+  };
   const cleanup = async () => { const r = await window.api.sandboxCleanup(); setOut(r.ok ? `Removed ${r.removed} sandbox container(s).` : r.error); };
   return (
     <Group title="Sandbox for terminal commands" footer={mode ? <>Save the settings before you test. With the sandbox on, the terminal panel is not offered to Artemis, scheduled tasks may run commands in the sandbox without asking, and the headless gateway can run commands without <code>--allow-shell</code>.</> : null}>
@@ -49,7 +58,8 @@ export function SandboxGroup({ s, setS, put }) {
             <button type="button" className="pref-btn" disabled={busy} onClick={test}>Test</button>
             {mode === 'docker' && <button type="button" className="pref-btn" onClick={cleanup}>Remove sandbox containers</button>}
           </div>
-          {out && <textarea readOnly rows={6} className="mono" value={out} />}
+          {out && <textarea ref={logRef} readOnly rows={10} className="mono" value={out} />}
+          {busy && <span className="muted">Working… the first run downloads the image and can take a few minutes.</span>}
         </Row>
       )}
     </Group>

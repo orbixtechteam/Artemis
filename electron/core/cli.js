@@ -14,6 +14,9 @@ const HELP = `Artemis command line
         Run Artemis headless: the agent, chats, memory, scheduled tasks, Telegram and connectors behind the
         gateway API. Can run next to the app on the same data folder (it then takes over the background jobs).
         run_command uses the sandbox from Settings (Docker/SSH); --allow-shell lets it run on this machine.
+  artemis service install [gateway flags] | uninstall | status
+        Run the gateway in the background: starts at login, restarts if it stops (launchd on macOS,
+        systemd on Linux). The same switch is in Settings → Privacy & safety → Gateway.
   artemis status                         Is a gateway running? Which model?
   artemis chat [message] [-s id] [-m model] [--project id] [--json]
         Send a message (or start an interactive chat when no message is given).
@@ -153,6 +156,27 @@ async function main(argv) {
   const opts = parseArgs(argv);
   const [cmd, ...rest] = opts._;
   if (!cmd || opts.help || cmd === 'help') { process.stdout.write(HELP + '\n'); return; }
+
+  if (cmd === 'service' || (cmd === 'gateway' && ['install', 'uninstall'].includes(rest[0]))) {
+    const { createService } = require('./service');
+    const svc = createService();
+    const sub = cmd === 'service' ? rest[0] : rest[0];
+    const dataDir = opts.data ? path.resolve(opts.data) : defaultDataDir();
+    const show = (st) => process.stdout.write(!st.supported ? 'Not supported on this system (macOS and Linux only).\n' : `${st.installed ? 'installed' : 'not installed'}${st.running ? `, running (pid ${st.pid})` : st.installed ? ', not running' : ''}${st.file ? `\n${st.file}` : ''}\n`);
+    if (sub === 'install') {
+      const flags = [];
+      if (opts['allow-shell']) flags.push('--allow-shell');
+      for (const k of ['scheduler', 'telegram', 'connectors', 'browser', 'computer', 'keychain']) if (opts[k] === false) flags.push('--no-' + k);
+      if (opts.port) flags.push('--port', String(opts.port));
+      const st = svc.install({ runtime: process.execPath, electronNode: !!process.versions.electron, entry: path.join(__dirname, 'cli-entry.js'), dataDir, args: flags, logFile: path.join(require('os').homedir(), '.artemis', 'logs', 'gateway.log') });
+      show(st);
+      process.stdout.write('Log: ~/.artemis/logs/gateway.log\n');
+      return;
+    }
+    if (sub === 'uninstall') { show(svc.uninstall()); return; }
+    show(svc.status());
+    return;
+  }
 
   if (cmd === 'gateway') {
     const { createHeadless } = require('./headless');
