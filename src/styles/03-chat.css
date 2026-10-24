@@ -10,6 +10,12 @@
 .icon-btn.small { font-size: 15px; padding: 0 6px; }
 .icon-btn:hover { background: var(--hover); color: var(--text); }
 
+/* the chat's title above its messages (components/ChatHead.jsx) */
+.chat-head { flex: none; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%; padding: 12px max(24px, calc((100% - 680px) / 2)) 9px; box-sizing: border-box; border-bottom: .5px solid var(--line); }
+.chat-head-title { max-width: 100%; margin-left: -6px; padding: 2px 6px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text); font-family: var(--font-display); font-size: 15px; font-weight: 600; letter-spacing: -.012em; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: text; }
+.chat-head-title:hover { background: var(--fill); }
+.chat-head-edit { width: 100%; margin-left: -6px; padding: 2px 6px; border: 1px solid var(--accent); border-radius: var(--r-sm); background: var(--field-bg); color: var(--text); font: 600 15px/1.4 var(--font-display); letter-spacing: -.012em; outline: none; box-shadow: var(--ring); }
+.chat-head-sub { font-size: var(--fs-sm); color: var(--muted); }
 .messages { flex: 1; min-height: 0; overflow-y: auto; overflow-anchor: none; padding: 8px 0 28px; }
 .empty { max-width: 640px; margin: 13vh auto 0; text-align: center; padding: 0 20px; }
 .empty h1 { font-family: var(--font-serif); font-weight: 400; font-size: 38px; letter-spacing: -.018em; margin: 8px 0; }

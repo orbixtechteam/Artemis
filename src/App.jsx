@@ -26,6 +26,7 @@ import { useFollow } from './lib/stick.js';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import TabBar, { ContextMenu } from './components/TabBar.jsx';
 import TitleText from './components/TitleText.jsx';
+import ChatHead from './components/ChatHead.jsx';
 import { orderTabs as orderTabList, moveTab, shiftTab, setPinned, closeOthers as closeOtherTabs } from './lib/tabs.mjs';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Sidebar from './components/Sidebar.jsx';
@@ -1944,6 +1945,8 @@ export default function App() {
           {noteView && <div className="pane"><ErrorBoundary name="the note editor" resetKey={notePath}><NoteEditor key={notePath + ':' + noteRev} path={notePath} {...noteProps} onOpenNote={(p, how) => noteActions.open(p, how || 'here')} /></ErrorBoundary></div>}
           {chatView && <div className={`pane chat-pane ${chat.messages.length === 0 ? 'is-empty' : ''}`} data-find-scope="chat">
             <FindBar key={chat.id} targetRef={listRef} />
+            {chat.messages.length > 0 && <ChatHead key={'h' + chat.id} chat={chat} projectName={chat.projectId ? (projects.find((p) => p.id === chat.projectId) || {}).name : ''}
+              onRename={(title) => updateChat(chat.id, { title, titleManual: true })} />}
             <ErrorBoundary name="this chat" resetKey={chat.id}>
             <section className="messages" ref={listRef}>
               {chat.messages.length === 0 ? (
