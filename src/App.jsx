@@ -1,6 +1,7 @@
 import { startDrag, clamp, loadWidth, saveWidth } from './lib/resize.js';
 import { installDropGuard } from './lib/attach.js';
-import { applyTextSize, applyTheme, loadThemes, SYSTEM_THEME, TEXT_SIZES } from './lib/themes.js';
+import { applyTextSize, applySettingsTheme, loadThemes, SYSTEM_THEME, TEXT_SIZES } from './lib/themes.js';
+import { families as paletteFamilies, customThemes } from './lib/palette.mjs';
 import { askConfirm } from './lib/dialog.js';
 import { speak, stopSpeaking, createSpeaker, prepareVoice, ttsConfig } from './lib/voice.js';
 import { normLang, detectTextLang, replyLangHint } from './lib/lang.mjs';
@@ -916,15 +917,15 @@ export default function App() {
     // before the palettes are loaded every theme id is "unknown" and would be painted as System: wait (main.jsx already painted the cached theme)
     if (!settings || !themesLoaded.current) return;
     document.documentElement.dataset.vars = '1';
-    applyTheme(settings.theme, themeChoices);
-  }, [settings?.theme, settings?.activeProjectId, themeChoices]);
+    applySettingsTheme(settings, themeChoices);
+  }, [settings?.theme, settings?.palette, settings?.appearance, settings?.accent, settings?.activeProjectId, themeChoices]);
 
   // Themes are JSON: main reads <userData>/themes and <project>/.artemis/themes, we inject them and repaint.
   useEffect(() => {
     let alive = true;
     const run = async () => {
       const t = await loadThemes(api, project?.folder);
-      if (alive) { themesLoaded.current = true; setThemeChoices([SYSTEM_THEME, ...t]); const s = settingsRef.current; if (s) applyTheme(s.theme, t); }
+      if (alive) { themesLoaded.current = true; setThemeChoices([SYSTEM_THEME, ...t]); const s = settingsRef.current; if (s) applySettingsTheme(s, t); }
       return t;
     };
     run();
@@ -1859,7 +1860,9 @@ export default function App() {
     { id: 'graph', group: 'Go to', label: 'Notes graph', icon: 'graph', run: () => navView('graph') },
     { id: 'sentinel', group: 'Go to', label: 'Toggle Sentinel (voice)', icon: 'shield', hint: formatAccelerator(settings.sentinelShortcut ?? 'CommandOrControl+Shift+A', api.platform === 'darwin'), run: toggleSentinel },
     ...SETTING_TABS.map(([id, label, icon, words]) => ({ id: 'set-' + id, group: 'Settings', label: id === 'general' ? 'Settings' : 'Settings: ' + label, icon, hint: id === 'general' ? '⌘,' : '', words, run: () => openSettings(id) })),
-    ...themeChoices.map((t) => ({ id: 'theme-' + t.id, group: 'Theme', label: 'Theme: ' + t.name, icon: 'sparkle', swatch: t.preview, current: (settings.theme || 'system') === t.id, onlyTyped: true, words: 'appearance color ' + t.group, run: () => setPref({ theme: t.id }) })),
+    ...paletteFamilies(themeChoices).map((f) => { const t = f.dark || f.light; return { id: 'palette-' + f.id, group: 'Theme', label: 'Palette: ' + f.name, icon: 'sparkle', swatch: t.preview, current: (settings.theme || 'system') === 'system' && (settings.palette || 'artemis') === f.id, onlyTyped: true, words: 'appearance theme color ' + f.about, run: () => setPref({ palette: f.id, theme: 'system' }) }; }),
+    ...[['system', 'Automatic'], ['light', 'Light'], ['dark', 'Dark']].map(([id, name]) => ({ id: 'appearance-' + id, group: 'Theme', label: 'Appearance: ' + name, icon: 'sparkle', current: (settings.appearance || 'system') === id, onlyTyped: true, words: 'theme mode dark light', run: () => setPref({ appearance: id, theme: 'system' }) })),
+    ...customThemes(themeChoices).map((t) => ({ id: 'theme-' + t.id, group: 'Theme', label: 'Theme: ' + t.name, icon: 'sparkle', swatch: t.preview, current: settings.theme === t.id, onlyTyped: true, words: 'appearance color ' + t.group, run: () => setPref({ theme: t.id }) })),
     ...TEXT_SIZES.map(([id, name, px]) => ({ id: 'size-' + id, group: 'Theme', label: `Text size: ${name} (${px}px)`, icon: 'edit', current: (settings.textSize || 'medium') === id, onlyTyped: true, words: 'font appearance', run: () => setPref({ textSize: id }) })),
     ...(chatView ? groups.flatMap((g) => g.items.map(([id, name]) => ({ id: 'model-' + id, group: 'Model', label: 'Model: ' + name, icon: 'bulb', current: chat.model === id, onlyTyped: true, words: g.label + ' switch chat', run: () => updateChat(chat.id, { model: id }) }))) : [])
   ];

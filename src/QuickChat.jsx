@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { applyTextSize, applyTheme, loadThemes } from './lib/themes.js';
+import { applyTextSize, applySettingsTheme, loadThemes } from './lib/themes.js';
 import Markdown from './components/Markdown.jsx';
 import ToolCard from './components/ToolCard.jsx';
 import { Icon } from './components/Icons.jsx';
@@ -74,7 +74,7 @@ export default function QuickChat({ embedded = false, onClose, onKeepOpen, focus
     }
     document.documentElement.classList.add('quick');
     // the window lives on after the first open: repaint the theme every time it is shown, otherwise a theme changed in the main window never reaches it
-    const paint = (s) => { applyTextSize(s.textSize); document.documentElement.dataset.thinking = s.showThinking || 'collapsed'; return loadThemes(api).then((t) => applyTheme(s.theme, t)); };
+    const paint = (s) => { applyTextSize(s.textSize); document.documentElement.dataset.thinking = s.showThinking || 'collapsed'; return loadThemes(api).then((t) => applySettingsTheme(s, t)); };
     api.getSettings().then((s) => { setSettings(s); paint(s); });
     const offTheme = api.onThemeChanged ? api.onThemeChanged(() => { api.getSettings().then(paint); }) : undefined;
     const offShown = api.onQuickShown((o) => {

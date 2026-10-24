@@ -9,11 +9,17 @@ const THEME_IDS = ['system', 'light', 'dark'];
 
 const bool = { type: 'boolean' };
 const str = (max = 200) => ({ type: 'string', maxLength: max });
+// Accent names; the colours live in src/lib/palette.mjs (ACCENTS). '' = the palette's own accent.
+const ACCENT_IDS = ['', 'gold', 'blue', 'violet', 'rose', 'red', 'orange', 'green', 'graphite'];
 let themeIds = THEME_IDS;
+let paletteIds = ['artemis'];
 const knownThemes = () => themeIds;
 /** Settings that may be changed from outside. key -> validator that returns the cleaned value or throws. */
 const SAFE_SETTINGS = {
   theme: (v) => { if (!knownThemes().includes(v)) throw new Error(`theme must be one of: ${knownThemes().join(', ')}`); return v; },
+  palette: (v) => { if (!paletteIds.includes(v)) throw new Error(`palette must be one of: ${paletteIds.join(', ')}`); return v; },
+  appearance: (v) => { if (!['system', 'light', 'dark'].includes(v)) throw new Error('appearance must be system, light or dark'); return v; },
+  accent: (v) => { v = v == null ? '' : String(v); if (!ACCENT_IDS.includes(v)) throw new Error(`accent must be one of: ${ACCENT_IDS.map((a) => a || '""').join(', ')}`); return v; },
   textSize: (v) => { if (!['small', 'medium', 'large'].includes(v)) throw new Error('textSize must be small, medium or large'); return v; },
   personality: (v) => String(v).slice(0, 60),
   personalityCustom: (v) => String(v).slice(0, 2000),
@@ -49,7 +55,11 @@ function buildArtemisTools(d) {
   // the theme list is JSON on disk, so refresh it from main whenever the tools are (re)built
   try {
     const live = d.themes && d.themes();
-    if (Array.isArray(live) && live.length) themeIds = ['system', ...live.map((t) => t.id)];
+    if (Array.isArray(live) && live.length) {
+      themeIds = [...new Set([...THEME_IDS, ...live.map((t) => t.id)])];
+      const fams = [...new Set(live.map((t) => t.family).filter(Boolean))];
+      if (fams.length) paletteIds = fams;
+    }
   } catch {}
   const asked = async (key, title, detail) => {
     if ((grants.get(key) || 0) > Date.now()) return true;

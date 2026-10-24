@@ -1,0 +1,33 @@
+{
+  "id": "forest-dark",
+  "name": "Forest",
+  "family": "forest",
+  "about": "Pine and sage",
+  "group": "Palettes",
+  "dark": true,
+  "preview": [
+    "#0F1512",
+    "#8FCB9B",
+    "#16201B"
+  ],
+  "vars": {
+    "--theme-bg": "#0F1512",
+    "--theme-side": "#16201B",
+    "--theme-panel": "#1A2520",
+    "--theme-elev": "#1A2520",
+    "--theme-user": "rgba(234,241,236,.10)",
+    "--theme-code": "#0A100D",
+    "--theme-border": "rgba(234,241,236,.09)",
+    "--theme-text": "#EAF1EC",
+    "--theme-muted": "rgba(234,241,236,.56)",
+    "--theme-accent": "#8FCB9B",
+    "--theme-accent-text": "#0D1A12",
+    "--theme-hover": "rgba(234,241,236,.06)",
+    "--theme-active": "rgba(234,241,236,.10)",
+    "--theme-danger": "#F08A80",
+    "--theme-ok": "#7FC79A",
+    "--theme-warn": "#E8B45A",
+    "--theme-add": "rgba(127,199,154,.16)",
+    "--theme-del": "rgba(240,138,128,.16)"
+  }
+}

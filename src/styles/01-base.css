@@ -1,30 +1,53 @@
 :root {
   /* design tokens: type scale, radii, spacing (sizes follow the Text size setting through --fs) */
   --fs-xs: 11px; --fs-sm: 12px; --fs-ui: 13px; --fs-body: calc(var(--fs, 14px) + 1px); --fs-lg: 18px; --fs-xl: 24px;
-  --r-sm: 6px; --r-md: 10px; --r-lg: 16px; --r-full: 999px;
+  --r-sm: 7px; --r-md: 10px; --r-lg: 16px; --r-xl: 22px; --r-full: 999px;
   --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px; --sp-6: 32px;
+  /* SF Pro on macOS (Text and Display optical sizes come for free); New York for the few serif moments */
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", Roboto, sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", "Segoe UI", Roboto, sans-serif;
+  --font-serif: ui-serif, "New York", "Iowan Old Style", Georgia, serif;
   --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
-  --bg: #ffffff; --side: #f7f7f5; --panel: #ffffff; --text: #37352f; --muted: #6b6a66;
-  --border: #e9e9e7; --accent: #1a6fc4; --accent-text: #fff; --hover: rgba(55,53,47,.06); --active: rgba(55,53,47,.1);
-  --user: #f7f6f3; --code: #f7f6f3; --danger: #eb5757; --ok: #448361; --warn: #cb912f;
-  --add: rgba(68,131,97,.14); --del: rgba(235,87,87,.14);
+  /* boot palette = Artemis light (the JSON palettes replace these once loaded) */
+  --bg: #FBF8F2; --side: #F2EDE3; --panel: #FFFFFF; --elev: #FFFFFF; --text: #1B1A17; --muted: rgba(27,26,23,.62);
+  --border: rgba(27,26,23,.10); --accent: #9C7A33; --accent-text: #fff; --hover: rgba(27,26,23,.05); --active: rgba(27,26,23,.09);
+  --user: rgba(27,26,23,.07); --code: #F4EFE6; --danger: #C2382D; --ok: #2F7A47; --warn: #A4670F;
+  --add: rgba(47,122,71,.12); --del: rgba(194,56,45,.11);
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #191919; --side: #202020; --panel: #252525; --text: rgba(255,255,255,.81); --muted: rgba(255,255,255,.46);
-  --border: #2f2f2f; --accent: #2383e2; --accent-text: #fff; --hover: rgba(255,255,255,.055); --active: rgba(255,255,255,.1);
-  --user: #2b2b2b; --code: #202020; --danger: #ff7369; --ok: #4dab9a; --warn: #ffa344;
-  --add: rgba(77,171,154,.18); --del: rgba(255,115,105,.18);
+  --bg: #121316; --side: #1A1B1E; --panel: #1E1F23; --elev: #1E1F23; --text: #F3EFE7; --muted: rgba(243,239,231,.56);
+  --border: rgba(243,239,231,.09); --accent: #D4B06A; --accent-text: #1A1408; --hover: rgba(243,239,231,.06); --active: rgba(243,239,231,.10);
+  --user: rgba(243,239,231,.10); --code: #0C0D0F; --danger: #F08A80; --ok: #7FC79A; --warn: #E8B45A;
+  --add: rgba(127,199,154,.16); --del: rgba(240,138,128,.16);
   color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-  --bg: #191919; --side: #202020; --panel: #252525; --text: rgba(255,255,255,.81); --muted: rgba(255,255,255,.46);
-  --border: #2f2f2f; --accent: #2383e2; --accent-text: #fff; --hover: rgba(255,255,255,.055); --active: rgba(255,255,255,.1);
-  --user: #2b2b2b; --code: #202020; --danger: #ff7369; --ok: #4dab9a; --warn: #ffa344;
-  --add: rgba(77,171,154,.18); --del: rgba(255,115,105,.18);
+  --bg: #121316; --side: #1A1B1E; --panel: #1E1F23; --elev: #1E1F23; --text: #F3EFE7; --muted: rgba(243,239,231,.56);
+  --border: rgba(243,239,231,.09); --accent: #D4B06A; --accent-text: #1A1408; --hover: rgba(243,239,231,.06); --active: rgba(243,239,231,.10);
+  --user: rgba(243,239,231,.10); --code: #0C0D0F; --danger: #F08A80; --ok: #7FC79A; --warn: #E8B45A;
+  --add: rgba(127,199,154,.16); --del: rgba(240,138,128,.16);
   color-scheme: dark;
+}
+/* Derived surfaces, one formula for every palette: hairlines and fills are the text colour at low alpha. */
+:root {
+  --text-2: color-mix(in srgb, var(--text) 76%, transparent);
+  --line: var(--border); --line-2: color-mix(in srgb, var(--text) 15%, transparent);
+  --fill: var(--hover); --fill-2: var(--active);
+  --shadow-raised: 0 0 0 .5px rgba(0,0,0,.08), 0 24px 50px -18px rgba(40,30,10,.22), 0 4px 12px -4px rgba(40,30,10,.10);
+  --hi: inset 0 1px 0 rgba(255,255,255,.8);
+}
+:root[data-scheme="dark"], :root[data-theme="dark"] {
+  --shadow-raised: 0 0 0 .5px rgba(0,0,0,.55), 0 24px 60px -16px rgba(0,0,0,.7), 0 6px 16px -4px rgba(0,0,0,.35);
+  --hi: inset 0 1px 0 rgba(255,255,255,.06);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-scheme="light"]):not([data-theme="light"]) {
+    --shadow-raised: 0 0 0 .5px rgba(0,0,0,.55), 0 24px 60px -16px rgba(0,0,0,.7), 0 6px 16px -4px rgba(0,0,0,.35);
+    --hi: inset 0 1px 0 rgba(255,255,255,.06);
+  }
 }
 
 /* Code blocks and syntax colours: light by default, dark for the dark scheme (System in dark mode, Dark, or a dark JSON theme). */
@@ -54,7 +77,7 @@
   --bg: var(--theme-bg); --side: var(--theme-side); --panel: var(--theme-panel); --user: var(--theme-user);
   --code: var(--theme-code); --text: var(--theme-text); --muted: var(--theme-muted); --border: var(--theme-border);
   --accent: var(--theme-accent); --accent-text: var(--theme-accent-text); --hover: var(--theme-hover);
-  --active: var(--theme-active); --add: var(--theme-add); --del: var(--theme-del);
+  --active: var(--theme-active); --add: var(--theme-add); --del: var(--theme-del); --elev: var(--theme-elev, var(--theme-panel));
   --danger: var(--theme-danger, #eb5757); --ok: var(--theme-ok, #448361); --warn: var(--theme-warn, #cb912f);
 }
 :root[data-vars][data-scheme="dark"][data-theme]:not([data-theme="light"]):not([data-theme="dark"]) {
@@ -63,7 +86,7 @@
 
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
-body { background: var(--bg); color: var(--text); font: var(--fs, 14px)/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+body { background: var(--bg); color: var(--text); font: var(--fs, 14px)/1.6 var(--font-sans); letter-spacing: -0.003em; -webkit-font-smoothing: antialiased; font-feature-settings: "kern"; overflow: hidden; }
 button { font: inherit; color: inherit; cursor: pointer; border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; background: transparent; }
 button:hover:not(:disabled) { background: var(--hover); }
 button:disabled { opacity: .5; cursor: default; }

@@ -2,6 +2,8 @@
 // Sources, later wins by id: built-in electron/themes -> <userData>/themes -> <project folder>/.artemis/themes.
 // A file looks like { "id": "my-theme", "name": "My theme", "group": "Gods", "dark": true,
 //   "preview": ["#130808", "#c9923a", "#8c1c1c"], "vars": { "--bg": "#130808", ... } }.
+// A palette is two files with the same "family" (one "dark": true, one false); Appearance then follows
+// Light / Dark / Automatic. A file without a family is a single custom theme with a fixed scheme.
 // "system" is reserved: it follows the OS and has no palette of its own.
 const fs = require('fs');
 const path = require('path');
@@ -47,9 +49,12 @@ function parseFile(file) {
   const vars = cleanVars(raw.vars);
   if (!Object.keys(vars).length) return null;
   const preview = Array.isArray(raw.preview) ? raw.preview.filter((c) => typeof c === 'string').slice(0, 3) : [];
+  const family = String(raw.family || '').trim().toLowerCase();
   return {
     id,
     name: String(raw.name || id).slice(0, MAX_NAME),
+    ...(ID_RE.test(family) && !RESERVED.has(family) ? { family } : {}),
+    ...(raw.about ? { about: String(raw.about).slice(0, MAX_NAME) } : {}),
     group: String(raw.group || 'My themes').slice(0, MAX_GROUP),
     dark: raw.dark !== false,
     preview: preview.length === 3 ? preview : [vars['--theme-bg'], vars['--theme-accent'], vars['--theme-panel'] || vars['--theme-side']],
@@ -118,4 +123,13 @@ function removeFile(file, dirs = {}) {
   return list(dirs);
 }
 
-module.exports = { list, folders, importFiles, removeFile, parseFile, cleanVars, builtinDir, RESERVED };
+/** Light or dark for the native window chrome: a fixed theme wins, else Appearance (old settings only had theme). */
+function nativeSource(settings = {}, themeList = []) {
+  const id = settings.theme || 'system';
+  const fixed = !['system', 'light', 'dark'].includes(id) && themeList.find((t) => t.id === id);
+  if (fixed) return fixed.dark === false ? 'light' : 'dark';
+  const mode = id === 'light' || id === 'dark' ? id : settings.appearance || 'system'; // theme light/dark (older settings, MCP) forces the scheme
+  return ['light', 'dark'].includes(mode) ? mode : 'system';
+}
+
+module.exports = { list, folders, importFiles, removeFile, parseFile, cleanVars, nativeSource, builtinDir, RESERVED };
