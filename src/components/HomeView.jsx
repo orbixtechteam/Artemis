@@ -1,148 +1,99 @@
 import React, { useEffect, useState } from 'react';
 import { Icon } from './Icons.jsx';
+import Logo from './Logo.jsx';
 import Composer, { ChatPills } from './Composer.jsx';
 import { dayGroup } from '../lib/history.js';
-import { costOf, fmtUsd } from '../lib/cost.js';
 import { formatAccelerator } from '../lib/shortcuts.mjs';
 
-const fmtTok = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(Math.round(n)));
 const greet = () => { const h = new Date().getHours(); return h < 5 ? 'Working late' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'; };
 const when = (t) => { if (!t) return ''; const d = new Date(t); const same = d.toDateString() === new Date().toDateString(); return (same ? 'Today' : d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); };
 
-function Widget({ title, icon, action, onAction, children, wide, span2, open, openTitle }) {
-  return (
-    <section className={"hw" + (wide ? " wide" : "") + (span2 ? " span2" : "")}>
-      <header className="hw-head"><Icon name={icon} size={15} /> <span>{title}</span>{action && <button className="link-btn hw-act" onClick={onAction}>{action}</button>}{open && <button className="icon-btn hw-open" title={openTitle} aria-label={openTitle} onClick={open}><Icon name="chevronRight" size={15} /></button>}</header>
-      <div className="hw-body">{children}</div>
-    </section>
-  );
-}
-
-// The Home page: a chat box plus small widgets for everything in the app.
-export default function HomeView({ chats, projects, notes, settings, memoryCount, connectorCount, sentinel, agentCount, statusOf, onSend, onOpenChat, onOpenProject, onOpenNote, onOpenFile, onGo, composerProps }) {
-  // the configured shortcuts, shown as ⌘K / Ctrl+K ('' = off)
+// The Home page: the logo, a greeting, the chat box, and the chats to jump back into. Everything else lives in
+// the sidebar (places, workspace) and the profile menu (usage, logs, terminal), so Home stays quiet.
+export default function HomeView({ chats, projects, settings, statusOf, onSend, onOpenChat, onGo, composerProps }) {
   const mac = window.api?.platform === 'darwin';
   const st = settings || {};
-  const keys = { palette: formatAccelerator(st.paletteShortcut ?? 'CommandOrControl+K', mac), quickChat: formatAccelerator(st.quickChatShortcut, mac), quickSearch: formatAccelerator(st.quickSearchShortcut, mac), sentinel: formatAccelerator(st.sentinelShortcut ?? 'CommandOrControl+Shift+A', mac), find: formatAccelerator('CommandOrControl+F', mac) };
+  const keys = { palette: formatAccelerator(st.paletteShortcut ?? 'CommandOrControl+K', mac), quickChat: formatAccelerator(st.quickChatShortcut, mac) };
   const [draft, setDraft] = useState({}); // choices for the chat that the box below starts
   const up = (patch) => setDraft((d) => ({ ...d, ...patch }));
   const cp = composerProps || {};
-  const brain = draft.brain !== undefined ? draft.brain : (settings.defaultBrain || '');
+  const brain = draft.brain !== undefined ? draft.brain : (st.defaultBrain || '');
   const model = draft.model || cp.defaultModel;
   const [jobs, setJobs] = useState([]);
-  const [files, setFiles] = useState([]);
-  useEffect(() => { window.api.libList().then((r) => setFiles(r && r.ok ? r.items.slice(0, 5) : [])).catch(() => {}); }, []);
-  const [usage, setUsage] = useState(null);
   useEffect(() => {
     let live = true;
-    const load = () => {
-      Promise.resolve(window.api.scheduleList && window.api.scheduleList()).then((j) => live && setJobs(Array.isArray(j) ? j : [])).catch(() => {});
-      Promise.resolve(window.api.usageGet && window.api.usageGet()).then((r) => live && setUsage(Array.isArray(r) ? r : [])).catch(() => live && setUsage([]));
-    };
+    const load = () => Promise.resolve(window.api.scheduleList && window.api.scheduleList()).then((j) => live && setJobs(Array.isArray(j) ? j : [])).catch(() => {});
     load(); const id = setInterval(load, 30000);
     return () => { live = false; clearInterval(id); };
   }, []);
 
-  const recent = chats.filter((c) => c.messages.length && !c.incognito).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 6);
-  const pinnedProjects = projects.filter((p) => p.pinned);
-  const shownProjects = (pinnedProjects.length ? pinnedProjects : projects).slice(0, 5);
-  const recentNotes = (notes.items || []).filter((i) => !i.dir).sort((a, b) => (b.mtime || 0) - (a.mtime || 0)).slice(0, 5);
-  const upcoming = jobs.filter((j) => j.enabled && j.nextRun).sort((a, b) => a.nextRun - b.nextRun).slice(0, 4);
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const sum = (since) => (usage || []).filter((r) => r.t >= since).reduce((a, r) => ({ tok: a.tok + (r.prompt || 0) + (r.completion || 0), cost: a.cost + costOf(r) }), { tok: 0, cost: 0 });
-  const dayU = sum(today.getTime()); const monthU = sum(Date.now() - 30 * 864e5);
-  const running = chats.filter((c) => statusOf(c) === 'running');
-  const name = (settings.profileName || '').split(' ')[0];
+  const recent = chats.filter((c) => c.messages.length && !c.incognito).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 3);
+  const upcoming = jobs.filter((j) => j.enabled && j.nextRun).sort((a, b) => a.nextRun - b.nextRun).slice(0, 3);
+  const name = (st.profileName || '').split(' ')[0];
+  const projectName = (id) => (projects.find((p) => p.id === id) || {}).name;
 
   return (
     <div className="page home-page">
-      <h1 className="home-title">{greet()}{name ? ', ' + name : ''}</h1>
-      <div className="home-compose">
-        <div className="home-pills">
-          <ChatPills stacked={false} brains={cp.brains || []} brain={brain} onBrain={(v) => { const b = (cp.brains || []).find((x) => x.slug === v); up({ brain: v, ...(b && b.model ? { model: b.model } : {}) }); }}
-            tools={draft.tools || (settings.toolsEnabled === false ? 'off' : 'on')} onTools={(v) => up({ tools: v })}
-            agents={draft.agents || (settings.delegateEnabled === false ? 'off' : 'on')} onAgents={(v) => up({ agents: v })}
-            perm={draft.perm || (settings.autoApproveEdits ? 'auto' : 'ask')} onPerm={(v) => up({ perm: v })}
-            projectId={draft.projectId || null} projects={projects} onProject={(id) => up({ projectId: id })}
-            model={model} settings={settings} onUsageDetails={cp.onUsageDetails} onOpenSettings={cp.onOpenSettings} />
-        </div>
-        <Composer key="home" chatId="draft:home" streaming={false} onStop={() => {}} onSend={(t, a, x) => { onSend(t, a, { ...draft, brain, model, ...(x || {}) }); setDraft({}); }} placeholder="Ask anything, start a new chat…"
-          model={model} onModel={(m) => up({ model: m })} groups={cp.groups || []} projects={projects} projectId={draft.projectId || null} onProject={(id) => up({ projectId: id })}
-          settings={settings} onUsageDetails={cp.onUsageDetails} onOpenSettings={cp.onOpenSettings}
-          tools={draft.tools || 'on'} onTools={(v) => up({ tools: v })} agents={draft.agents || 'on'} onAgents={(v) => up({ agents: v })}
-          brains={cp.brains || []} brain={brain} onBrain={(v) => up({ brain: v })} />
-      </div>
-
-      <div className="hw-grid">
-        <Widget title="Recent chats" icon="chat" action="New chat" onAction={() => onGo('newchat')} wide>
-          {recent.length === 0 ? <div className="muted small">No chats yet. Type above to start one.</div> : recent.map((c) => {
-            const st = statusOf(c);
-            return (
-              <button key={c.id} className="hw-row" onClick={() => onOpenChat(c.id)}>
-                <Icon name={st === 'running' ? 'spinner' : st === 'awaiting' ? 'warning' : 'chat'} size={14} />
-                <span className="t">{c.title}</span><span className="muted small">{dayGroup(c.updatedAt)}</span>
-              </button>
-            );
-          })}
-          {running.length > 0 && <div className="muted small hw-note">{running.length} running right now</div>}
-        </Widget>
-
-        <Widget title={pinnedProjects.length ? 'Pinned projects' : 'Projects'} icon="folders" action="All" onAction={() => onGo('projects')} open={() => onGo('projects')} openTitle="Open Projects">
-          {shownProjects.length === 0 ? <div className="muted small">No projects yet.</div> : shownProjects.map((p) => (
-            <button key={p.id} className="hw-row" onClick={() => onOpenProject(p.id)}><Icon name="folder" size={14} /><span className="t">{p.name}</span><span className="muted small">{chats.filter((c) => c.projectId === p.id).length}</span></button>
-          ))}
-        </Widget>
-
-        <Widget title="Notes" icon="file" action="New note" onAction={() => onGo('newnote')} open={() => onGo('graph')} openTitle="Open notes graph">
-          {recentNotes.length === 0 ? <div className="muted small">No notes yet.</div> : recentNotes.map((n) => (
-            <button key={n.path} className="hw-row" onClick={() => onOpenNote(n.path)}><Icon name="file" size={14} /><span className="t">{n.name}</span></button>
-          ))}
-        </Widget>
-
-        <Widget title="Files" icon="folder" action="All" onAction={() => onGo('files')} open={() => onGo('files')} openTitle="Open Files">
-          {files.length === 0 ? <div className="muted small">No files yet. Attach one in a chat.</div> : files.map((f) => (
-            <button key={f.path} className="hw-row" onClick={() => onOpenFile && onOpenFile(f.path)}><Icon name={f.kind === 'image' ? 'image' : 'file'} size={14} /><span className="t">{f.name}</span></button>
-          ))}
-        </Widget>
-        <Widget title="Coming up" icon="clock" action="Scheduled" onAction={() => onGo('schedule')} open={() => onGo('schedule')} openTitle="Open Scheduled">
-          {upcoming.length === 0 ? <div className="muted small">Nothing scheduled.</div> : upcoming.map((j) => (
-            <button key={j.id} className="hw-row" onClick={() => onGo('schedule')}><Icon name="clock" size={14} /><span className="t">{j.name}</span><span className="muted small">{when(j.nextRun)}</span></button>
-          ))}
-        </Widget>
-
-        <Widget title="Usage" icon="chart" action="Details" onAction={() => onGo('usage')} open={() => onGo('usage')} openTitle="Open Usage" span2>
-          {usage === null ? <div className="skeleton-rows" role="status" aria-label="Loading"><i /><i /><i /></div> : (
-            <div className="hw-stats">
-              <div><b>{fmtTok(dayU.tok)}</b><span>tokens today</span></div>
-              <div><b>{fmtUsd(dayU.cost)}</b><span>cost today</span></div>
-              <div><b>{fmtTok(monthU.tok)}</b><span>tokens, 30 days</span></div>
-              <div><b>{fmtUsd(monthU.cost)}</b><span>cost, 30 days</span></div>
-            </div>
-          )}
-        </Widget>
-
-        <Widget title="Shortcuts" icon="bolt" wide>
-          <div className="hw-tiles">
-            <button onClick={() => onGo('palette')} title={keys.palette ? `Command palette (${keys.palette})` : 'Command palette'}><Icon name="search" size={16} /> Search {keys.palette ? <span className="muted small">{keys.palette}</span> : null}</button>
-            <button onClick={() => onGo('sentinel')}><Icon name="mic" size={16} /> Sentinel <span className="muted small">{sentinel === 'off' ? 'Off' : 'On'}</span></button>
-            <button onClick={() => onGo('agents')}><Icon name="user" size={16} /> Agents{agentCount ? <span className="count">{agentCount} running</span> : null}</button>
-            <button onClick={() => onGo('skills')}><Icon name="sparkle" size={16} /> Skills</button>
-            <button onClick={() => onGo('automations')}><Icon name="bolt" size={16} /> Automations</button>
-            <button onClick={() => onGo('memory')}><Icon name="bulb" size={16} /> Memory{memoryCount ? <span className="count">{memoryCount}</span> : null}</button>
-            <button onClick={() => onGo('connectors')}><Icon name="plug" size={16} /> Connectors{connectorCount ? <span className="count">{connectorCount}</span> : null}</button>
-            <button onClick={() => onGo('browser')}><Icon name="globe" size={16} /> Browser</button>
-            <button onClick={() => onGo('terminal')}><Icon name="terminal" size={16} /> Terminal</button>
-            <button onClick={() => onGo('logs')}><Icon name="code" size={16} /> Logs</button>
-            <button onClick={() => onGo('settings')}><Icon name="sliders" size={16} /> Settings</button>
+      <div className="home-col">
+        <Logo size={60} className="home-logo" />
+        <h1 className="home-title">{greet()}{name ? ', ' + name : ''}</h1>
+        {!model && (
+          <div className="home-setup">
+            <Icon name="plug" size={16} />
+            <span>Add a model provider to start chatting.</span>
+            <button className="primary" onClick={() => onGo('providers')}>Add provider</button>
           </div>
-          <div className="muted small hw-note">Find in chat or note <kbd>{keys.find}</kbd></div>
-          {(keys.quickChat || keys.quickSearch || keys.sentinel) ? (
-            <div className="muted small hw-note">
-              From any app: {[keys.quickChat && <>Quick chat <kbd>{keys.quickChat}</kbd></>, keys.quickSearch && <>Quick search <kbd>{keys.quickSearch}</kbd></>, keys.sentinel && <>Sentinel on/off <kbd>{keys.sentinel}</kbd></>].filter(Boolean).map((x, i) => <React.Fragment key={i}>{i ? ' · ' : ''}{x}</React.Fragment>)}
-              {' '}<button className="link" onClick={() => onGo('settings')}>Change</button>
+        )}
+        <div className="home-compose">
+          <Composer key="home" chatId="draft:home" streaming={false} onStop={() => {}} onSend={(t, a, x) => { onSend(t, a, { ...draft, brain, model, ...(x || {}) }); setDraft({}); }} placeholder="Ask anything"
+            model={model} onModel={(m) => up({ model: m })} groups={cp.groups || []} projects={projects} projectId={draft.projectId || null} onProject={(id) => up({ projectId: id })}
+            settings={settings} onUsageDetails={cp.onUsageDetails} onOpenSettings={cp.onOpenSettings}
+            tools={draft.tools || 'on'} onTools={(v) => up({ tools: v })} agents={draft.agents || 'on'} onAgents={(v) => up({ agents: v })}
+            brains={cp.brains || []} brain={brain} onBrain={(v) => up({ brain: v })} />
+          <div className="home-pills">
+            <ChatPills stacked={false} brains={cp.brains || []} brain={brain} onBrain={(v) => { const b = (cp.brains || []).find((x) => x.slug === v); up({ brain: v, ...(b && b.model ? { model: b.model } : {}) }); }}
+              tools={draft.tools || (st.toolsEnabled === false ? 'off' : 'on')} onTools={(v) => up({ tools: v })}
+              agents={draft.agents || (st.delegateEnabled === false ? 'off' : 'on')} onAgents={(v) => up({ agents: v })}
+              perm={draft.perm || (st.autoApproveEdits ? 'auto' : 'ask')} onPerm={(v) => up({ perm: v })}
+              projectId={draft.projectId || null} projects={projects} onProject={(id) => up({ projectId: id })}
+              model={model} settings={settings} onUsageDetails={cp.onUsageDetails} onOpenSettings={cp.onOpenSettings} />
+          </div>
+        </div>
+
+        {recent.length > 0 && (
+          <section className="home-sec" aria-labelledby="home-recent">
+            <div className="home-cap"><span id="home-recent">Jump back in</span><button className="link" onClick={() => onGo('palette')}>All chats</button></div>
+            <div className="home-cards">
+              {recent.map((c) => {
+                const s = statusOf(c);
+                const proj = c.projectId && projectName(c.projectId);
+                return (
+                  <button key={c.id} className={`home-card ${s || ''}`} onClick={() => onOpenChat(c.id)}>
+                    <b>{c.title}</b>
+                    <span>{s === 'running' ? <><i className="live" aria-hidden="true" />Working</> : s === 'awaiting' ? 'Needs your approval' : dayGroup(c.updatedAt)}{proj ? ' · ' + proj : ''}</span>
+                  </button>
+                );
+              })}
             </div>
-          ) : null}
-        </Widget>
+          </section>
+        )}
+
+        {upcoming.length > 0 && (
+          <section className="home-sec" aria-labelledby="home-next">
+            <div className="home-cap"><span id="home-next">Coming up</span><button className="link" onClick={() => onGo('schedule')}>Scheduled</button></div>
+            <div className="home-list">
+              {upcoming.map((j) => (
+                <button key={j.id} onClick={() => onGo('schedule')}><Icon name="clock" size={14} /><span className="t">{j.name}</span><span className="when">{when(j.nextRun)}</span></button>
+              ))}
+            </div>
+          </section>
+        )}
+
+        <p className="home-keys">
+          {keys.palette && <>Search everything <kbd>{keys.palette}</kbd></>}
+          {keys.palette && keys.quickChat && <span aria-hidden="true"> · </span>}
+          {keys.quickChat && <>Quick chat from any app <kbd>{keys.quickChat}</kbd></>}
+        </p>
       </div>
     </div>
   );

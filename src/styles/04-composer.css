@@ -1,23 +1,27 @@
-/* composer */
-.composer-wrap { padding: 0 24px 18px; }
-.composer { max-width: 780px; margin: 0 auto; background: var(--panel); border: 1px solid var(--border); border-radius: 18px; padding: 10px 12px 8px; box-shadow: 0 2px 10px rgba(0,0,0,.06); }
-.composer:focus-within, .composer.drag { border-color: var(--accent); }
-.composer textarea { width: 100%; border: none; outline: none; resize: none; background: transparent; max-height: 220px; padding: 4px 2px; display: block; }
+/* composer: a raised surface (no outline), the text, then one row of controls ending in a round send button */
+.composer-wrap { padding: 0 32px 16px; }
+.composer { max-width: 720px; margin: 0 auto; background: var(--elev); border: 0; border-radius: var(--r-xl); padding: 14px 12px 10px 16px; box-shadow: var(--shadow-raised), var(--hi); transition: box-shadow .15s; }
+.composer.drag { box-shadow: var(--shadow-raised), 0 0 0 2px var(--accent); }
+.composer textarea { width: 100%; border: none; outline: none; resize: none; background: transparent; max-height: 220px; padding: 2px 2px 10px; display: block; font-size: calc(var(--fs, 14px) + 1px); line-height: 1.5; letter-spacing: -.01em; }
+.composer textarea::placeholder { color: var(--muted); }
 /* "@" mentions: the backdrop shows the text with the tokens highlighted; the textarea above it keeps the caret and selection */
 .ta-wrap { position: relative; }
-.ta-mirror { position: absolute; top: 0; left: 0; right: 0; overflow: hidden; pointer-events: none; padding: 4px 2px; border: 0 solid transparent; box-sizing: border-box; font: inherit; letter-spacing: inherit; white-space: pre-wrap; overflow-wrap: break-word; word-break: normal; tab-size: 8; color: var(--text); }
+.ta-mirror { position: absolute; top: 0; left: 0; right: 0; overflow: hidden; pointer-events: none; padding: 2px 2px 10px; border: 0 solid transparent; box-sizing: border-box; font: inherit; letter-spacing: inherit; white-space: pre-wrap; overflow-wrap: break-word; word-break: normal; tab-size: 8; color: var(--text); }
 .composer textarea.has-mirror { position: relative; color: transparent; caret-color: var(--text); white-space: pre-wrap; overflow-wrap: break-word; word-break: normal; tab-size: 8; }
 .composer textarea.has-mirror::selection { color: transparent; background: color-mix(in srgb, var(--accent) 30%, transparent); }
 .mention { color: var(--accent); background: color-mix(in srgb, var(--accent) 13%, transparent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 13%, transparent); border-radius: 4px; }
-.composer-bar { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.composer-bar { display: flex; align-items: center; gap: 8px; margin: 0 0 0 -6px; }
+.composer-bar .icon-btn { width: 30px; height: 30px; padding: 0; display: inline-grid; place-items: center; border-radius: 50%; color: var(--text-2); }
+.composer-bar .icon-btn:hover:not(:disabled) { background: var(--fill); color: var(--text); }
 .hint { flex: 1; font-size: var(--fs-sm); color: var(--muted); }
-.send { width: 32px; height: 32px; padding: 0; display: inline-grid; place-items: center; line-height: 0; border-radius: 9px; border: none; background: var(--accent); color: var(--accent-text); font-size: 16px; font-weight: 700; }
+.send { width: 32px; height: 32px; padding: 0; display: inline-grid; place-items: center; line-height: 0; border-radius: 50%; border: none; background: var(--accent); color: var(--accent-text); font-size: 16px; font-weight: 700; box-shadow: 0 1px 2px rgba(0,0,0,.2); }
+.send:disabled { opacity: .35; }
 .send svg { display: block; }
 .send.stop { background: var(--text); color: var(--bg); }
 .send:hover:not(:disabled) { background: var(--accent); filter: brightness(1.08); }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
 .chips.right { justify-content: flex-end; margin-bottom: 6px; }
-.chip { display: inline-flex; align-items: center; gap: 6px; background: var(--side); border: 1px solid var(--border); border-radius: 8px; padding: 3px 8px; font-size: 12.5px; max-width: 260px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; background: var(--fill); border: .5px solid var(--line); border-radius: 10px; padding: 3px 8px; font-size: 12.5px; max-width: 260px; }
 .chip img { width: 22px; height: 22px; object-fit: cover; border-radius: 4px; }
 .chip.bad { border-color: var(--danger); color: var(--danger); }
 .chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

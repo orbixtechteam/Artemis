@@ -6,7 +6,7 @@ import { findMatches, stepIndex, keepIndex, countLabel, isFindKey, findStepKey }
 // Matches are painted with the CSS Custom Highlight API ('find-all', 'find-current'), so the DOM React renders is never touched.
 
 const IS_MAC = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || navigator.userAgent || '');
-const SKIP = 'button, input, textarea, select, script, style, svg, noscript, [aria-hidden="true"], .actions, .timestamp, .jump-anchor, .find-bar, .thinkblock-copy';
+const SKIP = 'button, input, textarea, select, script, style, svg, noscript, [aria-hidden="true"], .actions, .jump-anchor, .find-bar, .thinkblock-copy';
 const BLOCK = new Set(['P', 'LI', 'PRE', 'TD', 'TH', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE', 'DIV', 'SECTION', 'ARTICLE', 'DT', 'DD', 'SUMMARY', 'DETAILS', 'FIGCAPTION', 'UL', 'OL', 'TABLE', 'TR']);
 // focus in one of these means ⌘F is not ours (terminal keeps its own keys, pages and dialogs have no find)
 const NOT_OURS = '.term-dock, .term-wrap-full, .xterm, webview, [data-page-pane], .overlay, .cmdk';

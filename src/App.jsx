@@ -104,8 +104,9 @@ export default function App() {
   const settingsTabRef = useRef('general');
   const setSettingsTab = (t) => { settingsTabRef.current = t || 'general'; setSettingsTabState(t || 'general'); };
   const [panel, setPanel] = useState(null); // { type: 'file', file } | { type: 'artifact', id }
-  const [showProgress, setShowProgress] = useState(() => { try { return localStorage.getItem('artemis-chatbar') !== '0'; } catch { return true; } }); // the right bar: chat controls + progress
-  useEffect(() => { try { localStorage.setItem('artemis-chatbar', showProgress ? '1' : '0'); } catch {} }, [showProgress]);
+  // the right bar (chat controls + progress) starts closed so the chat gets the room; the toolbar's Chat button opens it
+  const [showProgress, setShowProgress] = useState(() => { try { return localStorage.getItem('artemis-chatbar-open') === '1'; } catch { return false; } });
+  useEffect(() => { try { localStorage.setItem('artemis-chatbar-open', showProgress ? '1' : '0'); } catch {} }, [showProgress]);
   const [wide, setWide] = useState(false);
   const [spW, setSpW] = useState(() => loadWidth('zero.spW', 460));
   const [sbW, setSbW] = useState(() => loadWidth('zero.sbW', 280));
@@ -1794,6 +1795,7 @@ export default function App() {
     if (k === 'newnote') { noteActions.create(''); return; }
     if (k === 'sentinel') { toggleSentinel(); return; }
     if (k === 'palette') { setPalette(true); return; }
+    if (k === 'providers') { setSettingsTab('providers'); setModal('settings'); return; }
     sideApi.current.goNav(k);
   };
   const startHomeChat = (text, atts, d = {}) => {
@@ -1829,7 +1831,7 @@ export default function App() {
     if (kind === 'connectors') body = <ConnectorsModal onClose={close} onChanged={(n) => setConnectorCount(n)} settings={settings} onApply={async (patch) => { try { setSettings({ ...(await api.setSettings(patch)) }); } catch {} }} />;
     return body && <PageContext.Provider value={true}><div className="page-host">{body}</div></PageContext.Provider>;
   };
-  const SETTING_TABS = [['general', 'General', 'sliders', 'default model personality startup import'], ['appearance', 'Appearance', 'eye', 'theme text size dark light'], ['shortcuts', 'Keyboard shortcuts', 'keyboard', 'shortcut hotkey keys'], ['providers', 'Providers', 'plug', 'api keys models'], ['tools', 'Tools & safety', 'wrench', 'terminal permissions'], ['access', 'Access & permissions', 'shield', 'folders computer control'], ['agents', 'Agents', 'layers', 'helpers delegate'], ['brains', 'Brains', 'bulb', 'council'], ['limits', 'Usage limits', 'chart', 'budget cost'], ['voice', 'Voice', 'mic', 'sentinel speech'], ['make', 'Make', 'bolt', 'webhook automation'], ['phone', 'Phone', 'phone', 'telegram mobile remote']];
+  const SETTING_TABS = [['general', 'General', 'sliders', 'default model personality startup import'], ['appearance', 'Appearance', 'eye', 'theme text size dark light'], ['shortcuts', 'Keyboard shortcuts', 'keyboard', 'shortcut hotkey keys'], ['providers', 'Providers', 'plug', 'api keys models'], ['tools', 'Tools & safety', 'wrench', 'terminal permissions'], ['access', 'Access & permissions', 'shield', 'folders computer control'], ['agents', 'Agents', 'layers', 'helpers delegate'], ['brains', 'Brains', 'bulb', 'council'], ['limits', 'Usage & limits', 'chart', 'budget cost usage'], ['voice', 'Voice', 'mic', 'sentinel speech'], ['make', 'Make', 'bolt', 'webhook automation'], ['phone', 'Phone', 'phone', 'telegram mobile remote']];
   const paletteActions = [
     { id: 'newtab', group: 'Create', label: 'New tab', icon: 'plus', hint: '⌘T', run: () => newTab() },
     { id: 'newchat', group: 'Create', label: 'New chat', icon: 'plus', hint: '⌘N', run: () => newChat() },

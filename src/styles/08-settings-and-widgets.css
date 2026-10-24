@@ -1,13 +1,3 @@
-/* compact sidebar */
-.sidebar { padding: 8px 10px 8px; gap: 4px; }
-.side-search { display: flex; align-items: center; gap: 8px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-md); padding: 7px 10px; color: var(--muted); margin: 2px 0 6px; }
-.side-search input { flex: 1; min-width: 0; border: 0; background: transparent; outline: none; font-size: var(--fs, 14px); color: var(--text); }
-.side-nav { display: flex; flex-direction: column; gap: 1px; }
-.nav-more { display: flex; flex-direction: column; gap: 1px; }
-.chat-list { margin-top: 6px; }
-.side-foot { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--border); padding: 8px 4px 0; margin-top: 4px; }
-.avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--active); display: inline-grid; place-items: center; font-size: var(--fs-sm); font-weight: 600; }
-.side-user { font-size: var(--fs, 14px); }
 
 /* scheduled tasks */
 .sched-list { display: flex; flex-direction: column; gap: 10px; }
@@ -206,10 +196,6 @@ button.danger-solid:hover { filter: brightness(1.08); }
 .agent-role::before { content: '· '; }
 
 /* profile */
-.profile-btn { display: flex; align-items: center; gap: 8px; border: 0; background: transparent; padding: 4px 6px; border-radius: var(--r-md); min-width: 0; }
-.profile-btn:hover { background: var(--active); }
-.profile-btn .side-user { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 110px; }
-img.avatar { object-fit: cover; }
 .pf-head { display: flex; align-items: center; gap: 16px; margin-bottom: 12px; }
 .pf-avatar { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; flex: none; }
 .pf-avatar.blank { background: var(--active); display: grid; place-items: center; font-size: 28px; font-weight: 600; }

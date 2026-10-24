@@ -1,10 +1,3 @@
-/* ---- sidebar tidy: one icon column, one left edge, even spacing ---- */
-.sidebar { padding: 8px 10px 10px; gap: 0; }
-.side-search { margin: 0 0 10px; }
-.side-nav { gap: 2px; padding-bottom: 10px; margin-bottom: 4px; border-bottom: 1px solid var(--border); }
-.nav-more { gap: 1px; margin: 1px 0 4px; }
-.chat-list { margin-top: 6px; gap: 1px; padding-right: 2px; }
-.side-foot { margin-top: 6px; padding: 10px 2px 0; }
 
 /* ---- custom dropdown (replaces every native <select>) ---- */
 .sel { display: inline-flex; align-items: center; justify-content: space-between; gap: 6px; min-width: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; }
@@ -89,13 +82,6 @@
 .auto-note { border: 1px solid var(--border); background: var(--panel); border-radius: var(--r-md); padding: 8px 12px; font-size: 12.5px; margin-bottom: 10px; }
 @media (max-width: 640px) { .auto-main { flex-wrap: wrap; } .auto-logs { padding-left: 14px; } }
 
-/* Sentinel in the sidebar */
-.nav-item.sn-nav .sn-state { display: inline-flex; align-items: center; gap: 6px; }
-.nav-item.sn-nav .sn-state::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); opacity: .5; }
-.nav-item.sn-nav.on .sn-state { color: var(--text); }
-.nav-item.sn-nav.on .sn-state::before { background: #3fb950; opacity: 1; }
-.nav-item.sn-nav.on .sn-state.listening::before, .nav-item.sn-nav.on .sn-state.speaking::before { animation: sn-blink 1s ease-in-out infinite; }
-.nav-item.sn-nav.on .sn-state.thinking::before, .nav-item.sn-nav.on .sn-state.loading::before { background: #d29922; }
 @keyframes sn-blink { 50% { opacity: .35; } }
 
 /* skill hub tabs */

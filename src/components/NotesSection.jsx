@@ -13,7 +13,7 @@ const DRAG = 'text/artemis-note';
  * onOpen(path, how) with how = 'here' | 'tab' | 'split'.
  */
 export default function NotesSection({ items, root, active, onOpen, onNew, onNewFolder, onRename, onDelete, onMove, onPickRoot, onReveal, onGraph, graphActive }) {
-  const [open, setOpen] = useState(() => lsGet('artemis-notes-open', true));
+  const [open, setOpen] = useState(() => lsGet('artemis-notes-open', false)); // folded by default; chats come first
   const [closed, setClosed] = useState(() => new Set(lsGet('artemis-notes-closed', [])));
   const [folder, setFolder] = useState('');      // where "new note" goes
   const [searching, setSearching] = useState(false);

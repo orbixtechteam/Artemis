@@ -27,6 +27,7 @@
 .prefs-nav-icon { width: 22px; height: 22px; flex: none; display: grid; place-items: center; border-radius: 6px; color: var(--text); background: var(--fill-2); box-shadow: var(--hi); }
 .prefs-nav-icon .icon { width: 13px; height: 13px; stroke-width: 1.8; }
 .prefs-nav-item.active .prefs-nav-icon { color: inherit; background: color-mix(in srgb, var(--accent-text) 16%, transparent); box-shadow: none; }
+.prefs-nav-gap { height: 12px; flex: none; }
 .prefs-none { padding: 6px 8px; color: var(--muted); font-size: var(--fs-sm); }
 
 /* content */

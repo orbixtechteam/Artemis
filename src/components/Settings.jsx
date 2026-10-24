@@ -52,21 +52,21 @@ function ShortcutField({ label, about, value, onChange, placeholder, error }) {
   );
 }
 
-// id, sidebar label, icon, one-line description
+// id, sidebar label, icon, one-line description, group (the sidebar leaves a gap between groups, like System Settings)
 export const SECTIONS = [
-  ['general', 'General', 'sliders', 'Default model, personality and how Artemis starts.'],
-  ['appearance', 'Appearance', 'eye', 'Light or dark, palette, accent colour and text size.'],
-  ['shortcuts', 'Keyboard shortcuts', 'keyboard', 'Shortcuts that work from any app, and inside Artemis.'],
-  ['providers', 'Providers', 'plug', 'Model providers, endpoints and API keys.'],
-  ['tools', 'Tools & safety', 'wrench', 'What the assistant may do, and when it asks first.'],
-  ['access', 'Access', 'shield', 'macOS permissions, folders and features Artemis can reach.'],
-  ['security', 'Security', 'lock', 'App lock, Touch ID, voice recognition and what happens on unauthorized access.'],
-  ['agents', 'Agents', 'layers', 'Helper agents Artemis can hand parts of a task to.'],
-  ['brains', 'Brains', 'bulb', 'Personalities with their own model, and the council that picks one.'],
-  ['limits', 'Usage limits', 'chart', 'Spending and token limits, and the length of one answer.'],
-  ['voice', 'Voice', 'mic', 'Dictation, reading answers aloud and Sentinel voice mode.'],
-  ['make', 'Make', 'bolt', 'Let Artemis use your Make.com scenarios.'],
-  ['phone', 'Phone', 'phone', 'Chat with Artemis from Telegram.']
+  ['general', 'General', 'sliders', 'Default model, personality and how Artemis starts.', 'app'],
+  ['appearance', 'Appearance', 'eye', 'Light or dark, palette, accent colour and text size.', 'app'],
+  ['shortcuts', 'Keyboard shortcuts', 'keyboard', 'Shortcuts that work from any app, and inside Artemis.', 'app'],
+  ['providers', 'Providers', 'plug', 'Model providers, endpoints and API keys.', 'models'],
+  ['agents', 'Agents', 'layers', 'Helper agents Artemis can hand parts of a task to.', 'models'],
+  ['brains', 'Brains', 'bulb', 'Personalities with their own model, and the council that picks one.', 'models'],
+  ['voice', 'Voice', 'mic', 'Dictation, reading answers aloud and Sentinel voice mode.', 'models'],
+  ['tools', 'Tools & safety', 'wrench', 'What the assistant may do, and when it asks first.', 'safety'],
+  ['access', 'Access', 'shield', 'macOS permissions, folders and features Artemis can reach.', 'safety'],
+  ['security', 'Security', 'lock', 'App lock, Touch ID, voice recognition and what happens on unauthorized access.', 'safety'],
+  ['limits', 'Usage & limits', 'chart', 'Spending and token limits, and the length of one answer.', 'more'],
+  ['make', 'Make', 'bolt', 'Let Artemis use your Make.com scenarios.', 'more'],
+  ['phone', 'Phone', 'phone', 'Chat with Artemis from Telegram.', 'more']
 ];
 
 // words people look for, so the search finds a setting by what it does and not only by its section name
@@ -222,12 +222,15 @@ export function SettingsModal({ settings, groups = [], projects = [], providers 
             onKeyDown={(e) => { if (e.key === 'Enter' && shown[0]) { setTab(shown[0][0]); } else if (e.key === 'Escape') { e.stopPropagation(); setTq(''); } else if (e.key === 'ArrowDown') { e.preventDefault(); navRef.current?.querySelector('[data-sec]')?.focus(); } }} />
         </div>
         <div className="prefs-nav" ref={navRef} onKeyDown={onNavKey}>
-          {shown.map(([id, label, icon]) => (
-            <button key={id} type="button" data-sec={id} className={`prefs-nav-item ${tab === id ? 'active' : ''} ${terms.length ? 'match' : ''}`} aria-current={tab === id ? 'page' : undefined}
+          {shown.map(([id, label, icon, , group], i) => (
+            <React.Fragment key={id}>
+            {i > 0 && !terms.length && group !== shown[i - 1][4] && <div className="prefs-nav-gap" aria-hidden="true" />}
+            <button type="button" data-sec={id} className={`prefs-nav-item ${tab === id ? 'active' : ''} ${terms.length ? 'match' : ''}`} aria-current={tab === id ? 'page' : undefined}
               tabIndex={tab === id || !shown.some(([x]) => x === tab) ? 0 : -1} onClick={() => setTab(id)}>
               <span className={`prefs-nav-icon ic-${id}`}><Icon name={icon} size={14} /></span>
               <span className="prefs-nav-label">{label}</span>
             </button>
+            </React.Fragment>
           ))}
           {terms.length > 0 && !shown.length && <div className="prefs-none">No settings match “{tq.trim()}”.</div>}
         </div>
