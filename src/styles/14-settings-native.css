@@ -11,7 +11,7 @@
 }
 
 /* sidebar */
-.prefs-side { width: 232px; flex: none; display: flex; flex-direction: column; gap: 10px; padding: 14px 10px; background: var(--side); border-right: .5px solid var(--pref-line); overflow-y: auto; }
+.prefs-side { width: 260px; flex: none; display: flex; flex-direction: column; gap: 10px; padding: 14px 10px; background: var(--side); border-right: .5px solid var(--pref-line); overflow-y: auto; }
 .prefs-search { position: relative; display: flex; align-items: center; }
 .prefs-search .icon { position: absolute; left: 8px; color: var(--muted); pointer-events: none; }
 .prefs-search input { width: 100%; height: 28px; padding: 0 8px 0 26px; border: 1px solid transparent; border-radius: 8px; background: var(--fill); color: var(--text); font-size: var(--fs-ui); outline: none; }
@@ -28,6 +28,15 @@
 .prefs-nav-icon .icon { width: 13px; height: 13px; stroke-width: 1.8; }
 .prefs-nav-item.active .prefs-nav-icon { color: inherit; background: color-mix(in srgb, var(--accent-text) 16%, transparent); box-shadow: none; }
 .prefs-nav-gap { height: 12px; flex: none; }
+/* Settings in the sidebar's place: Back to the app, then the profile card (like the Apple Account row) */
+.prefs-back { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; height: 26px; margin: -2px 0 2px -2px; padding: 0 8px 0 4px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text-2); font-size: var(--fs-ui); cursor: pointer; }
+.prefs-back:hover { background: var(--fill); color: var(--text); }
+.prefs-who { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px; border: 0; border-radius: 10px; background: transparent; color: var(--text); text-align: left; cursor: pointer; }
+.prefs-who:hover { background: var(--fill); }
+.prefs-who .avatar { width: 36px; height: 36px; font-size: 14px; }
+.prefs-who-t { min-width: 0; display: flex; flex-direction: column; line-height: 1.3; }
+.prefs-who-t b { font-weight: 600; font-size: var(--fs-ui); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prefs-who-t small { font-size: var(--fs-sm); color: var(--muted); }
 /* a part inside a section that has several (Privacy & safety: Tools, Access, Security …) */
 .pref-part { margin: 34px 0 14px; padding: 0 4px; font-family: var(--font-display); font-size: 17px; font-weight: 600; letter-spacing: -.012em; scroll-margin-top: 16px; }
 .pref-page > .pref-part:first-of-type { margin-top: 4px; }

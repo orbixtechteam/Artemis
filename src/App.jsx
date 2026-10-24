@@ -97,6 +97,8 @@ export default function App() {
   const [modal, setModalRaw] = useState(null); // {project: id|'new'}, 'permissions', 'profile'; Settings, Memory, Usage and Connectors are pages (see openPage)
   const setModal = (m) => { if (typeof m === 'string' && TAB_MODALS.includes(m)) openPage(m); else setModalRaw(m); };
   const [sidebarHidden, setSidebarHidden] = useState(false);
+  // Settings takes the sidebar's place (its own list of sections), like System Settings; closing it brings the sidebar back
+  const sideHidden = sidebarHidden || modal === 'settings';
   const [avatar, setAvatar] = useState(null);
   useEffect(() => installDropGuard(), []);
   useEffect(() => { window.api.profileGet().then((p) => setAvatar((p && p.avatar) || null)).catch(() => {}); }, []);
@@ -1800,7 +1802,7 @@ export default function App() {
             onUsageDetails={() => setModal('usage')} onOpenSettings={(t) => { setSettingsTab(t || 'general'); setModal('settings'); }} />
   ) : null;
   const topbar = (
-    <header className={`topbar drag ${sidebarHidden && mac ? 'pad-mac' : ''}`}>
+    <header className={`topbar drag ${sideHidden && mac ? 'pad-mac' : ''}`}>
       <button className="icon-btn nodrag" title={`Sidebar (${mac ? '⌘' : 'Ctrl+'}\\)`} aria-label={`Sidebar (${mac ? '⌘' : 'Ctrl+'}\\)`} onClick={() => setSidebarHidden(!sidebarHidden)}><Icon name="sidebar" size={18} /></button>
       {tabsBar || <div className="chat-title">{chatView ? <TitleText text={chat.title} /> : ''}</div>}
       {!tabsBar && <span style={{ flex: 1 }} />}
@@ -1853,7 +1855,7 @@ export default function App() {
     if (kind === 'automations') return <AutomationsView onOpenSettings={(t) => { setSettingsTab(t || 'general'); setModal('settings'); }} />;
     if (kind === 'agents') return <AgentsView settings={settings} chats={chats} runningIds={runningIds} groups={groups} onOpenChat={(id) => select(id)} />;
     // Settings is a page like Home: it saves every change itself (no Save / Cancel) and is closed with its tab (⌘W)
-    if (kind === 'settings') return <SettingsModal projects={projects} onApply={async (patch) => { const { hasApiKey: _ro, ...rest } = patch || {}; const r = await api.setSettings(rest); setSettings({ ...r }); return r; }} settings={settings} groups={groups} providers={providers} onProviders={applyProviders} initialTab={split && splitT ? splitT.s.settingsTab : settingsTab} onTabChange={split ? undefined : setSettingsTab} />;
+    if (kind === 'settings') return <SettingsModal onBack={split ? undefined : closePage} profile={{ name: settings.profileName, avatar }} onProfile={() => setModal('profile')} projects={projects} onApply={async (patch) => { const { hasApiKey: _ro, ...rest } = patch || {}; const r = await api.setSettings(rest); setSettings({ ...r }); return r; }} settings={settings} groups={groups} providers={providers} onProviders={applyProviders} initialTab={split && splitT ? splitT.s.settingsTab : settingsTab} onTabChange={split ? undefined : setSettingsTab} />;
     if (kind === 'memory') body = <MemoryModal memory={memory} enabled={settings.memoryEnabled} onChange={changeMemory} onToggle={toggleMemory} onClose={close} />;
     if (kind === 'usage') body = <UsageModal projects={projects} chats={chats} onClose={close} />;
     if (kind === 'connectors') body = <ConnectorsModal onClose={close} onChanged={(n) => setConnectorCount(n)} settings={settings} onApply={async (patch) => { try { setSettings({ ...(await api.setSettings(patch)) }); } catch {} }} />;
@@ -1905,7 +1907,7 @@ export default function App() {
       <Sidebar
         onProfile={() => setModal('profile')} profile={{ name: settings.profileName, avatar }}
         onResizeStart={dragSidebar}
-        hidden={sidebarHidden} chats={chats} projects={projects}
+        hidden={sideHidden} chats={chats} projects={projects}
         onPinChat={(id) => setChats((cs) => cs.map((c) => (c.id === id ? { ...c, pinned: !c.pinned } : c)))}
         onPinProject={(id) => setProjects((ps) => ps.map((p) => (p.id === id ? { ...p, pinned: !p.pinned } : p)))}
         onOpenProject={(id) => navView({ project: id })} currentId={currentId} view={chatView ? 'chat' : 'other'} statusOf={statusOf}

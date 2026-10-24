@@ -112,7 +112,7 @@ export const pendingPatch = (s, base) => {
 };
 const validTab = (t) => (sectionOf(t) || SECTIONS[0])[0];
 
-export function SettingsModal({ settings, groups = [], projects = [], providers = [], onProviders = () => {}, onApply = async () => {}, onTabChange, initialTab = 'general' }) {
+export function SettingsModal({ settings, groups = [], projects = [], providers = [], onProviders = () => {}, onApply = async () => {}, onTabChange, initialTab = 'general', onBack, profile, onProfile }) {
   const [tab, setTabState] = useState(() => validTab(initialTab));
   // opening a part (Access, Brains, Phone …) shows its section and scrolls to that part (after the reset to the top below)
   const showPart = (part) => setTimeout(() => { const el = contentRef.current?.querySelector(`[data-part="${part}"]`); if (el) el.scrollIntoView({ block: 'start' }); }, 60);
@@ -225,11 +225,18 @@ export function SettingsModal({ settings, groups = [], projects = [], providers 
   return (
     <div className="prefs">
       <nav className="prefs-side" aria-label="Settings sections">
+        {onBack && <button type="button" className="prefs-back" onClick={onBack} title="Close Settings (⌘W)"><Icon name="chevronLeft" size={14} /> Back</button>}
         <div className="prefs-search">
           <Icon name="search" size={13} />
           <input type="search" placeholder="Search" aria-label="Search settings" value={tq} spellCheck={false} onChange={(e) => setTq(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && shown[0]) { setTab(shown[0][0]); } else if (e.key === 'Escape') { e.stopPropagation(); setTq(''); } else if (e.key === 'ArrowDown') { e.preventDefault(); navRef.current?.querySelector('[data-sec]')?.focus(); } }} />
         </div>
+        {onProfile && !terms.length && (
+          <button type="button" className="prefs-who" onClick={onProfile}>
+            {profile && profile.avatar ? <img className="avatar" src={profile.avatar} alt="" /> : <span className="avatar">{((profile && profile.name) || '').trim().slice(0, 1).toUpperCase() || <Icon name="user" size={15} />}</span>}
+            <span className="prefs-who-t"><b>{(profile && profile.name) || 'Set up profile'}</b><small>Profile, memory, personality</small></span>
+          </button>
+        )}
         <div className="prefs-nav" ref={navRef} onKeyDown={onNavKey}>
           {shown.map(([id, label, icon, , group], i) => (
             <React.Fragment key={id}>
