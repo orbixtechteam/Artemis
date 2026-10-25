@@ -4,6 +4,16 @@ import logoUrl from '../../assets/artemis-logo.png';
 // Small pieces shared by the Agents page, the team room and the deploy sheet.
 
 export const LEAD = 'Artemis';
+export const CLI_CLAUDE = 'cli:claude', CLI_CODEX = 'cli:codex';
+export const isCli = (model) => /^cli:/.test(String(model || ''));
+/** A member's model as a short name: Claude Code / Codex, a model from the providers, or "Chat model". */
+export function modelLabel(id, groups = []) {
+  if (!id) return 'Chat model';
+  if (id === CLI_CLAUDE) return 'Claude Code';
+  if (id === CLI_CODEX) return 'Codex';
+  for (const g of groups) for (const [mid, n] of g.items) if (mid === id) return n;
+  return String(id).replace(/^(prov|cli):[^:]+:/, '');
+}
 
 const FIXED = { athena: 1, calliope: 2, hephaestus: 3, themis: 4 }; // the built-in agents never share a colour
 /** A stable tint per agent name (the lead uses the accent). */

@@ -2,7 +2,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import Markdown from '../Markdown.jsx';
 import { Icon } from '../Icons.jsx';
 import { labelFor, target } from '../ToolCard.jsx';
-import { Avatar, Stack, LEAD, teamState, usd, tokens, elapsed } from './parts.jsx';
+import { Avatar, Stack, LEAD, teamState, usd, tokens, elapsed, isCli, modelLabel } from './parts.jsx';
 import { useMentionMenu, MentionMenu } from './MentionMenu.jsx';
 
 const STATUS_LABEL = { todo: 'to do', doing: 'doing', review: 'review', done: 'done' };
@@ -180,7 +180,8 @@ export default function TeamRoom({ team: t, roster, you, onBack, onEdit }) {
             const mine = r.tasks.filter((k) => k.assignee === n);
             const asks = r.messages.some((m) => m.kind === 'approval' && m.decided == null && m.from === n);
             const sub = asks ? 'Waiting for you' : what || (n === LEAD ? (r.status === 'working' ? 'Watching the plan' : 'Idle') : mine.length ? `${mine.filter((k) => k.status === 'done').length} of ${mine.length} tasks done` : 'Idle');
-            return <div key={n} className="tm-mem"><Avatar name={n} size="sm" /><div className="tm-r-t"><b>{n}</b><small>{sub}</small></div><i className={`tm-dot ${asks ? 'wait' : what ? 'work' : ''}`} /></div>;
+            const runsOn = (t.members.find((m) => m.name === n) || {}).model;
+            return <div key={n} className="tm-mem"><Avatar name={n} size="sm" /><div className="tm-r-t"><b>{n}{isCli(runsOn) ? <span className="tm-tag">{modelLabel(runsOn)}</span> : null}</b><small>{sub}</small></div><i className={`tm-dot ${asks ? 'wait' : what ? 'work' : ''}`} /></div>;
           })}
           <div className="tm-ph"><span>Spent</span><span title={r.spent.usd || !r.spent.tokens ? undefined : 'Set prices for these models in Settings → Models & providers to see costs'}>{r.spent.usd || !r.spent.tokens ? usd(r.spent.usd) : 'Not priced'}{budget ? ` of ${usd(budget)}` : ''}</span></div>
           {budget > 0 && <div className="tm-meter" role="progressbar" aria-label="Budget used" aria-valuenow={Math.min(100, Math.round((r.spent.usd / budget) * 100))} aria-valuemin={0} aria-valuemax={100}><i style={{ width: `${Math.min(100, (r.spent.usd / budget) * 100)}%` }} /></div>}
