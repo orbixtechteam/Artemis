@@ -5,7 +5,7 @@ import { liveAgents } from '../lib/agents.js';
 import { labelFor, target } from './ToolCard.jsx';
 import TeamRoom from './teams/TeamRoom.jsx';
 import DeploySheet from './teams/DeploySheet.jsx';
-import { Avatar, Stack, LEAD, teamState, pendingAsks, usd, elapsed } from './teams/parts.jsx';
+import { Avatar, Stack, LEAD, teamState, pendingAsks, usd, elapsed, modelLabel } from './teams/parts.jsx';
 
 /** Agents: teams you deploy on a goal, the roster of agents, and helpers working inside chats right now. */
 export default function AgentsView({ settings, chats, runningIds, groups, onOpenChat }) {
@@ -100,7 +100,7 @@ export default function AgentsView({ settings, chats, runningIds, groups, onOpen
             <button type="button" key={a.slug + a.source} className="tm-ag" onClick={() => setEditing({ ...a })} aria-label={`Edit ${a.name}`}>
               <Avatar name={a.name} size="lg" />
               <b>{a.name}</b><span className="tm-role">{a.role || (a.builtin ? 'Built-in' : a.source)}</span>
-              <span className="tm-chips"><span>{modelName(a.model, chatGroups)}</span>{a.tools.map((x) => <span key={x}>{x}</span>)}</span>
+              <span className="tm-chips"><span>{modelLabel(a.model, chatGroups)}</span>{a.tools.map((x) => <span key={x}>{x}</span>)}</span>
               <span className="tm-now"><i className={`tm-dot ${b ? 'work' : ''}`} />{b ? `${b.team.name} · ${b.what}` : 'Idle'}</span>
             </button>
           );
@@ -131,8 +131,3 @@ export default function AgentsView({ settings, chats, runningIds, groups, onOpen
   );
 }
 
-function modelName(id, groups) {
-  if (!id) return 'Chat model';
-  for (const g of groups) for (const [mid, n] of g.items) if (mid === id) return n;
-  return String(id).replace(/^prov:[^:]+:/, '');
-}

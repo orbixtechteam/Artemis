@@ -22,7 +22,7 @@ const same = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').
 const brief = (args) => {
   const a = args && typeof args === 'object' ? args : {};
   const out = {};
-  for (const k of ['path', 'from', 'to', 'query', 'url', 'name', 'pattern', 'question', 'title']) if (typeof a[k] === 'string' && a[k]) out[k] = clip(a[k], 160);
+  for (const k of ['path', 'from', 'to', 'query', 'url', 'command', 'name', 'pattern', 'question', 'title']) if (typeof a[k] === 'string' && a[k]) out[k] = clip(a[k], 160);
   if (Array.isArray(a.cells)) out.cells = a.cells.length;
   return out;
 };
@@ -78,7 +78,8 @@ function cleanDef(d, roster) {
   if (!members.length) throw new Error('Add at least one agent to the team.');
   const num = (v, max) => Math.max(0, Math.min(max, Number(v) || 0));
   return {
-    name, goal, members, mode: MODES.includes(d.mode) ? d.mode : 'lead', leadModel: typeof d.leadModel === 'string' ? d.leadModel.slice(0, 200) : '',
+    name, goal, members, mode: MODES.includes(d.mode) ? d.mode : 'lead', leadModel: typeof d.leadModel === 'string' && !/^cli:/.test(d.leadModel) ? d.leadModel.slice(0, 200) : '',
+    folder: typeof d.folder === 'string' ? d.folder.trim().slice(0, 1000) : '', // '' = the Files folder
     budgetUsd: num(d.budgetUsd, 1000), budgetTokens: Math.round(num(d.budgetTokens, 1e9)), minutes: num(d.minutes, 600), askWrites: d.askWrites !== false,
     canHire: !!d.canHire, rules: clip(d.rules, 4000), repeat: cleanRepeat(d.repeat)
   };
@@ -246,7 +247,7 @@ function createTeams(deps) {
     };
     try {
       return String(await deps.runTurn({
-        agent, prompt, extraTools, signal: l.controller.signal, askWrites: t.askWrites, onUsage: usage(t), onStep, team: t.name,
+        agent, prompt, extraTools, signal: l.controller.signal, askWrites: t.askWrites, folder: t.folder || '', onUsage: usage(t), onStep, team: t.name,
         onApproval: {
           asked: (info) => { post(t, { from: agent.name, kind: 'approval', text: info.summary || 'Wants to use a tool', extra: { approvalId: info.id, decided: null } }); },
           done: (id, ok) => { const m = t.run.messages.find((x) => x.approvalId === id); if (m) { m.decided = !!ok; changed(t); } }

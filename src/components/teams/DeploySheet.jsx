@@ -4,7 +4,7 @@ import Select from '../Select.jsx';
 import { Icon } from '../Icons.jsx';
 import { Switch, Segmented } from '../settings/ui.jsx';
 import { askConfirm } from '../../lib/dialog.js';
-import { Avatar, MODES } from './parts.jsx';
+import { Avatar, MODES, CLI_CLAUDE, CLI_CODEX, isCli } from './parts.jsx';
 
 const BUDGETS = [['0', 'No cap'], ['0.5', '$0.50'], ['1', '$1'], ['3', '$3'], ['5', '$5'], ['10', '$10'], ['25', '$25']];
 const MINUTES = [['0', 'No limit'], ['10', '10 min'], ['30', '30 min'], ['60', '1 hour'], ['120', '2 hours']];
@@ -20,6 +20,14 @@ export default function DeploySheet({ team, roster, chatGroups, onDone, onNewAge
     : { ...team, members: team.members.map((m) => ({ ...m })) }));
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  const [clis, setClis] = useState({ claude: false, codex: false });
+  useEffect(() => { window.api.teamsClis?.().then((c) => c && setClis(c)).catch(() => {}); }, []);
+  // Claude Code and Codex run on this computer with their own login (a subscription or their own key)
+  const cliGroup = [clis.claude && [CLI_CLAUDE, 'Claude Code · your login'], clis.codex && [CLI_CODEX, 'Codex · your login']].filter(Boolean);
+  const memberGroups = cliGroup.length ? [{ label: 'On this computer', items: cliGroup }, ...chatGroups] : chatGroups;
+  const usesCodex = d.members.some((m) => m.model === CLI_CODEX);
+  const usesCli = d.members.some((m) => isCli(m.model));
+  const pickFolder = async () => { const f = await window.api.pickFolder(); if (f) set('folder')(f); };
   const set = (k) => (v) => setD((x) => ({ ...x, [k]: v }));
   const member = (name) => d.members.find((m) => m.name === name);
   const toggle = (name) => setD((x) => ({ ...x, members: member(name) ? x.members.filter((m) => m.name !== name) : [...x.members, { name, model: '' }] }));
@@ -66,7 +74,7 @@ export default function DeploySheet({ team, roster, chatGroups, onDone, onNewAge
               <div key={a.name} className={`tm-r ${m ? '' : 'off'}`}>
                 <Avatar name={a.name} />
                 <div className="tm-r-t"><b>{a.name}{a.role ? <span> · {a.role}</span> : null}</b><small>{a.description}</small></div>
-                {m && <ModelPicker value={m.model} groups={chatGroups} onChange={(v) => setModel(a.name, v)} emptyLabel="Agent's model" up={false} align="right" />}
+                {m && <ModelPicker value={m.model} groups={memberGroups} onChange={(v) => setModel(a.name, v)} emptyLabel="Agent's model" up={false} align="right" />}
                 <Switch checked={!!m} onChange={() => toggle(a.name)} label={`${a.name} on the team`} />
               </div>
             );
@@ -86,10 +94,14 @@ export default function DeploySheet({ team, roster, chatGroups, onDone, onNewAge
             <Select value={String(d.budgetUsd)} onChange={(e) => set('budgetUsd')(e.target.value)} aria-label="Budget">{opt(BUDGETS, d.budgetUsd).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Select>
             <Select value={String(d.minutes)} onChange={(e) => set('minutes')(e.target.value)} aria-label="Time limit">{opt(MINUTES, d.minutes).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Select>
           </div>
-          <div className="tm-r"><div className="tm-r-t"><b>Token budget</b><small>Counts every model, also ones without a price</small></div>
+          <div className="tm-r"><div className="tm-r-t"><b>Folder</b><small title={d.folder || ''}>{d.folder ? d.folder : 'Your Files folder'}{usesCli ? ' · Claude Code and Codex work here' : ''}</small></div>
+            {d.folder && <button type="button" className="tm-link" onClick={() => set('folder')('')}>Use Files</button>}
+            <button type="button" onClick={pickFolder}>Choose…</button>
+          </div>
+                    <div className="tm-r"><div className="tm-r-t"><b>Token budget</b><small>Counts every model, also ones without a price</small></div>
             <Select value={String(d.budgetTokens || 0)} onChange={(e) => set('budgetTokens')(e.target.value)} aria-label="Token budget">{opt(TOKENS, d.budgetTokens || 0).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Select>
           </div>
-          <div className="tm-r"><div className="tm-r-t"><b>Ask me before acting</b><small>Writing files, commands, Make, posting, sending. In the room, and on Telegram when it is paired. Off: the team acts on its own.</small></div><Switch checked={d.askWrites !== false} onChange={set('askWrites')} label="Ask me before acting" /></div>
+          <div className="tm-r"><div className="tm-r-t"><b>Ask me before acting</b><small>{usesCodex && d.askWrites !== false ? 'Codex cannot ask in the middle of a run, so it works read-only while this is on.' : 'Writing files, commands, Make, posting, sending' + (usesCli ? ' (Claude Code asks before edits and commands too)' : '') + '. In the room, and on Telegram when it is paired. Off: the team acts on its own.'}</small></div><Switch checked={d.askWrites !== false} onChange={set('askWrites')} label="Ask me before acting" /></div>
           <div className="tm-r"><div className="tm-r-t"><b>Let Artemis add agents</b><small>When no member fits a task, the lead creates a new agent (up to 3 per team)</small></div><Switch checked={!!d.canHire} onChange={set('canHire')} label="Let Artemis add agents" /></div>
         </div>
 

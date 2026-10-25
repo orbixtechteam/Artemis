@@ -185,6 +185,9 @@ button.tm-hand:hover { background: var(--fill-2); }
 .tm-r + .tm-r::before { content: ''; position: absolute; top: 0; left: 12px; right: 12px; height: 1px; background: var(--line); }
 .tm-r.off > .tm-av, .tm-r.off > .tm-r-t { opacity: .55; }
 .tm-r .sel.field-sel { width: auto; min-width: 104px; height: 26px; }
+.tm-r > button:not(.tm-add):not(.pref-switch) { flex: none; height: 26px; padding: 0 11px; border: .5px solid var(--line-2); border-radius: var(--r-sm); background: var(--elev); color: var(--text); font-size: var(--fs-ui); box-shadow: var(--btn-shadow), var(--hi); }
+.tm-r > button.tm-link { border: 0; background: none; box-shadow: none; color: var(--accent); padding: 0 4px; }
+.tm-tag { margin-left: 6px; padding: 0 6px; border-radius: var(--r-full); background: var(--fill-2); color: var(--text-2); font-size: 10.5px; font-weight: 500; vertical-align: 1px; }
 .tm-add { width: 100%; border: 0; background: transparent; color: var(--accent); font: inherit; text-align: left; cursor: pointer; border-radius: 0 0 12px 12px; }
 .tm-add:hover { background: var(--fill); }
 .tm-how { margin: -4px 12px 10px; color: var(--muted); font-size: var(--fs-sm); line-height: 1.45; }
