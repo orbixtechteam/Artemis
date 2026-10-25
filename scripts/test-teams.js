@@ -74,7 +74,7 @@ const def = (extra) => ({ name: 'Launch', goal: 'Ship the notes', members: [{ na
     assert.ok(end.run.messages.some((m) => m.from === 'Athena' && m.to === 'Calliope' && /1\.2 s/.test(m.text)), 'and the answer');
     assert.ok(end.run.messages.some((m) => m.kind === 'review' && m.verdict === 'changes'));
     assert.ok(end.run.spent.usd > 0.05 && end.run.spent.tokens > 0);
-    assert.deepStrictEqual(end.run.active, {});
+    assert.deepStrictEqual(end.run.live, {});
     teams.flush();
     assert.strictEqual(saved().teams[0].run.status, 'done');
     console.log('teams: full run ok');
@@ -118,6 +118,64 @@ const def = (extra) => ({ name: 'Launch', goal: 'Ship the notes', members: [{ na
     console.log('teams: budget ok');
   }
 
+  // live steps: tool calls and text stream into run.live while the turn runs, then stay on the task as its log
+  {
+    let seenLive = null;
+    const { teams } = make(async (o) => {
+      if (o.agent.name === 'Artemis' && /Call team_plan/.test(o.prompt)) { tool(o, 'team_plan').run({ tasks: [{ title: 'Look it up', assignee: 'Athena' }] }); return 'p'; }
+      if (o.agent.name === 'Artemis') return 's';
+      o.onStep({ type: 'thinking' });
+      o.onStep({ type: 'tool', id: 'c1', name: 'web_search', args: { query: 'artemis 1.5', secret: 'x'.repeat(50) } });
+      o.onStep({ type: 'tool:done', id: 'c1', ok: true });
+      o.onStep({ type: 'tool', id: 'c2', name: 'web_fetch', args: { url: 'https://example.com' } });
+      o.onStep({ type: 'tool:done', id: 'c2', ok: false });
+      o.onStep({ type: 'tool', id: 'c4', name: 'write_file', args: { path: 'a.md' } });
+      o.onStep({ type: 'tool:done', id: 'c4', ok: true, denied: true });
+      o.onStep({ type: 'tool', id: 'c3', name: 'team_done', args: { result: 'r' } }); // already shown in the room: not a step
+      o.onStep({ type: 'text', text: 'Writing it up' });
+      o.onStep({ type: 'notice', text: 'Reasoning is off for this task.' });
+      o.onStep({ type: 'notice', text: 'Reasoning is off for this task.' });
+      seenLive = JSON.parse(JSON.stringify(Object.values(teamsRef.get(tid).run.live)));
+      tool(o, 'team_done').run({ result: 'found' });
+      return '';
+    });
+    const teamsRef = teams;
+    const t = teams.save(def({ members: [{ name: 'Athena' }] }));
+    const tid = t.id;
+    teams.start(t.id);
+    const end = await teams.idle(t.id);
+    assert.strictEqual(seenLive.length, 1);
+    assert.strictEqual(seenLive[0].task, end.run.tasks[0].id);
+    assert.deepStrictEqual(seenLive[0].steps.map((x) => [x.name, x.status]), [['web_search', 'done'], ['web_fetch', 'error'], ['write_file', 'denied']]);
+    assert.deepStrictEqual(seenLive[0].steps[0].args, { query: 'artemis 1.5' }, 'only the short, known arguments are kept');
+    assert.strictEqual(seenLive[0].text, 'Writing it up'); assert.strictEqual(seenLive[0].thinking, false);
+    assert.deepStrictEqual(end.run.tasks[0].log.map((x) => [x.name, x.by]), [['web_search', 'Athena'], ['web_fetch', 'Athena'], ['write_file', 'Athena']]);
+    const res = end.run.messages.find((m) => m.kind === 'result');
+    assert.deepStrictEqual(res.steps.map((x) => x.status), ['done', 'error', 'denied'], 'the result post carries the steps of that attempt');
+    assert.deepStrictEqual(end.run.live, {});
+    assert.strictEqual(end.run.messages.filter((m) => m.kind === 'status' && /Reasoning is off/.test(m.text)).length, 1, 'a notice shows once per run');
+    console.log('teams: live steps ok');
+  }
+
+  // found with a real model: the lead plans only (no tools of its own), keeps its plan note short, and everyone knows the date
+  {
+    const seen = [];
+    const { teams } = make(async (o) => {
+      seen.push({ who: o.agent.name, tools: o.agent.tools, prompt: o.prompt });
+      if (o.agent.name === 'Artemis' && /Call team_plan/.test(o.prompt)) { tool(o, 'team_plan').run({ tasks: [{ title: 'X', assignee: 'Athena' }] }); return 'Here is my own long answer. '.repeat(40); }
+      if (o.agent.name === 'Artemis') return 'summary';
+      tool(o, 'team_done').run({ result: 'r' });
+      return '';
+    });
+    const t = teams.save(def({ members: [{ name: 'Athena' }] }));
+    teams.start(t.id);
+    const end = await teams.idle(t.id);
+    assert.ok(seen.filter((x) => x.who === 'Artemis').every((x) => x.tools.length === 0), 'the lead has no file or web tools');
+    assert.ok(seen.every((x) => /Today is \w{3} \w{3} \d{2} \d{4}\./.test(x.prompt)), 'every prompt carries the date');
+    assert.ok(end.run.messages.find((m) => m.kind === 'plan').text.length <= 401, 'the plan note is clipped');
+    console.log('teams: lead and prompts ok');
+  }
+
   // pause stops the running turn and puts its task back; stop ends the run
   {
     const { teams } = make((o) => new Promise((resolve, reject) => {
@@ -128,12 +186,13 @@ const def = (extra) => ({ name: 'Launch', goal: 'Ship the notes', members: [{ na
     teams.start(t.id);
     await wait(30);
     assert.strictEqual(teams.get(t.id).run.tasks[0].status, 'doing');
-    assert.ok(teams.get(t.id).run.active.Athena);
+    const lv = Object.values(teams.get(t.id).run.live);
+    assert.strictEqual(lv.length, 1); assert.strictEqual(lv[0].name, 'Athena'); assert.strictEqual(lv[0].what, 'Long job');
     teams.pause(t.id);
     const p = await teams.idle(t.id);
     assert.strictEqual(p.run.status, 'paused');
     assert.strictEqual(p.run.tasks[0].status, 'todo');
-    assert.deepStrictEqual(p.run.active, {});
+    assert.deepStrictEqual(p.run.live, {});
     teams.stop(t.id);
     assert.strictEqual(teams.get(t.id).run.status, 'stopped');
     console.log('teams: pause and stop ok');
@@ -180,12 +239,12 @@ const def = (extra) => ({ name: 'Launch', goal: 'Ship the notes', members: [{ na
 
   // after a restart a working team is paused and an open approval is expired
   {
-    const { teams } = make(async () => '', { teams: [{ id: 'x', name: 'n', goal: 'g', members: [{ name: 'Athena' }], mode: 'lead', run: { status: 'working', tasks: [{ id: 'k', status: 'doing', after: [] }], messages: [{ id: 'm', kind: 'approval', decided: null }], active: { Athena: 'busy' }, spent: { usd: 0, tokens: 0 } } }] });
+    const { teams } = make(async () => '', { teams: [{ id: 'x', name: 'n', goal: 'g', members: [{ name: 'Athena' }], mode: 'lead', run: { status: 'working', tasks: [{ id: 'k', status: 'doing', after: [] }], messages: [{ id: 'm', kind: 'approval', decided: null }], live: { x1: { name: 'Athena' } }, active: { Athena: 'busy' }, spent: { usd: 0, tokens: 0 } } }] });
     const t = teams.get('x');
     assert.strictEqual(t.run.status, 'paused'); assert.strictEqual(t.run.reason, 'restart');
     assert.strictEqual(t.run.tasks[0].status, 'todo');
     assert.strictEqual(t.run.messages[0].decided, false);
-    assert.deepStrictEqual(t.run.active, {});
+    assert.deepStrictEqual(t.run.live, {}); assert.strictEqual(t.run.active, undefined);
     console.log('teams: restart ok');
   }
   console.log('teams: all tests passed');

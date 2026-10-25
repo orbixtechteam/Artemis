@@ -949,7 +949,7 @@ const teams = createTeams({
 });
 /** One turn of one team member (or the lead): a sub-agent run with the member's tools plus the team's room tools.
  *  Files go to the Files folder; writes ask in the team room unless the team was set not to ask. */
-async function runTeamTurn({ agent, prompt, extraTools, signal, askWrites, onUsage, onApproval }) {
+async function runTeamTurn({ agent, prompt, extraTools, signal, askWrites, onUsage, onApproval, onStep = () => {} }) {
   const settings = getSettings();
   const lim = limitState();
   if (lim.blocked) throw new Error(lim.blocked);
@@ -987,8 +987,12 @@ async function runTeamTurn({ agent, prompt, extraTools, signal, askWrites, onUsa
         try { if (win && !win.isDestroyed() && !win.isFocused() && Notification.isSupported()) new Notification({ title: `${agent.name} needs your OK`, body: String(info.summary || info.name).slice(0, 180) }).show(); } catch {}
       }),
       send: (ev) => {
-        if (ev.type === 'chunk' && !ev.agent) steps[steps.length - 1] += ev.text;
-        else if (ev.type === 'step:new') steps.push('');
+        if (ev.type === 'chunk' && !ev.agent) { steps[steps.length - 1] += ev.text; onStep({ type: 'text', text: ev.text }); }
+        else if (ev.type === 'step:new') { steps.push(''); onStep({ type: 'step' }); }
+        else if (ev.type === 'thinking') onStep({ type: 'thinking' });
+        else if (ev.type === 'tool:call') onStep({ type: 'tool', id: ev.id, name: ev.name, args: ev.args });
+        else if (ev.type === 'tool:result') onStep({ type: 'tool:done', id: ev.id, ok: !!ev.ok, denied: !!ev.denied });
+        else if (ev.type === 'notice') { logger.warn('teams', `${agent.name}: ${ev.text}`); onStep({ type: 'notice', text: ev.text }); }
         else if (ev.type === 'error') logger.warn('teams', `${agent.name}: ${ev.message}`);
       },
       signal

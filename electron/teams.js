@@ -9,12 +9,24 @@
 
 const MAX_TEAMS = 50, MAX_MSGS = 400, MAX_TASKS = 24, MAX_PARALLEL = 3, MAX_REVIEW_ROUNDS = 2, MAX_ASKS = 3, MAX_FAILS = 2;
 const MODES = ['lead', 'pipeline', 'open'];
+const MAX_STEPS = 40, MAX_LOG = 80, PLAN_NOTE = 400;
+const QUIET_TOOLS = new Set(['team_plan', 'team_post', 'team_done', 'team_review']); // already visible in the room
 const LEAD = 'Artemis';
 const rid = () => Math.random().toString(36).slice(2, 10);
+/** Models do not know the date; without it they search for last year's news. */
+const today = () => `Today is ${new Date().toDateString()}.`;
 const clip = (s, n) => { const t = String(s == null ? '' : s).trim(); return t.length > n ? t.slice(0, n) + '…' : t; };
 const same = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+/** The few arguments worth showing for a step (path, query, url…), short. */
+const brief = (args) => {
+  const a = args && typeof args === 'object' ? args : {};
+  const out = {};
+  for (const k of ['path', 'from', 'to', 'query', 'url', 'name', 'pattern', 'question', 'title']) if (typeof a[k] === 'string' && a[k]) out[k] = clip(a[k], 160);
+  if (Array.isArray(a.cells)) out.cells = a.cells.length;
+  return out;
+};
 
-const LEAD_BODY = 'You lead a small team of AI agents. You do not do the work yourself: you split the goal into clear tasks, give each to the member whose role fits, keep the team focused and, at the end, report to the user. Be brief and concrete.';
+const LEAD_BODY = 'You lead a small team of AI agents. You never do the work yourself and never answer the goal from your own knowledge: you split the goal into clear tasks, give each to the member whose role fits, and at the end report what the team found. You have no web or file tools; your members do. Be brief and concrete.';
 
 const TOOL_PLAN = {
   name: 'team_plan',
@@ -50,7 +62,7 @@ function cleanDef(d, roster) {
   };
 }
 
-const freshRun = () => ({ status: 'idle', reason: '', tasks: [], messages: [], active: {}, spent: { usd: 0, tokens: 0 }, extraUsd: 0, extraMin: 0, workMs: 0, resumedAt: 0, startedAt: 0, endedAt: 0, rounds: 0 });
+const freshRun = () => ({ status: 'idle', reason: '', tasks: [], messages: [], live: {}, spent: { usd: 0, tokens: 0 }, extraUsd: 0, extraMin: 0, workMs: 0, resumedAt: 0, startedAt: 0, endedAt: 0, rounds: 0 });
 
 /**
  * deps: { load() -> {teams}, save(data), emit(team), roster() -> [agent], runTurn(o) -> Promise<string>, now?, uid?, log? }
@@ -69,7 +81,7 @@ function createTeams(deps) {
     for (const t of data.teams) { // the app was closed mid-run: nothing is running any more
       if (!t.run) t.run = freshRun();
       const r = t.run;
-      r.active = {};
+      r.live = {}; delete r.active;
       for (const k of r.tasks || []) if (k.status === 'doing') k.status = 'todo';
       for (const m of r.messages || []) if (m.kind === 'approval' && m.decided == null) m.decided = false;
       if (r.status === 'working' || r.status === 'planning') { r.status = 'paused'; r.reason = 'restart'; r.resumedAt = 0; }
@@ -85,7 +97,7 @@ function createTeams(deps) {
 
   const roster = () => { try { return deps.roster() || []; } catch { return []; } };
   const agentOf = (t, name) => {
-    if (same(name, LEAD)) return { name: LEAD, role: 'Lead', body: LEAD_BODY, tools: ['read'], model: t.leadModel || '' };
+    if (same(name, LEAD)) return { name: LEAD, role: 'Lead', body: LEAD_BODY, tools: [], model: t.leadModel || '' };
     const m = t.members.find((x) => same(x.name, name));
     const a = m && roster().find((x) => same(x.name, m.name));
     return a ? { name: a.name, role: a.role || '', body: a.body || '', tools: a.tools || ['read'], model: m.model || a.model || '' } : null;
@@ -105,7 +117,12 @@ function createTeams(deps) {
     changed(t);
     return msg;
   };
-  const setActive = (t, name, what) => { if (what) t.run.active[name] = what; else delete t.run.active[name]; changed(t); };
+  // Live activity: emitted at most every 250 ms while agents stream, never written to disk on its own.
+  const pulses = new Map();
+  const pulse = (t) => {
+    if (pulses.has(t.id)) return;
+    pulses.set(t.id, setTimeout(() => { pulses.delete(t.id); try { deps.emit(t); } catch {} }, 250));
+  };
 
   // ---------- money and time ----------
   const budgetOf = (t) => (t.budgetUsd ? t.budgetUsd + (t.run.extraUsd || 0) : 0);
@@ -132,11 +149,12 @@ function createTeams(deps) {
     .slice(-n).map((m) => `${m.from === 'you' ? 'User' : m.from}${m.to ? ' → ' + m.to : ''}: ${clip(m.text, 600)}`).join('\n');
 
   const planPrompt = (t, followUp) => [
+    today(),
     `Team goal:\n${t.goal}`,
     `Members (assign tasks only to these names):\n${t.members.map((m) => memberLine(t, m.name)).join('\n')}`,
     reviewerOf(t) ? `${reviewerOf(t)} reviews every finished task automatically, so do not plan review tasks.` : '',
     t.mode === 'pipeline' ? 'Working style: pipeline. The tasks run one after another, each building on the one before.' : '',
-    followUp ? `Tasks so far:\n${t.run.tasks.map((k) => taskLine(t, k)).join('\n')}\n\nThe user wrote after the team finished. Read the room below. If it asks for more work, call team_plan with only the NEW tasks. If it is just a question, answer it without calling team_plan.` : 'Call team_plan once. Keep tasks few, each a self-contained piece one member can finish alone. Use "after" when a task needs another one\'s result. Then tell the team the plan in one or two sentences.',
+    followUp ? `Tasks so far:\n${t.run.tasks.map((k) => taskLine(t, k)).join('\n')}\n\nThe user wrote after the team finished. Read the room below. If it asks for more work, call team_plan with only the NEW tasks. If it is just a question, answer it without calling team_plan.` : 'Call team_plan once. Keep tasks few, each a self-contained piece one member can finish alone. Use "after" when a task needs another one\'s result. Do not answer the goal yourself. After team_plan, reply with one or two sentences telling the team the plan, nothing else.',
     roomFor(t, '') ? `Team room:\n${roomFor(t, '')}` : ''
   ].filter(Boolean).join('\n\n');
 
@@ -146,37 +164,70 @@ function createTeams(deps) {
   const workPrompt = (t, k) => {
     const others = t.members.filter((m) => !same(m.name, k.assignee)).map((m) => m.name);
     return [
-      `You are ${k.assignee}, working in a team${others.length ? ' with ' + others.join(', ') : ''}. ${LEAD} leads it.`,
+      `You are ${k.assignee}, working in a team${others.length ? ' with ' + others.join(', ') : ''}. ${LEAD} leads it. ${today()}`,
       `Team goal:\n${t.goal}`,
       `Your task (#${t.run.tasks.indexOf(k) + 1}): ${k.title}`,
       k.feedback ? `The reviewer sent it back. Fix this:\n${k.feedback}\n\nYour previous result:\n${clip(k.result, 3000)}` : '',
       depResults(t, k) ? `Results you build on:\n${depResults(t, k)}` : '',
       roomFor(t, k.assignee) ? `Team room (newest last):\n${roomFor(t, k.assignee)}` : '',
-      `Do the task with your tools. ${others.length ? 'team_ask asks a teammate something only they know or can do (it is answered right away). ' : ''}team_post shares something the others need. When you are finished, call team_done with your result: the deliverable itself, or which files you wrote and what is in them.`
+      `Do the task with your tools and stop as soon as you have enough: a few good sources beat many. If a page fails to load, do not retry similar addresses. ${others.length ? 'team_ask asks a teammate something only they know or can do (it is answered right away). ' : ''}team_post shares something the others need. When you are finished, call team_done with your result: the deliverable itself, or which files you wrote and what is in them.`
     ].filter(Boolean).join('\n\n');
   };
 
   const reviewPrompt = (t, k, reviewer) => [
-    `You are ${reviewer}, reviewing ${k.assignee}'s work for the team. ${LEAD} leads it.`,
+    `You are ${reviewer}, reviewing ${k.assignee}'s work for the team. ${LEAD} leads it. ${today()}`,
     `Team goal:\n${t.goal}`, `Task: ${k.title}`, `Work submitted by ${k.assignee}:\n${clip(k.result, 6000)}`,
     'Check it: facts against sources you can reach, files it says it wrote, and whether it does what the task asked. Then call team_review: "approve", or "changes" with what is wrong and how to fix it. Do not ask for polish that the goal does not need.'
   ].join('\n\n');
 
   // ---------- one agent turn ----------
-  async function turn(t, name, prompt, extraTools, activity) {
+  // run.live[turn id] = { name, what, task, steps: [{ id, name, args, status }], text, thinking } while the turn runs;
+  // its steps are then kept on the task (task.log) so finished work can show what was done.
+  async function turn(t, name, prompt, extraTools, activity, taskId, out) {
     const agent = agentOf(t, name);
     if (!agent) throw new Error(`${name} is no longer one of your agents.`);
     const l = L(t);
-    setActive(t, name, activity);
+    const id = uid();
+    const live = { name: agent.name, what: activity || '', task: taskId || '', steps: [], text: '', thinking: false, since: now() };
+    t.run.live = t.run.live || {};
+    t.run.live[id] = live;
+    changed(t);
+    const onStep = (ev) => {
+      if (!ev) return;
+      if (ev.type === 'tool') {
+        if (QUIET_TOOLS.has(ev.name)) return;
+        live.steps.push({ id: String(ev.id || uid()), name: String(ev.name || ''), args: brief(ev.args), status: 'running' });
+        if (live.steps.length > MAX_STEPS) live.steps.shift();
+        live.thinking = false; live.text = '';
+      } else if (ev.type === 'tool:done') {
+        const st = live.steps.find((x) => x.id === String(ev.id));
+        if (st) st.status = ev.denied ? 'denied' : ev.ok ? 'done' : 'error'; // a declined tool reports ok with denied
+      } else if (ev.type === 'text') { live.text = (live.text + String(ev.text || '')).slice(-1500); live.thinking = false; }
+      else if (ev.type === 'thinking') live.thinking = true;
+      else if (ev.type === 'step') live.text = '';
+      else if (ev.type === 'notice') { // the agent loop's own warnings (tools rejected, context compacted…): each one once per run
+        const text = clip(ev.text, 400);
+        if (text && !t.run.messages.some((m) => m.kind === 'status' && m.notice === text)) post(t, { from: agent.name, kind: 'status', text, extra: { notice: text } });
+        return;
+      } else return;
+      pulse(t);
+    };
     try {
       return String(await deps.runTurn({
-        agent, prompt, extraTools, signal: l.controller.signal, askWrites: t.askWrites, onUsage: usage(t),
+        agent, prompt, extraTools, signal: l.controller.signal, askWrites: t.askWrites, onUsage: usage(t), onStep,
         onApproval: {
           asked: (info) => { post(t, { from: agent.name, kind: 'approval', text: info.summary || 'Wants to use a tool', extra: { approvalId: info.id, decided: null } }); },
           done: (id, ok) => { const m = t.run.messages.find((x) => x.approvalId === id); if (m) { m.decided = !!ok; changed(t); } }
         }
       }) || '').trim();
-    } finally { setActive(t, name, ''); }
+    } finally {
+      const done = live.steps.map((x) => ({ ...x, status: x.status === 'running' ? 'stopped' : x.status, by: agent.name }));
+      if (out) out.steps = done;
+      const k = taskId && t.run.tasks.find((x) => x.id === taskId);
+      if (k && done.length) k.log = [...(k.log || []), ...done].slice(-MAX_LOG);
+      if (t.run.live) delete t.run.live[id];
+      changed(t);
+    }
   }
 
   // ---------- planning ----------
@@ -212,7 +263,7 @@ function createTeams(deps) {
       return planned.length ? `Plan saved: ${planned.length} task${planned.length === 1 ? '' : 's'}.` : 'No valid tasks: give each a title and an assignee from the member list.';
     } };
     const text = await turn(t, LEAD, planPrompt(t, followUp), [tool], 'Planning');
-    if (planned && planned.length) post(t, { kind: 'plan', text: text || `Split into ${planned.length} tasks.`, extra: { tasks: planned.map((k) => k.id) } });
+    if (planned && planned.length) post(t, { kind: 'plan', text: clip(text, PLAN_NOTE) || `Split into ${planned.length} tasks.`, extra: { tasks: planned.map((k) => k.id) } });
     else if (followUp) { if (text) post(t, { text }); }
     else { // no plan: give the whole goal to the first worker so the run still does something
       addTasks(t, [{ title: t.goal, assignee: (t.members.find((m) => !same(m.name, reviewerOf(t))) || t.members[0]).name }]);
@@ -233,20 +284,21 @@ function createTeams(deps) {
       if (++asks > MAX_ASKS) return 'You have asked enough questions for this task. Finish it with what you have.';
       post(t, { from: k.assignee, to: to.name, text: a.question, task: k.id });
       const done = t.run.tasks.filter((x) => same(x.assignee, to.name) && x.result).map((x) => `${x.title}:\n${clip(x.result, 1500)}`).join('\n\n');
-      const answer = await turn(t, to.name, [`You are ${to.name}, in a team working on:\n${t.goal}`, done ? `What you have done so far:\n${done}` : '', `Your teammate ${k.assignee} asks:\n${a.question}`, 'Answer briefly and concretely. Use your tools only if you have to.'].filter(Boolean).join('\n\n'), [], `Answering ${k.assignee}`);
+      const answer = await turn(t, to.name, [`You are ${to.name}, in a team working on:\n${t.goal}\n${today()}`, done ? `What you have done so far:\n${done}` : '', `Your teammate ${k.assignee} asks:\n${a.question}`, 'Answer briefly and concretely. Use your tools only if you have to.'].filter(Boolean).join('\n\n'), [], `Answering ${k.assignee}`, k.id);
       post(t, { from: to.name, to: k.assignee, text: answer || '(no answer)', task: k.id });
       return answer || `${to.name} had no answer.`;
     } });
-    const text = await turn(t, k.assignee, workPrompt(t, k), tools, clip(k.title, 80));
+    const out = {};
+    const text = await turn(t, k.assignee, workPrompt(t, k), tools, clip(k.title, 80), k.id, out);
     k.result = result || text || '(no result)';
     k.feedback = '';
-    post(t, { from: k.assignee, text: clip(k.result, 1200), task: k.id, kind: 'result' });
+    post(t, { from: k.assignee, text: clip(k.result, 1200), task: k.id, kind: 'result', extra: out.steps && out.steps.length ? { steps: out.steps } : {} });
   }
 
   async function review(t, k, reviewer) {
     let verdict = '', note = '';
     const tool = { ...TOOL_REVIEW, run: (a) => { verdict = a.verdict === 'changes' ? 'changes' : 'approve'; note = clip(a.note, 4000); return 'Verdict saved.'; } };
-    const text = await turn(t, reviewer, reviewPrompt(t, k, reviewer), [tool], `Reviewing ${k.assignee}'s work`);
+    const text = await turn(t, reviewer, reviewPrompt(t, k, reviewer), [tool], `Reviewing ${k.assignee}'s work`, k.id);
     if (!verdict) { verdict = /\b(needs? fix|changes?|not ok|wrong)\b/i.test(text) ? 'changes' : 'approve'; note = clip(text, 4000); }
     k.rounds = (k.rounds || 0) + 1;
     if (verdict === 'changes' && k.rounds <= MAX_REVIEW_ROUNDS) {
@@ -281,7 +333,7 @@ function createTeams(deps) {
         if (!t.run.tasks.length) { await plan(t, false); continue; }
         if (t.run.tasks.every((k) => k.status === 'done')) {
           if (l.running.size) { await Promise.race(l.running.values()); continue; }
-          const summary = await turn(t, LEAD, [`Team goal:\n${t.goal}`, `Finished tasks:\n${t.run.tasks.map((k) => `${taskLine(t, k)}\n${clip(k.result, 2500)}`).join('\n\n')}`, `Team room:\n${roomFor(t, '', 20)}`, 'All tasks are done. Write the final answer for the user: what the team delivered (combine the results; name files that were written) and anything left open or uncertain. Do not describe the process.'].join('\n\n'), [], 'Writing the summary');
+          const summary = await turn(t, LEAD, [today(), `Team goal:\n${t.goal}`, `Finished tasks:\n${t.run.tasks.map((k) => `${taskLine(t, k)}\n${clip(k.result, 2500)}`).join('\n\n')}`, `Team room:\n${roomFor(t, '', 20)}`, 'All tasks are done. Write the final answer for the user from the results above only (do not add facts of your own): what the team delivered, files that were written, and anything left open or uncertain. Do not describe the process.'].join('\n\n'), [], 'Writing the summary');
           post(t, { kind: 'summary', text: summary || 'The team finished.' });
           finish(t, 'done');
           break;
@@ -331,7 +383,7 @@ function createTeams(deps) {
     t.run.status = status; t.run.reason = reason || '';
     if (status !== 'working' && l.controller && !l.controller.signal.aborted) l.controller.abort();
     for (const k of t.run.tasks) if (k.status === 'doing') k.status = 'todo';
-    t.run.active = {};
+    t.run.live = {};
     if (status === 'paused' && (reason === 'budget' || reason === 'time')) {
       post(t, { kind: 'status', text: reason === 'budget' ? `Budget reached ($${t.run.spent.usd.toFixed(2)} of $${budgetOf(t)}). Resume to give the team another $${t.budgetUsd}.` : `Time limit reached (${minutesOf(t)} min). Resume to give the team another ${t.minutes} min.` });
     }

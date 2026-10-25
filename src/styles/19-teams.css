@@ -107,6 +107,30 @@
 .tm-hand.req { background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--text); }
 .tm-hand.ok { background: color-mix(in srgb, var(--ok) 12%, transparent); color: var(--text); }
 .tm-status { align-self: center; padding: 4px 12px; border-radius: var(--r-full); background: var(--fill); color: var(--text-2); font-size: var(--fs-sm); text-align: center; }
+.tm-live { display: flex; gap: 10px; align-items: flex-start; max-width: 760px; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--ok) 5%, var(--pref-card)); box-shadow: 0 0 0 .5px var(--line-2); }
+.tm-live-b { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.tm-live-h { display: flex; align-items: baseline; gap: 6px; font-size: 12px; color: var(--muted); }
+.tm-live-h b { color: var(--text); font-size: var(--fs-ui); font-weight: 600; }
+.tm-live-h span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tm-live-now { display: flex; align-items: center; gap: 8px; color: var(--text-2); font-size: 12.5px; min-width: 0; }
+.tm-live-now > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tm-live-text { color: var(--muted); font-size: 12.5px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.tm-steps-btn { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; margin-top: 2px; padding: 0; border: 0; background: none; box-shadow: none; color: var(--muted); font-size: 11.5px; cursor: pointer; }
+.tm-steps-btn:hover { color: var(--text); background: none; }
+.tm-steps { list-style: none; margin: 6px 0 0; padding: 6px 8px; border-radius: 8px; background: var(--bg); box-shadow: 0 0 0 .5px var(--line); display: flex; flex-direction: column; gap: 3px; max-width: 600px; }
+.tm-steps li { display: flex; align-items: center; gap: 7px; min-width: 0; font-size: 12px; color: var(--text-2); }
+.tm-steps li > svg { flex: none; color: var(--ok); }
+.tm-steps li.st-running > svg { color: var(--muted); }
+.tm-steps li.st-error > svg, .tm-steps li.st-denied > svg, .tm-steps li.st-stopped > svg { color: var(--danger); }
+.tm-steps li > span { flex: none; }
+.tm-steps li em { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-style: normal; font-family: var(--font-mono); font-size: 11.5px; color: var(--muted); }
+.tm-steps li small { margin-left: auto; flex: none; color: var(--muted); font-size: 11px; }
+button.tm-hand { border: 0; font: inherit; font-size: var(--fs-sm); cursor: pointer; box-shadow: none; }
+button.tm-hand:hover { background: var(--fill-2); }
+.tm-hand-n { margin-left: 4px; flex: none; color: var(--muted); }
+.tm-hand { max-width: 100%; }
+.tm-hand > svg { flex: none; }
+.tm-hand-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tm-typing { display: flex; align-items: center; gap: 8px; padding-left: 3px; color: var(--muted); font-size: 12px; }
 .tm-dots { display: inline-flex; gap: 3px; }
 .tm-dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--muted); opacity: .35; animation: tmblink 1.2s infinite; }

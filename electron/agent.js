@@ -733,6 +733,7 @@ async function runAgent(opts) {
   const partsSkip = []; // roles whose content must stay a string even in parts mode (learned from errors)
   let partsMode = ''; // '' = automatic; 'parts' = every content a list of parts; 'text' = plain text, images dropped. Learned from the endpoint's schema errors.
   let effortOff = false; // set when the endpoint rejects reasoning_effort: it is then left out for the rest of the run
+  let effortNone = false; // set when the endpoint takes tools only without reasoning (OpenAI gpt-6 on chat/completions: "set reasoning_effort to 'none'")
   const dropped = new Set(); // optional request fields the endpoint rejected: left out for the rest of the run
   let maxTokKey = 'max_tokens'; // some endpoints (OpenAI reasoning models) want max_completion_tokens
   let ctxRetried = false; // a context-length error is retried once after aggressive compaction
@@ -934,6 +935,7 @@ async function runAgent(opts) {
       const body = { model, messages: withNote(cacheOn ? withCache(plain) : plain), stream: true, stream_options: { include_usage: true }, ...routingBody(url), ...(opts.sessionId && /openrouter\.ai/i.test(String(url)) ? { session_id: String(opts.sessionId).slice(0, 256) } : {}) };
       if (maxTokens) body[maxTokKey] = maxTokens;
       if (effort && !effortOff) body.reasoning_effort = effort;
+      if (effortNone && defs.length) body.reasoning_effort = 'none';
       for (const k of dropped) delete body[k];
       if (defs.length) { body.tools = defs; body.tool_choice = 'auto'; }
 
@@ -997,6 +999,12 @@ async function runAgent(opts) {
           if (partsMode === 'parts') { partsMode = 'text'; iter--; continue; }
         }
         if (defs.length && (err.status === 400 || err.status === 422) && /tool|function/i.test(err.message)) {
+          // Tools are allowed only with reasoning off: keep the tools, turn reasoning off for the rest of the run.
+          if (!effortNone && /reasoning_effort/i.test(err.message) && /['"]none['"]/.test(err.message)) {
+            effortNone = true;
+            send({ type: 'notice', text: 'This model uses tools only with reasoning off on this endpoint, so reasoning is off for this task.' });
+            iter--; continue;
+          }
           const capM = /maximum number of items is (\d+)/i.exec(err.message);
           if (capM && Number(capM[1]) > 0 && Number(capM[1]) < defs.length) { toolCap = Number(capM[1]); iter--; continue; } // too many tools: send fewer, keep tools on
           // The model tried to call a tool and failed (Groq: tool_use_failed "Failed to call a function"): that is not missing tool support, so try again.

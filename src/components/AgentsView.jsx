@@ -49,7 +49,7 @@ export default function AgentsView({ settings, chats, runningIds, groups, onOpen
   if (room) return <>{<TeamRoom team={room} roster={roster} you={settings.profileName || 'You'} onBack={() => setOpen(null)} onEdit={() => setSheet(room)} />}{sheetEl}</>;
 
   const live = liveAgents(chats, runningIds);
-  const busyIn = (name) => { for (const t of teams) { const a = t.run && t.run.active && t.run.active[name]; if (a) return { team: t, what: a }; } return null; };
+  const busyIn = (name) => { for (const t of teams) { const l = Object.values((t.run && t.run.live) || {}).find((x) => x.name === name); if (l) return { team: t, what: l.what }; } return null; };
   const working = teams.filter((t) => t.run && t.run.status === 'working').length;
   const needYou = teams.filter((t) => pendingAsks(t).length || (t.run && t.run.status === 'paused')).length;
 
