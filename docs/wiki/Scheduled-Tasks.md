@@ -9,7 +9,8 @@ Scheduled tasks run a prompt by themselves: once at a set time, every few minute
    - **Name**, for example `Morning news summary`.
    - **What should Artemis do?**: a complete, self-contained prompt. Each run starts a fresh chat, so include everything the task needs.
    - **Repeat**: **Every day**, **Weekdays**, **Certain weekdays**, **Every month**, **Every few minutes / hours** or **Once**.
-   - **Time**, **Date**, **Day of month**, **Every (minutes)** or the weekday buttons, depending on the repeat type.
+   - **Time**, **Date**, **Day of month**, **Every** or the weekday buttons, depending on the repeat type.
+   - With **Every few minutes / hours**: tick **Only between** to limit it to a time of day (for example 09:00–18:00, or 22:00–06:00 across midnight) and click the days it runs on. The editor shows the next run times as you change it.
    - **Project**: the project whose folder and instructions the task uses, or **No project**.
    - **Model**: a model for this task, or **Default (Settings → General)**.
 3. Choose the options you need:
@@ -19,6 +20,8 @@ Scheduled tasks run a prompt by themselves: once at a set time, every few minute
 4. Click **Save**.
 
 You can also ask in a chat, for example "every weekday at 8:30, summarize my unread project notes" or "remind me tomorrow at 10 to call the bank". Artemis creates the task with `schedule_task` after you approve it, and can list, change, pause, resume or delete tasks the same way.
+
+The Scheduled page also has **Heartbeat** and **Webhooks** tabs: see [Heartbeat and webhooks](Heartbeat-and-Webhooks.md). A task marked **Team** starts a new run of an [agent team](Agent-Teams.md).
 
 On the Scheduled page each task shows its next and last run and how many times it ran. Use **Run now** to run it immediately, the pencil to edit, the trash icon to delete, and the switch to pause or resume. A **Failed** badge shows the last error when you hover over it.
 

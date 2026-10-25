@@ -64,6 +64,15 @@ Tool groups:
 | `write` | Write and edit files (asks you each time) | write_file, edit_file, write_spreadsheet, update_cells, create_folder, move_file |
 | `web` | Search and read the web | web_search, web_fetch |
 | `chats` | Search your saved chats | search_chats, read_chat |
+| `make` | Make.com scenarios (in teams) | make_* |
+| `browser` | Drive the browser (in teams) | browser_* |
+| `connectors` | Your connectors, MCP (in teams) | mcp__* tools, use_connector |
+| `shell` | Run commands, in the sandbox when one is set (in teams) | run_command |
+| `phone` | Send to your phone (in teams) | send_to_phone |
+| `memory` | Long-term memory (in teams) | memory_search, memory_get, memory_note, memory_save |
+| `automation` | Scheduled tasks, heartbeats and webhooks (in teams) | schedule_task …, hook_*, heartbeat_* |
+
+The groups marked *in teams* work when the agent is a member of an [agent team](Agent-Teams.md); a `delegate` helper in a chat keeps read, write, web and chats.
 
 ### Where agent files live
 
