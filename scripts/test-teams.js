@@ -177,6 +177,14 @@ const def = (extra) => ({ name: 'Launch', goal: 'Ship the notes', members: [{ na
     console.log('teams: stopped members are not done ok');
   }
 
+  // an Editor checks the others' work like a Reviewer: sent-back work is redone before the next task starts
+  {
+    const { REVIEWER_ROLE } = require('../electron/teams');
+    for (const r of ['Reviewer', 'Editor', 'QA', 'Fact-checker', 'Copy editor']) assert.ok(REVIEWER_ROLE.test(r), r);
+    for (const r of ['Writer', 'Publisher', 'Researcher']) assert.ok(!REVIEWER_ROLE.test(r), r);
+    console.log('teams: reviewer roles ok');
+  }
+
   // budget: the team pauses at the cap; resume gives it the same amount again
   {
     let calls = 0;

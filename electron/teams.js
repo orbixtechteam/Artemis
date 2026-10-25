@@ -67,6 +67,8 @@ function cleanRepeat(r) {
   return out;
 }
 const NOTEBOOK_MAX = 12000;
+// the member whose role checks the others' work (Reviewer, Editor, QA, Fact-checker …) reviews every finished task
+const REVIEWER_ROLE = /review|editor|\bqa\b|quality|fact.?check|critic|proofread/i;
 const MAX_HIRES = 3;
 const TOOL_HIRE = { name: 'team_hire', description: 'Adds a new agent to the team when none of the members fits a task: give it a name, a role, instructions and the tool groups it needs. It is saved as one of the user\'s agents.', parameters: { type: 'object', properties: {
   name: { type: 'string', description: 'Short first name, unique' }, role: { type: 'string', description: 'Job title, e.g. Copywriter' },
@@ -147,7 +149,7 @@ function createTeams(deps) {
   const reviewerOf = (t) => {
     if (t.members.length < 2) return null; // a one-agent team has nobody else to check it
     const r = roster(t);
-    const m = t.members.find((x) => { const a = r.find((y) => same(y.name, x.name)); return a && /review/i.test(a.role || ''); });
+    const m = t.members.find((x) => { const a = r.find((y) => same(y.name, x.name)); return a && REVIEWER_ROLE.test(a.role || ''); });
     return m ? m.name : null;
   };
 
@@ -589,4 +591,4 @@ function createTeams(deps) {
   };
 }
 
-module.exports = { createTeams, cleanDef, MODES, LEAD };
+module.exports = { createTeams, cleanDef, MODES, LEAD, REVIEWER_ROLE };

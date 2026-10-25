@@ -170,7 +170,7 @@ export default function TeamRoom({ team: t, roster, you, youAvatar = "", onBack,
           {r.tasks.length === 0 ? <p className="tm-none">{r.status === 'working' ? 'Artemis is planning…' : 'No tasks yet.'}</p> : (
             <div className="tm-kan">
               {r.tasks.map((k) => (
-                <div key={k.id} className={`tm-tk ${k.status}`} title={k.title}><Avatar name={k.status === 'review' ? (t.members.find((m) => /review/i.test(roleOf(m.name))) || {}).name || k.assignee : k.assignee} size="sm" /><span>{k.title}</span><em className={`tm-st ${k.status}`}>{STATUS_LABEL[k.status]}</em></div>
+                <div key={k.id} className={`tm-tk ${k.status}`} title={k.title}><Avatar name={k.status === 'review' ? (t.members.find((m) => /review|editor|\bqa\b|quality|fact.?check|critic|proofread/i.test(roleOf(m.name))) || {}).name || k.assignee : k.assignee} size="sm" /><span>{k.title}</span><em className={`tm-st ${k.status}`}>{STATUS_LABEL[k.status]}</em></div>
               ))}
             </div>
           )}
