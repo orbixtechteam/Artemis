@@ -375,6 +375,7 @@ function definitions({ teamsEnabled, makeEnabled, hasFolder, memoryEnabled, memo
         members: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, model: { type: 'string', description: 'Optional model for this member' } }, required: ['name'] } },
         mode: { type: 'string', enum: ['lead', 'pipeline', 'open'], description: 'lead: Artemis plans and hands out tasks; pipeline: tasks one after another; open: everyone at once' },
         lead_model: { type: 'string' }, rules: { type: 'string', description: 'Team rules added to every prompt (voice, audience, format)' },
+        reviewer: { type: 'string', description: 'Member who checks every finished task and sends work back until it is right (empty string = nobody)' },
         project: { type: 'string', description: 'Project the team works for (name or id; empty string to unlink). The team then works in its folder, follows its instructions and can use its agents.' },
         folder: { type: 'string', description: 'Absolute folder for the team\'s files, only when it should differ from the project\'s (empty string = the project\'s folder, or the Files folder)' },
         budget_usd: { type: 'number' }, budget_tokens: { type: 'integer' }, minutes: { type: 'integer', description: 'Time limit per run' },
@@ -1383,11 +1384,12 @@ async function runTool(name, args, ctx) {
           }
         }
         if (args.folder !== undefined) def.folder = String(args.folder || '').trim();
+        if (args.reviewer !== undefined) def.reviewer = String(args.reviewer || '').trim();
         const proj = def.projectId && ctx.teams.projects ? ctx.teams.projects().find((x) => x.id === def.projectId) : null;
         const missing = def.members.filter((m) => !ctx.teams.agents(proj ? proj.folder : null).some((a) => a.name.toLowerCase() === String(m.name).toLowerCase())).map((m) => m.name);
         if (missing.length) throw new Error(`These agents do not exist yet: ${missing.join(', ')}. Create them with agent_save first.`);
         const t = await ctx.teams.save(def);
-        return { ok: true, text: `Team "${t.name}" ${old ? 'changed' : 'created'} (id ${t.id}) with ${t.members.map((m) => m.name).join(', ')}.${proj ? ` It works for the project "${proj.name}".` : ''}${t.repeat ? ' It starts by itself: ' + (t.repeat.type === 'interval' ? `every ${Math.round((t.repeat.every || 60) / 60)} h` : `${t.repeat.type} at ${t.repeat.at || '09:00'}`) + '.' : ''} The user finds it on the Agents page.` };
+        return { ok: true, text: `Team "${t.name}" ${old ? 'changed' : 'created'} (id ${t.id}) with ${t.members.map((m) => m.name).join(', ')}.${t.reviewer ? ` ${t.reviewer} reviews every finished task.` : ''}${proj ? ` It works for the project "${proj.name}".` : ''}${t.repeat ? ' It starts by itself: ' + (t.repeat.type === 'interval' ? `every ${Math.round((t.repeat.every || 60) / 60)} h` : `${t.repeat.type} at ${t.repeat.at || '09:00'}`) + '.' : ''} The user finds it on the Agents page.` };
       }
       case 'team_start': {
         if (!ctx.teams) throw new Error('Agents and teams are not available here.');

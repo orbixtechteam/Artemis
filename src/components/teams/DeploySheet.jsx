@@ -29,6 +29,9 @@ export default function DeploySheet({ team, roster: userRoster, chatGroups, proj
     return () => { on = false; };
   }, [project && project.folder]);
   const roster = projRoster || userRoster;
+  // who reviews: the team's setting; a team saved before it (or a new one) starts with a member whose role says "review"
+  const legacyReviewer = (d.members.find((m) => /review/i.test((roster.find((a) => a.name === m.name) || {}).role || '')) || {}).name || '';
+  const reviewerNow = typeof d.reviewer === 'string' ? (d.members.some((m) => m.name === d.reviewer) ? d.reviewer : '') : legacyReviewer;
   const [busy, setBusy] = useState(false);
   const [clis, setClis] = useState({ claude: false, codex: false });
   useEffect(() => { window.api.teamsClis?.().then((c) => c && setClis(c)).catch(() => {}); }, []);
@@ -52,7 +55,7 @@ export default function DeploySheet({ team, roster: userRoster, chatGroups, proj
   const submit = async (start) => {
     setErr(''); setBusy(true);
     try {
-      const r = await window.api.teamsSave({ ...d, budgetUsd: Number(d.budgetUsd) || 0, budgetTokens: Number(d.budgetTokens) || 0, minutes: Number(d.minutes) || 0 });
+      const r = await window.api.teamsSave({ ...d, reviewer: reviewerNow, budgetUsd: Number(d.budgetUsd) || 0, budgetTokens: Number(d.budgetTokens) || 0, minutes: Number(d.minutes) || 0 });
       if (!r.ok) { setErr(r.error); return; }
       if (start) { const s = await window.api.teamsStart(r.team.id); if (!s.ok) { setErr(s.error); return; } onDone(s.team, { start: true }); }
       else onDone(r.team, {});
@@ -119,6 +122,12 @@ export default function DeploySheet({ team, roster: userRoster, chatGroups, proj
             <Select value={String(d.budgetTokens || 0)} onChange={(e) => set('budgetTokens')(e.target.value)} aria-label="Token budget">{opt(TOKENS, d.budgetTokens || 0).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Select>
           </div>
           <div className="tm-r"><div className="tm-r-t"><b>Ask me before acting</b><small>{usesCodex && d.askWrites !== false ? 'Codex cannot ask in the middle of a run, so it works read-only while this is on.' : 'Writing files, commands, Make, posting, sending' + (usesCli ? ' (Claude Code asks before edits and commands too)' : '') + '. In the room, and on Telegram when it is paired. Off: the team acts on its own.'}</small></div><Switch checked={d.askWrites !== false} onChange={set('askWrites')} label="Ask me before acting" /></div>
+          <div className="tm-r"><div className="tm-r-t"><b>Reviewer</b><small>{reviewerNow ? `${reviewerNow} checks every finished task and sends work back until it is right` : 'Nobody checks the work before the next step'}</small></div>
+            <Select value={reviewerNow} aria-label="Reviewer" onChange={(e) => set('reviewer')(e.target.value)}>
+              <option value="">Nobody</option>
+              {d.members.map((m) => <option key={m.name} value={m.name}>{m.name}</option>)}
+            </Select>
+          </div>
           <div className="tm-r"><div className="tm-r-t"><b>Let Artemis add agents</b><small>When no member fits a task, the lead creates a new agent (up to 3 per team)</small></div><Switch checked={!!d.canHire} onChange={set('canHire')} label="Let Artemis add agents" /></div>
         </div>
 

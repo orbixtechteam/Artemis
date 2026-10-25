@@ -94,7 +94,9 @@ function cleanDef(d, roster) {
     folder: typeof d.folder === 'string' ? d.folder.trim().slice(0, 1000) : '', // '' = the project's folder, else the Files folder
     projectId: typeof d.projectId === 'string' ? d.projectId.trim().slice(0, 100) : '', // the project the team works for: its folder, instructions and agents
     budgetUsd: num(d.budgetUsd, 1000), budgetTokens: Math.round(num(d.budgetTokens, 1e9)), minutes: num(d.minutes, 600), askWrites: d.askWrites !== false,
-    canHire: !!d.canHire, rules: clip(d.rules, 4000), repeat: cleanRepeat(d.repeat)
+    canHire: !!d.canHire, rules: clip(d.rules, 4000), repeat: cleanRepeat(d.repeat),
+    // who checks every finished task (work sent back is redone before what depends on it); '' = nobody, left out = as before
+    ...(typeof d.reviewer === 'string' ? { reviewer: (members.find((m) => same(m.name, d.reviewer)) || { name: '' }).name } : {})
   };
 }
 
@@ -146,6 +148,8 @@ function createTeams(deps) {
   };
   const reviewerOf = (t) => {
     if (t.members.length < 2) return null; // a one-agent team has nobody else to check it
+    // the team's own choice; '' = nobody reviews. Teams saved before this setting: a member whose role says "review".
+    if (typeof t.reviewer === 'string') { const m = t.members.find((x) => same(x.name, t.reviewer)); return m ? m.name : null; }
     const r = roster(t);
     const m = t.members.find((x) => { const a = r.find((y) => same(y.name, x.name)); return a && /review/i.test(a.role || ''); });
     return m ? m.name : null;
