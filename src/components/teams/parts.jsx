@@ -25,7 +25,8 @@ export function tintOf(name) {
   return 1 + (h % 6);
 }
 
-export function Avatar({ name, size = '', you = false }) {
+export function Avatar({ name, size = '', you = false, src = null }) {
+  if (you && src) return <img className={`tm-av you ${size}`} src={src} alt="" aria-hidden="true" />; // your profile picture
   if (you) return <span className={`tm-av you ${size}`} aria-hidden="true">{(name || 'Y').slice(0, 1).toUpperCase()}</span>;
   if (name === LEAD) return <img className={`tm-av lead ${size}`} src={logoUrl} alt="" title={LEAD} aria-hidden="true" />;
   return <span className={`tm-av t${tintOf(name)} ${size}`} title={name} aria-hidden="true">{String(name || '?').slice(0, 1).toUpperCase()}</span>;

@@ -48,7 +48,7 @@ function LiveCard({ live }) {
 }
 
 /** One team: the room where its agents talk (left) and its tasks, members and budget (right). */
-export default function TeamRoom({ team: t, roster, you, onBack, onEdit }) {
+export default function TeamRoom({ team: t, roster, you, youAvatar = "", onBack, onEdit }) {
   const r = t.run || { messages: [], tasks: [], live: {}, spent: { usd: 0, tokens: 0 } };
   const lives = Object.values(r.live || {});
   const [text, setText] = useState('');
@@ -82,7 +82,7 @@ export default function TeamRoom({ team: t, roster, you, onBack, onEdit }) {
 
   const bubble = (m) => {
     if (m.from === 'you') return (
-      <div key={m.id} className="tm-m you"><Avatar you name={you} /><div className="tm-body"><div className="tm-bubble">{m.text}</div></div></div>
+      <div key={m.id} className="tm-m you"><Avatar you name={you} src={youAvatar} /><div className="tm-body"><div className="tm-bubble">{m.text}</div></div></div>
     );
     if (m.kind === 'status') return <div key={m.id} className="tm-status">{m.text}</div>;
     const who = (
