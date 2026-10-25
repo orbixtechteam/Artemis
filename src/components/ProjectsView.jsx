@@ -3,6 +3,7 @@ import { Icon } from './Icons.jsx';
 import ProjectLogo from './ProjectLogo.jsx';
 import Composer, { ChatPills } from './Composer.jsx';
 import { dayGroup } from '../lib/history.js';
+import { teamState } from './teams/parts.jsx';
 
 const base = (p) => (p ? String(p).split(/[\\/]/).filter(Boolean).pop() : '');
 
@@ -40,7 +41,40 @@ export function ProjectsList({ projects, chats, onOpen, onNew, onPin }) {
   );
 }
 
-export function ProjectPage({ project, chats, statusOf, onBack, onEdit, onSelect, onStartChat, groups = [], defaultModel = '', brains = [], settings = {}, onUsageDetails, onOpenSettings, sentinel = 'off', onSentinel }) {
+/** The agent teams that work for this project: open one's room, or start a new team for it. */
+function ProjectTeams({ projectId, onOpenTeam, onNewTeam }) {
+  const [teams, setTeams] = React.useState([]);
+  React.useEffect(() => {
+    const api = window.api;
+    if (!api.teamsList) return undefined;
+    api.teamsList().then((l) => setTeams(Array.isArray(l) ? l : [])).catch(() => {});
+    const off = api.onTeamsChanged && api.onTeamsChanged((t) => setTeams((l) => (l.some((x) => x.id === t.id) ? l.map((x) => (x.id === t.id ? t : x)) : [t, ...l])));
+    return () => { off && off(); };
+  }, []);
+  const mine = teams.filter((t) => t.projectId === projectId);
+  if (!onOpenTeam) return null;
+  return (
+    <>
+      <div className="section-title proj-teams-head"><span>Agent teams</span><button type="button" className="link-btn" onClick={onNewTeam}><Icon name="plus" size={13} /> New team</button></div>
+      {mine.length === 0 ? <div className="muted small">No team works for this project yet.</div> : (
+        <div className="proj-chats">
+          {mine.map((t) => {
+            const st = teamState(t);
+            return (
+              <button key={t.id} className="proj-chat" onClick={() => onOpenTeam(t.id)}>
+                <Icon name="layers" size={15} />
+                <span className="t">{t.name}</span>
+                <span className="muted small"><i className={`tm-dot ${st.dot}`} /> {st.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </>
+  );
+}
+
+export function ProjectPage({ project, chats, statusOf, onBack, onEdit, onSelect, onStartChat, groups = [], defaultModel = '', brains = [], settings = {}, onUsageDetails, onOpenSettings, sentinel = 'off', onSentinel, onOpenTeam, onNewTeam }) {
   const list = chats.filter((c) => c.projectId === project.id && c.messages.length).sort((a, b) => b.updatedAt - a.updatedAt);
   const [draft, setDraft] = React.useState({}); // choices for the chat the box below starts
   const up = (patch) => setDraft((d) => ({ ...d, ...patch }));
@@ -72,6 +106,7 @@ export function ProjectPage({ project, chats, statusOf, onBack, onEdit, onSelect
           settings={settings} onUsageDetails={onUsageDetails} onOpenSettings={onOpenSettings}
           tools={draft.tools || 'on'} onTools={(v) => up({ tools: v })} agents={draft.agents || 'on'} onAgents={(v) => up({ agents: v })}
           brains={brains} brain={brain} onBrain={(v) => up({ brain: v })} />
+      <ProjectTeams projectId={project.id} onOpenTeam={onOpenTeam} onNewTeam={onNewTeam} />
       <div className="section-title">Chats</div>
       {list.length === 0 ? <div className="muted small">No chats in this project yet.</div> : (
         <div className="proj-chats">

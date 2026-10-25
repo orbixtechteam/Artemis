@@ -206,3 +206,9 @@ button.tm-hand:hover { background: var(--fill-2); }
 .tm-note-body { max-height: 260px; overflow: auto; font-size: 12.5px; padding: 4px 0 8px; }
 .tm-compose { position: relative; }
 .tm-mention-pop { left: 0; bottom: calc(100% + 8px); width: min(460px, 100%); }
+
+/* teams that work for a project: the project's name on the team card, the list on the project page */
+.tm-proj { color: var(--accent); font-weight: 500; }
+.proj-teams-head { display: flex; align-items: center; justify-content: space-between; }
+.proj-teams-head .link-btn { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
+.proj-chat .tm-dot { display: inline-block; vertical-align: middle; }

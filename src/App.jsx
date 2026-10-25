@@ -38,7 +38,7 @@ import Message from './components/Message.jsx';
 import Composer from './components/Composer.jsx';
 import { SettingsModal } from './components/Settings.jsx';
 import SkillsView from './components/SkillsView.jsx';
-import AgentsView from './components/AgentsView.jsx';
+import AgentsView, { agentsIntent } from './components/AgentsView.jsx';
 import { progressOf } from './lib/outputs.js';
 import LogsView from './components/LogsView.jsx';
 import AutomationsView from './components/AutomationsView.jsx';
@@ -1860,7 +1860,7 @@ export default function App() {
     if (kind === 'files') return <FilesView onOpen={openLibFile} onUse={useLibFile} />;
     if (kind === 'graph') return <NoteGraph rev={notes.items} onOpen={noteActions.open} onCreate={(name) => noteActions.create('', name)} />;
     if (kind === 'automations') return <AutomationsView onOpenSettings={(t) => { setSettingsTab(t || 'general'); setModal('settings'); }} />;
-    if (kind === 'agents') return <AgentsView settings={settings} chats={chats} runningIds={runningIds} groups={groups} onOpenChat={(id) => select(id)} />;
+    if (kind === 'agents') return <AgentsView settings={settings} chats={chats} runningIds={runningIds} groups={groups} projects={projects} onOpenChat={(id) => select(id)} />;
     // Settings is a page like Home: it saves every change itself (no Save / Cancel) and is closed with its tab (⌘W)
     if (kind === 'settings') return <SettingsModal onBack={split ? undefined : closePage} profile={{ name: settings.profileName, avatar }} onProfile={() => setModal('profile')} projects={projects} onApply={async (patch) => { const { hasApiKey: _ro, ...rest } = patch || {}; const r = await api.setSettings(rest); setSettings({ ...r }); return r; }} settings={settings} groups={groups} providers={providers} onProviders={applyProviders} initialTab={split && splitT ? splitT.s.settingsTab : settingsTab} onTabChange={split ? undefined : setSettingsTab} />;
     if (kind === 'memory') body = <MemoryModal memory={memory} enabled={settings.memoryEnabled} onChange={changeMemory} onToggle={toggleMemory} onClose={close} />;
@@ -1946,6 +1946,7 @@ export default function App() {
             brains={brains} groups={groups} defaultModel={defaultModel(settings, providers)} settings={settings}
             onUsageDetails={settings && (() => setModal('usage'))} onOpenSettings={() => setModal('settings')}
             sentinel={sent.state} onSentinel={toggleSentinel}
+            onOpenTeam={(id) => { agentsIntent.room(id); setView('agents'); }} onNewTeam={() => { agentsIntent.newTeam(viewProject.id); setView('agents'); }}
           />
         )}
         {(chatView || noteView || primaryPage) && (

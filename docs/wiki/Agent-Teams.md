@@ -33,6 +33,23 @@ Describe the agents and the team in a chat (or paste a description) and Artemis 
 - **Team rules**: anything every member should follow. Added to every prompt of the team. There are no built-in content rules: the team does what you and your agents decide.
 - **Runs by itself**: every day, weekdays or every few hours a new run starts (a scheduled task marked *Team*). It keeps running while Artemis is closed when the background gateway is on (Settings → Gateway → Keep running in the background); the Mac has to be awake.
 
+## Teams in a project
+
+Pick a **Project** when you create or edit a team (or tell the chat "put this team in the Sticky project"). The team then:
+
+- works in the project's folder (unless you choose another folder for it),
+- follows the project's instructions in every member's prompt,
+- can use the project's own agents (from `.artemis/agents` in the project folder) as members.
+
+The project's page lists its teams under **Agent teams**. Click one to open its room, or click **New team** to make one for the project.
+
+## Talking to the team
+
+- **@Name** makes that member answer you and do what you ask next, ahead of the other tasks. Their answer is not sent to the reviewer.
+- A team that paused (budget, token budget, time limit) or stopped on an error picks up again when you write to it. A team stopped by a limit gets another budget, the same as pressing Resume.
+- A message without a tag during a run reaches the members at their next step.
+- A message after the run ended makes the lead plan a follow-up round. An @-tagged message instead goes straight to that member.
+
 ## The notebook
 
 At the end of every run the lead's summary is added to the team's notebook (with the date). Every new run reads it, so a daily team knows what it did yesterday and what came of it. The room shows it under **Notebook**, where you can also clear it. For more, give members the *memory* group.

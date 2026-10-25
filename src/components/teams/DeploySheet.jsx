@@ -13,12 +13,22 @@ const REPEATS = [['', 'Only when I start it'], ['daily', 'Every day'], ['weekday
 const EVERY = [['60', '1 hour'], ['120', '2 hours'], ['180', '3 hours'], ['360', '6 hours'], ['720', '12 hours']];
 
 /** Create or edit a team. onDone(team | null, { start }) closes it; a deleted team comes back as onDone(null, { deleted }). */
-export default function DeploySheet({ team, roster, chatGroups, onDone, onNewAgent }) {
+export default function DeploySheet({ team, roster: userRoster, chatGroups, projects = [], onDone, onNewAgent }) {
   const fresh = !team || !team.id;
   const [d, setD] = useState(() => (fresh
-    ? { name: '', goal: '', members: roster.filter((a) => a.builtin).map((a) => ({ name: a.name, model: '' })), mode: 'lead', leadModel: '', budgetUsd: 3, budgetTokens: 0, minutes: 30, askWrites: true, canHire: false, rules: '', repeat: null, ...(team || {}) }
+    ? { name: '', goal: '', members: userRoster.filter((a) => a.builtin).map((a) => ({ name: a.name, model: '' })), mode: 'lead', leadModel: '', budgetUsd: 3, budgetTokens: 0, minutes: 30, askWrites: true, canHire: false, rules: '', repeat: null, ...(team || {}) }
     : { ...team, members: team.members.map((m) => ({ ...m })) }));
   const [err, setErr] = useState('');
+  const project = d.projectId ? projects.find((p) => p.id === d.projectId) : null;
+  // a team that works for a project can also use that project's own agents
+  const [projRoster, setProjRoster] = useState(null);
+  useEffect(() => {
+    if (!project || !project.folder) { setProjRoster(null); return; }
+    let on = true;
+    window.api.agentsList(project.folder).then((l) => { if (on && Array.isArray(l)) setProjRoster(l); }).catch(() => {});
+    return () => { on = false; };
+  }, [project && project.folder]);
+  const roster = projRoster || userRoster;
   const [busy, setBusy] = useState(false);
   const [clis, setClis] = useState({ claude: false, codex: false });
   useEffect(() => { window.api.teamsClis?.().then((c) => c && setClis(c)).catch(() => {}); }, []);
@@ -94,8 +104,15 @@ export default function DeploySheet({ team, roster, chatGroups, onDone, onNewAge
             <Select value={String(d.budgetUsd)} onChange={(e) => set('budgetUsd')(e.target.value)} aria-label="Budget">{opt(BUDGETS, d.budgetUsd).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Select>
             <Select value={String(d.minutes)} onChange={(e) => set('minutes')(e.target.value)} aria-label="Time limit">{opt(MINUTES, d.minutes).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Select>
           </div>
-          <div className="tm-r"><div className="tm-r-t"><b>Folder</b><small title={d.folder || ''}>{d.folder ? d.folder : 'Your Files folder'}{usesCli ? ' · Claude Code and Codex work here' : ''}</small></div>
-            {d.folder && <button type="button" className="tm-link" onClick={() => set('folder')('')}>Use Files</button>}
+          <div className="tm-r"><div className="tm-r-t"><b>Project</b><small>{project ? `Works in its folder, follows its instructions and can use its agents` : 'Not part of a project'}</small></div>
+            <Select value={d.projectId || ''} aria-label="Project" onChange={(e) => set('projectId')(e.target.value)}>
+              <option value="">No project</option>
+              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              {d.projectId && !project && <option value={d.projectId}>(deleted project)</option>}
+            </Select>
+          </div>
+          <div className="tm-r"><div className="tm-r-t"><b>Folder</b><small title={d.folder || (project && project.folder) || ''}>{d.folder ? d.folder : project && project.folder ? `${project.folder} (the project's)` : 'Your Files folder'}{usesCli ? ' · Claude Code and Codex work here' : ''}</small></div>
+            {d.folder && <button type="button" className="tm-link" onClick={() => set('folder')('')}>{project && project.folder ? "Use the project's" : 'Use Files'}</button>}
             <button type="button" onClick={pickFolder}>Choose…</button>
           </div>
                     <div className="tm-r"><div className="tm-r-t"><b>Token budget</b><small>Counts every model, also ones without a price</small></div>

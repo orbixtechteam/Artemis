@@ -91,7 +91,8 @@ function cleanDef(d, roster) {
   const num = (v, max) => Math.max(0, Math.min(max, Number(v) || 0));
   return {
     name, goal, members, mode: MODES.includes(d.mode) ? d.mode : 'lead', leadModel: typeof d.leadModel === 'string' && !/^cli:/.test(d.leadModel) ? d.leadModel.slice(0, 200) : '',
-    folder: typeof d.folder === 'string' ? d.folder.trim().slice(0, 1000) : '', // '' = the Files folder
+    folder: typeof d.folder === 'string' ? d.folder.trim().slice(0, 1000) : '', // '' = the project's folder, else the Files folder
+    projectId: typeof d.projectId === 'string' ? d.projectId.trim().slice(0, 100) : '', // the project the team works for: its folder, instructions and agents
     budgetUsd: num(d.budgetUsd, 1000), budgetTokens: Math.round(num(d.budgetTokens, 1e9)), minutes: num(d.minutes, 600), askWrites: d.askWrites !== false,
     canHire: !!d.canHire, rules: clip(d.rules, 4000), repeat: cleanRepeat(d.repeat)
   };
@@ -100,7 +101,7 @@ function cleanDef(d, roster) {
 const freshRun = () => ({ status: 'idle', reason: '', tasks: [], messages: [], live: {}, spent: { usd: 0, tokens: 0 }, extraUsd: 0, extraMin: 0, workMs: 0, resumedAt: 0, startedAt: 0, endedAt: 0, rounds: 0 });
 
 /**
- * deps: { load() -> {teams}, save(data), emit(team), roster() -> [agent], runTurn(o) -> Promise<string>, now?, uid?, log? }
+ * deps: { load() -> {teams}, save(data), emit(team), roster(projectFolder?) -> [agent], runTurn(o) -> Promise<string>, project?(id) -> { id, name, folder, instructions } | null, now?, uid?, log? }
  * runTurn o: { agent: {name, role, body, tools, model}, prompt, extraTools, signal, askWrites, onUsage({prompt, completion, usd}), onApproval: {asked(info), done(id, ok)} }
  */
 function createTeams(deps) {
@@ -130,16 +131,22 @@ function createTeams(deps) {
   const need = (id) => { const t = find(id); if (!t) throw new Error('That team no longer exists.'); return t; };
   const L = (t) => { let l = live.get(t.id); if (!l) { l = { controller: null, driving: false, running: new Map() }; live.set(t.id, l); } return l; };
 
-  const roster = () => { try { return deps.roster() || []; } catch { return []; } };
+  /** The project a team works for, or null (no project, or it was deleted). */
+  const projectOf = (t) => { if (!t || !t.projectId || !deps.project) return null; try { return deps.project(t.projectId) || null; } catch { return null; } };
+  const rootOf = (t) => { const p = projectOf(t); return p && p.folder ? p.folder : ''; };
+  /** Where the team's files go: its own folder, else its project's folder, else '' (the Files folder). */
+  const folderOf = (t) => (t && t.folder) || rootOf(t);
+  // the user's agents, plus the project's own agents when the team works for a project
+  const roster = (t) => { try { return deps.roster(t ? rootOf(t) || null : null) || []; } catch { return []; } };
   const agentOf = (t, name) => {
     if (same(name, LEAD)) return { name: LEAD, role: 'Lead', body: prompts.text('team.lead', LEAD_BODY), tools: [], model: t.leadModel || '' };
     const m = t.members.find((x) => same(x.name, name));
-    const a = m && roster().find((x) => same(x.name, m.name));
+    const a = m && roster(t).find((x) => same(x.name, m.name));
     return a ? { name: a.name, role: a.role || '', body: a.body || '', tools: a.tools || ['read'], model: m.model || a.model || '' } : null;
   };
   const reviewerOf = (t) => {
     if (t.members.length < 2) return null; // a one-agent team has nobody else to check it
-    const r = roster();
+    const r = roster(t);
     const m = t.members.find((x) => { const a = r.find((y) => same(y.name, x.name)); return a && /review/i.test(a.role || ''); });
     return m ? m.name : null;
   };
@@ -182,14 +189,18 @@ function createTeams(deps) {
   };
 
   // ---------- prompts ----------
-  const memberLine = (t, name) => { const a = agentOf(t, name); return a ? `- ${a.name}${a.role ? ` (${a.role})` : ''}: ${clip((roster().find((x) => same(x.name, a.name)) || {}).description, 200)} Tools: ${(a.tools || []).join(', ') || 'none'}.` : ''; };
+  const memberLine = (t, name) => { const a = agentOf(t, name); return a ? `- ${a.name}${a.role ? ` (${a.role})` : ''}: ${clip((roster(t).find((x) => same(x.name, a.name)) || {}).description, 200)} Tools: ${(a.tools || []).join(', ') || 'none'}.` : ''; };
   const taskLine = (t, k) => `#${t.run.tasks.indexOf(k) + 1} ${k.title} (${k.assignee}, ${k.status})`;
   const roomFor = (t, name, n = 14) => t.run.messages
     .filter((m) => (m.kind === 'msg' || m.kind === 'review' || m.kind === 'result') && (!name || !m.to || same(m.to, name) || same(m.from, name)))
     .slice(-n).map((m) => `${m.from === 'you' ? 'User' : m.from}${m.to ? ' → ' + m.to : ''}: ${clip(m.text, 600)}`).join('\n');
 
   const notebookFor = (t, n) => (t.notebook ? `Team notebook (what earlier runs did and learned, newest last):\n${t.notebook.length > n ? '…' + t.notebook.slice(-n) : t.notebook}` : '');
-  const rulesFor = (t) => (t.rules ? `Team rules from the user:\n${t.rules}` : '');
+  const rulesFor = (t) => {
+    const p = projectOf(t);
+    const proj = p ? `The team works for the project "${p.name}"${p.folder ? ` (its folder is the team folder)` : ''}.${p.instructions ? `\nProject instructions from the user:\n${clip(p.instructions, 4000)}` : ''}` : '';
+    return [proj, t.rules ? `Team rules from the user:\n${t.rules}` : ''].filter(Boolean).join('\n\n');
+  };
   const planPrompt = (t, followUp) => [
     today(),
     `Team goal:\n${t.goal}`,
@@ -221,7 +232,7 @@ function createTeams(deps) {
 
   const reviewPrompt = (t, k, reviewer) => [
     `You are ${reviewer}, reviewing ${k.assignee}'s work for the team. ${LEAD} leads it. ${today()}`,
-    `Team goal:\n${t.goal}`, `Task: ${k.title}`, `Work submitted by ${k.assignee}:\n${clip(k.result, 6000)}`,
+    `Team goal:\n${t.goal}`, rulesFor(t), `Task: ${k.title}`, `Work submitted by ${k.assignee}:\n${clip(k.result, 6000)}`,
     'Check it: facts against sources you can reach, files it says it wrote, and whether it does what the task asked. Files the team wrote are in the team folder: open them with read_file or list_dir and the same paths (not with a connector, whose paths start somewhere else). Something the work says it posted, sent or published counts only with proof (a link, or a page you checked). Then call team_review (as a tool, not as text): "approve", or "changes" with what is wrong and how to fix it. Do not ask for polish that the goal does not need.'
   ].join('\n\n');
 
@@ -263,7 +274,7 @@ function createTeams(deps) {
     };
     try {
       const text = String(await deps.runTurn({
-        agent, prompt, extraTools, signal, askWrites: t.askWrites, folder: t.folder || '', onUsage: usage(t), onStep, team: t.name,
+        agent, prompt, extraTools, signal, askWrites: t.askWrites, folder: folderOf(t), onUsage: usage(t), onStep, team: t.name,
         onApproval: {
           asked: (info) => { post(t, { from: agent.name, kind: 'approval', text: info.summary || 'Wants to use a tool', extra: { approvalId: info.id, decided: null } }); },
           done: (id, ok) => { const m = t.run.messages.find((x) => x.approvalId === id); if (m) { m.decided = !!ok; changed(t); } }
@@ -384,7 +395,7 @@ function createTeams(deps) {
     if (k.status === 'review') return review(t, k, reviewer);
     k.status = 'doing'; changed(t);
     await work(t, k);
-    k.status = reviewer && !same(reviewer, k.assignee) ? 'review' : 'done';
+    k.status = reviewer && !same(reviewer, k.assignee) && !k.direct ? 'review' : 'done'; // an answer to the user is not reviewed
   }
 
   // ---------- the loop ----------
@@ -402,6 +413,7 @@ function createTeams(deps) {
         if (!t.run.tasks.length) { await plan(t, false); continue; }
         if (t.run.tasks.every((k) => k.status === 'done')) {
           if (l.running.size) { await Promise.race(l.running.values()); continue; }
+          if (t.run.directOnly) { t.run.directOnly = false; finish(t, 'done'); break; } // only answered the user after the run: no new summary
           const summary = await turn(t, LEAD, [today(), `Team goal:\n${t.goal}`, `Finished tasks:\n${t.run.tasks.map((k) => `${taskLine(t, k)}\n${clip(k.result, 2500)}`).join('\n\n')}`, `Team room:\n${roomFor(t, '', 20)}`, 'All tasks are done. Write the final answer for the user from the results above only (do not add facts of your own): what the team delivered, files that were written, and anything left open or uncertain. Do not describe the process.'].join('\n\n'), [], 'Writing the summary');
           post(t, { kind: 'summary', text: summary || 'The team finished.' });
           if (summary) { const d = new Date(now()); const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; t.notebook = `${t.notebook ? t.notebook + '\n\n' : ''}## ${day}\n${clip(summary, 3000)}`.slice(-NOTEBOOK_MAX); }
@@ -470,7 +482,7 @@ function createTeams(deps) {
     get: (id) => find(id) || null,
     save(def) {
       const s = store();
-      const clean = cleanDef(def, roster());
+      const clean = cleanDef(def, roster(def && def.projectId ? { projectId: def.projectId } : null));
       if (def.id) {
         const t = need(def.id);
         Object.assign(t, clean);
@@ -519,26 +531,52 @@ function createTeams(deps) {
       return t;
     },
     stop(id) { const t = need(id); if (t.run.status === 'working' || t.run.status === 'paused') halt(t, 'stopped', 'user'); return t; },
-    /** A message from the user. During a run the agents read it in their next turn; after the end it starts a follow-up round. */
+    /**
+     * A message from the user. "@Name" makes that member answer and act on it next (its own task, ahead of the queue).
+     * A paused or failed run picks up again (with another budget slice when a limit stopped it); after the end the lead
+     * plans a follow-up round. Without a tag during a run, the members read it in their next turn.
+     */
     async say(id, text) {
       const t = need(id);
       const body = clip(text, 4000);
       if (!body) return t;
       const mention = t.members.find((m) => new RegExp('@' + m.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i').test(body));
       post(t, { from: 'you', to: mention ? mention.name : '', text: body });
-      if (t.run.status === 'done' || t.run.status === 'stopped' || t.run.status === 'idle') {
-        if (!t.run.startedAt) t.run.startedAt = now();
-        const l = L(t);
-        l.controller = new AbortController();
-        t.run.status = 'working'; t.run.reason = ''; t.run.resumedAt = now(); t.run.endedAt = 0; changed(t);
-        try {
-          const before = t.run.tasks.length;
-          await plan(t, true);
-          if (t.run.tasks.length > before) { drive(t); return t; }
-          finish(t, 'done');
-        } catch (e) {
-          if (!l.controller.signal.aborted) { post(t, { kind: 'error', text: e.message }); halt(t, 'failed', 'error'); }
-        }
+      const direct = () => {
+        const k = { id: uid(), title: clip(`The user wrote to you in the team room: "${body}". Answer them and do what they ask.`, 500), assignee: mention.name, status: 'todo', after: [], result: '', feedback: '', rounds: 0, fails: 0, direct: true };
+        t.run.tasks.unshift(k); // first in line
+        return k;
+      };
+      const st = t.run.status;
+      if (st === 'working') {
+        if (mention) { direct(); changed(t); drive(t); }
+        else post(t, { kind: 'status', text: 'The members read this in their next step. Tag one with @ to have them answer right away.' });
+        return t;
+      }
+      if (st === 'paused' || st === 'failed') {
+        t.run.directOnly = false;
+        if (mention) direct();
+        if (t.run.reason === 'budget') t.run.extraUsd = (t.run.extraUsd || 0) + (t.budgetUsd || 0);
+        if (t.run.reason === 'tokens') t.run.extraTokens = (t.run.extraTokens || 0) + (t.budgetTokens || 0);
+        if (t.run.reason === 'time') t.run.extraMin = (t.run.extraMin || 0) + (t.minutes || 0);
+        for (const k of t.run.tasks) k.fails = 0;
+        begin(t);
+        return t;
+      }
+      // done, stopped or not started yet
+      if (!t.run.startedAt) t.run.startedAt = now();
+      const l = L(t);
+      l.controller = new AbortController();
+      t.run.status = 'working'; t.run.reason = ''; t.run.resumedAt = now(); t.run.endedAt = 0; changed(t);
+      if (mention) { direct(); t.run.directOnly = true; changed(t); drive(t); return t; }
+      t.run.directOnly = false;
+      try {
+        const before = t.run.tasks.length;
+        await plan(t, true);
+        if (t.run.tasks.length > before) { drive(t); return t; }
+        finish(t, 'done');
+      } catch (e) {
+        if (!l.controller.signal.aborted) { post(t, { kind: 'error', text: e.message }); halt(t, 'failed', 'error'); }
       }
       return t;
     },

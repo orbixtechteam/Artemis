@@ -969,7 +969,8 @@ const teams = createTeams({
   load: () => readJson('teams', { teams: [] }),
   save: (d) => writeJson('teams', d),
   emit: (t) => { try { win?.webContents.send('teams:changed', t); } catch {} },
-  roster: () => agents.list(null),
+  roster: (root) => agents.list(root || null),
+  project: (id) => { const p = readJson('projects', []).find((x) => x.id === id); return p ? { id: p.id, name: p.name, folder: p.folder && fs.existsSync(p.folder) ? p.folder : '', instructions: p.instructions || '' } : null; },
   log: (m) => logger.warn('teams', m),
   runTurn: (o) => runTeamTurn(o),
   // team_hire: the lead adds a new agent (saved as one of the user's agents) when the team allows it
@@ -1681,7 +1682,8 @@ const hooksTools = {
 const teamsClient = require('./ipc/teams').createTeamsClient({ teams, scheduler, headlessActive: () => headlessActive(), headlessFetch: (...a) => headlessFetch(...a), logger });
 /** What the chat tools see: your agents and teams (create, change, start). */
 const teamsTools = {
-  agents: () => agents.list(null).map(({ file, ...a }) => a),
+  agents: (root) => agents.list(root || null).map(({ file, ...a }) => a),
+  projects: () => readJson('projects', []).map((p) => ({ id: p.id, name: p.name, folder: p.folder || '', instructions: p.instructions || '' })),
   saveAgent: (a) => agents.save(a),
   list: () => teamsClient.list(), get: (id) => teamsClient.get(id), save: (d) => teamsClient.save(d), start: (id) => teamsClient.act(id, 'start'), remove: (id) => teamsClient.remove(id)
 };

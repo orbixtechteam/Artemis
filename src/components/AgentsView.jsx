@@ -9,16 +9,19 @@ import { Avatar, Stack, LEAD, teamState, pendingAsks, usd, elapsed, modelLabel }
 
 // The team room you had open: the page unmounts when you switch tabs or pages, and comes back to the same room.
 let lastRoom = null;
+let pendingSheet = null;
+/** Other pages (a project) open a team's room or a new-team sheet here before switching to the Agents page. */
+export const agentsIntent = { room: (id) => { lastRoom = id; pendingSheet = null; }, newTeam: (projectId) => { lastRoom = null; pendingSheet = { projectId }; } };
 
 /** Agents: teams you deploy on a goal, the roster of agents, and helpers working inside chats right now. */
-export default function AgentsView({ settings, chats, runningIds, groups, onOpenChat }) {
+export default function AgentsView({ settings, chats, runningIds, groups, onOpenChat, projects = [] }) {
   const api = window.api;
   const chatGroups = groups.filter((g) => !/^(Image|Video)/.test(g.label));
   const [teams, setTeams] = useState([]);
   const [roster, setRoster] = useState([]);
   const [open, setOpenRaw] = useState(() => lastRoom); // id of the team whose room is shown
   const setOpen = (id) => { lastRoom = id; setOpenRaw(id); };
-  const [sheet, setSheet] = useState(null);     // team being created ({}) or edited
+  const [sheet, setSheet] = useState(() => { const s0 = pendingSheet; pendingSheet = null; return s0; }); // team being created ({}) or edited
   const [editing, setEditing] = useState(null); // agent in the editor
   const [, tick] = useState(0);
 
@@ -49,7 +52,7 @@ export default function AgentsView({ settings, chats, runningIds, groups, onOpen
   }
 
   const room = open && teams.find((t) => t.id === open);
-  const sheetEl = sheet && <DeploySheet team={sheet} roster={roster} chatGroups={chatGroups} onDone={closeSheet} onNewAgent={() => { setSheet(null); setEditing({ ...AGENT_BLANK }); }} />;
+  const sheetEl = sheet && <DeploySheet team={sheet} roster={roster} chatGroups={chatGroups} projects={projects} onDone={closeSheet} onNewAgent={() => { setSheet(null); setEditing({ ...AGENT_BLANK }); }} />;
   if (room) return <>{<TeamRoom team={room} roster={roster} you={settings.profileName || 'You'} onBack={() => setOpen(null)} onEdit={() => setSheet(room)} />}{sheetEl}</>;
 
   const live = liveAgents(chats, runningIds);
@@ -77,7 +80,7 @@ export default function AgentsView({ settings, chats, runningIds, groups, onOpen
           return (
             <button type="button" key={t.id} className="tm-team" onClick={() => setOpen(t.id)}>
               <div className="tm-team-top"><b>{t.name}</b><Stack names={[LEAD, ...t.members.map((m) => m.name)]} /><span className="tm-state"><i className={`tm-dot ${st.dot}`} />{st.label}</span></div>
-              <div className="tm-goal2">{t.goal}</div>
+              <div className="tm-goal2">{t.projectId && projects.some((p) => p.id === t.projectId) ? <span className="tm-proj">{projects.find((p) => p.id === t.projectId).name} · </span> : null}{t.goal}</div>
               {total > 0 && (
                 <div className="tm-prog">
                   <span className="tm-tr" role="progressbar" aria-label={`${t.name}: tasks done`} aria-valuenow={r.tasks.filter((k) => k.status === 'done').length} aria-valuemin={0} aria-valuemax={total}>
