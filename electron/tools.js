@@ -28,7 +28,7 @@ function outlineOf(text, name) {
 const WRITE_TOOLS = new Set(['library_write', 'library_edit', 'library_delete', 'notes_write', 'notes_append', 'notes_edit', 'write_file', 'edit_file', 'write_spreadsheet', 'update_cells', 'move_file', 'delete_file']);
 const ALWAYS_ASK = new Set(['delete_file', 'library_delete']);
 // These change what Artemis does by itself later (an endpoint on the internet, a check that costs tokens): asked every time.
-const ASK_EACH_TIME = new Set(['hook_create', 'hook_delete', 'heartbeat_set']);
+const ASK_EACH_TIME = new Set(['hook_create', 'hook_delete', 'heartbeat_set', 'heartbeat_delete']);
 // Tools that need one approval per task (per run), by category
 // A model can get stuck saving, deleting and re-saving the same memory. Memory may change a few times per task, then it is refused.
 const MEMORY_CHANGES_PER_TASK = 4;
@@ -337,14 +337,18 @@ function definitions({ makeEnabled, hasFolder, memoryEnabled, memorySearchEnable
       }, ['name', 'instructions']),
       fn('hook_list', 'Lists the webhooks with their URLs, checks, filters and last runs.', {}),
       fn('hook_delete', 'Deletes a webhook by id (from hook_list). Its URL stops working. Requires approval.', { id: { type: 'string' } }, ['id']),
-      fn('heartbeat_get', 'Shows the heartbeat: whether it is on, how often it checks, its active hours, the checklist in HEARTBEAT.md and the last result.', {}),
-      fn('heartbeat_set', 'Changes the heartbeat: a check Artemis runs every few minutes against the checklist in HEARTBEAT.md, silent unless something needs the user (then it tells them on Telegram). Use it when the user wants something watched continuously ("keep an eye on…", "tell me if…") rather than at fixed times. Each check is one model call, so keep the checklist short. Requires approval.', {
-        checklist: { type: 'string', description: 'The whole new HEARTBEAT.md: a title line "# Heartbeat" and one "- " line per item. Read heartbeat_get first and keep the items the user still wants.' },
+      fn('heartbeat_get', 'Lists the heartbeats (id, name, on/off, how often, hours, checklist, last result). A heartbeat is a short checklist Artemis checks every few minutes, silent unless something needs the user.', {}),
+      fn('heartbeat_set', 'Creates or changes a heartbeat: a checklist Artemis checks every few minutes, telling the user (Telegram) only when something needs them. Use it when the user wants something watched continuously ("keep an eye on…", "tell me if…") rather than at fixed times. Several heartbeats can run, each with its own interval and hours: make a new one (no id) for a separate subject with a different interval, change one by id (from heartbeat_get). Each check is one model call, so keep checklists short and intervals as long as the user accepts. Requires approval.', {
+        id: { type: 'string', description: 'Id of the heartbeat to change (from heartbeat_get). Leave empty to create a new one.' },
+        name: { type: 'string', description: 'Short name, e.g. "Inbox" or "Site uptime" (required for a new one)' },
+        checklist: { type: 'string', description: 'The whole checklist: one "- " line per item. When changing one, read heartbeat_get first and keep the items the user still wants.' },
         enabled: { type: 'boolean' },
-        every_minutes: { type: 'integer', description: 'Minutes between checks (5-1440, default 30)' },
-        active_from: { type: 'string', description: 'HH:MM, start of the active hours (local time)' },
-        active_to: { type: 'string', description: 'HH:MM, end of the active hours' }
-      }, [])
+        every_minutes: { type: 'integer', description: 'Minutes between checks (2-1440, default 30)' },
+        active_from: { type: 'string', description: 'HH:MM, start of the active hours (local time); leave both empty for day and night' },
+        active_to: { type: 'string', description: 'HH:MM, end of the active hours' },
+        notify_phone: { type: 'boolean', description: 'Send alerts to Telegram (default true)' }
+      }, []),
+      fn('heartbeat_delete', 'Deletes a heartbeat by id (from heartbeat_get). Requires approval.', { id: { type: 'string' } }, ['id'])
     );
   }
   if (phoneEnabled) {
@@ -592,7 +596,8 @@ function summarize(name, args) {
     case 'delete_schedule': return `Delete scheduled task ${args.id} (permanent)`;
     case 'hook_create': return `${args.id ? 'Change' : 'Create'} webhook "${args.name}" (${args.verify || 'token'}${Array.isArray(args.events) && args.events.length ? ', events: ' + args.events.join(', ') : ''}): an outside service can then start runs that do: ${String(args.instructions || '').slice(0, 160)}`;
     case 'hook_delete': return `Delete webhook ${args.id}`;
-    case 'heartbeat_set': { const p = []; if (args.enabled !== undefined) p.push(args.enabled ? 'switch on' : 'switch off'); if (args.every_minutes) p.push(`every ${args.every_minutes} min`); if (args.active_from || args.active_to) p.push(`${args.active_from || '…'}-${args.active_to || '…'}`); if (typeof args.checklist === 'string') p.push(`new checklist (${args.checklist.split('\n').filter((l) => /^\s*-/.test(l)).length} items)`); return 'Heartbeat: ' + (p.join(', ') || 'no change'); }
+    case 'heartbeat_set': { const p = []; if (args.enabled !== undefined) p.push(args.enabled ? 'switch on' : 'switch off'); if (args.every_minutes) p.push(`every ${args.every_minutes} min`); if (args.active_from || args.active_to) p.push(`${args.active_from || '…'}-${args.active_to || '…'}`); if (typeof args.checklist === 'string') p.push(`checklist with ${args.checklist.split('\n').filter((l) => /^\s*-/.test(l)).length} items`); return `${args.id ? 'Change heartbeat ' + (args.name ? `"${args.name}"` : args.id) : `New heartbeat "${args.name || ''}"`}: ` + (p.join(', ') || 'no change'); }
+    case 'heartbeat_delete': return `Delete heartbeat ${args.id}`;
     case 'write_file': return `Write ${args.path} (${(args.content || '').length} characters)`;
     case 'edit_file': return `Edit ${args.path}`;
     case 'write_spreadsheet': return `Create spreadsheet ${args.path}`;
@@ -1315,15 +1320,22 @@ async function runTool(name, args, ctx) {
         return { ok: true, text: 'Webhook deleted. Its URL no longer works; remove it in the other service too.' };
       }
       case 'heartbeat_get': {
-        if (!ctx.schedule || !ctx.schedule.heartbeat) throw new Error('The heartbeat is not available here.');
-        const h = ctx.schedule.heartbeat.status();
-        return { ok: true, text: `Heartbeat: ${h.enabled ? 'on' : 'off'}, every ${h.every} min${h.from && h.to && h.from !== h.to ? `, ${h.from}-${h.to}` : ''}${h.nextAt ? ', next ' + new Date(h.nextAt).toLocaleString() : ''}. Last: ${h.lastStatus || 'never'}${h.lastRun ? ' at ' + new Date(h.lastRun).toLocaleString() : ''}${h.lastError ? ' (' + h.lastError + ')' : ''}.\nHEARTBEAT.md:\n${h.checklist || '(empty)'}` };
+        if (!ctx.schedule || !ctx.schedule.heartbeat) throw new Error('Heartbeats are not available here.');
+        const l = ctx.schedule.heartbeat.list();
+        if (!l.length) return { ok: true, text: 'No heartbeats.' };
+        return { ok: true, text: l.map((h) => `${h.id} · "${h.name}" · ${h.enabled ? 'on' : 'off'} · every ${h.every} min · ${h.from && h.to && h.from !== h.to ? `${h.from}-${h.to}` : 'day and night'}${h.nextAt ? ' · next ' + new Date(h.nextAt).toLocaleString() : ''} · last: ${h.lastStatus || 'never'}${h.lastError ? ' (' + h.lastError + ')' : ''}\n${require('./core/heartbeat').checklistText(h.checklist) || '(empty)'}`).join('\n\n') };
       }
       case 'heartbeat_set': {
-        if (!ctx.schedule || !ctx.schedule.heartbeat) throw new Error('The heartbeat is not available here.');
-        const h = ctx.schedule.heartbeat.set({ checklist: typeof args.checklist === 'string' ? args.checklist : undefined, enabled: args.enabled, every: args.every_minutes, from: args.active_from, to: args.active_to });
+        if (!ctx.schedule || !ctx.schedule.heartbeat) throw new Error('Heartbeats are not available here.');
+        const h = ctx.schedule.heartbeat.save({ id: args.id ? String(args.id) : undefined, name: args.name, checklist: typeof args.checklist === 'string' ? args.checklist : undefined, enabled: args.enabled, every: args.every_minutes, from: args.active_from, to: args.active_to, phone: args.notify_phone });
         const warn = h.enabled && !ctx.phone ? ' Telegram is not connected and paired, so alerts only appear as chats and notifications on this computer.' : '';
-        return { ok: true, text: `Heartbeat ${h.enabled ? 'on' : 'off'}, every ${h.every} min${h.from && h.to && h.from !== h.to ? `, ${h.from}-${h.to}` : ''}.${h.nextAt ? ' Next check ' + new Date(h.nextAt).toLocaleString() + '.' : ''}${warn}` };
+        const perDay = Math.round((h.from && h.to && h.from !== h.to ? (((+h.to.slice(0, 2) * 60 + +h.to.slice(3)) - (+h.from.slice(0, 2) * 60 + +h.from.slice(3)) + 1440) % 1440 || 1440) : 1440) / h.every);
+        return { ok: true, text: `Heartbeat "${h.name}" (id ${h.id}) ${h.enabled ? 'on' : 'off'}, every ${h.every} min, ${h.from && h.to && h.from !== h.to ? `${h.from}-${h.to}` : 'day and night'} (about ${perDay} checks a day).${h.nextAt ? ' Next check ' + new Date(h.nextAt).toLocaleString() + '.' : ''}${warn}` };
+      }
+      case 'heartbeat_delete': {
+        if (!ctx.schedule || !ctx.schedule.heartbeat) throw new Error('Heartbeats are not available here.');
+        ctx.schedule.heartbeat.remove(String(args.id));
+        return { ok: true, text: 'Heartbeat deleted.' };
       }
       case 'delete_schedule': {
         if (!ctx.schedule) throw new Error('Scheduled tasks are not available here.');

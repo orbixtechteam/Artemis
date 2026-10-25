@@ -21,7 +21,7 @@ const { createSkills } = require('../skills');
 const { createAgents } = require('../subagents');
 const { createNotes } = require('../notes');
 const { createScheduler } = require('../scheduler');
-const { createHeartbeat } = require('./heartbeat');
+const { createHeartbeats, fromSettings: hbFromSettings, fileOf: hbFileOf } = require('./heartbeat');
 const { createHooks } = require('./hooks');
 const { createHookService } = require('./hookservice');
 const { checkLimits } = require('../limits');
@@ -269,11 +269,15 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
     if (ph) await ph.send(`${icon} ${title}\n\n${String(text).slice(0, 3500)}`);
     else log('warn', source, `${title}: should go to the phone, but Telegram is not connected and paired`);
   }
-  const heartbeat = createHeartbeat({
-    settings, checklist: () => (ws ? ws.readText('HEARTBEAT.md') || '' : null),
+  const heartbeat = createHeartbeats({
+    list: () => readJson('heartbeats', null) || hbFromSettings(settings()),
+    saveList: (l) => writeJson('heartbeats', l),
+    checklist: (hb) => (ws ? ws.readText(hbFileOf(hb)) || '' : null),
+    writeChecklist: (hb, text) => { if (!ws) throw new Error('Heartbeats need the memory workspace.'); const f = ws.abs(hbFileOf(hb)); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f + '.tmp', text.endsWith('\n') ? text : text + '\n'); fs.renameSync(f + '.tmp', f); },
+    removeChecklist: (hb) => { if (ws) fs.rmSync(ws.abs(hbFileOf(hb)), { force: true }); },
     run: ({ prompt, model }) => backgroundRun({ prompt, model, source: 'heartbeat' }),
-    deliver: ({ text, model }) => backgroundTell({ title: 'Heartbeat', user: 'Heartbeat check (HEARTBEAT.md)', text, model, source: 'heartbeat', phone: settings().heartbeatPhone !== false, icon: '💓' }),
-    readState: () => readJson('heartbeat', {}), writeState: (x) => writeJson('heartbeat', x), log: L('heartbeat')
+    deliver: ({ text, model, hb }) => backgroundTell({ title: hb.name === 'Heartbeat' ? 'Heartbeat' : `Heartbeat: ${hb.name}`, user: `Heartbeat check (${hbFileOf(hb)})`, text, model, source: 'heartbeat', phone: hb.phone !== false, icon: '💓' }),
+    readState: () => readJson('heartbeat-state', {}), writeState: (x) => writeJson('heartbeat-state', x), log: L('heartbeat')
   });
   const hooks = createHooks({
     read: () => readJson('hooks', []), write: (l) => writeJson('hooks', l, 0o600),
@@ -293,17 +297,9 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
     remove: (id) => hooks.remove(id), info: () => hookService.info()
   };
   const heartbeatTools = {
-    status: () => ({ ...heartbeat.status(), checklist: (ws && ws.readText('HEARTBEAT.md')) || '' }),
-    set: ({ checklist, every, enabled, from, to }) => {
-      if (typeof checklist === 'string') { if (!ws) throw new Error('The heartbeat needs the memory workspace.'); const f = ws.abs('HEARTBEAT.md'); fs.writeFileSync(f + '.tmp', checklist.endsWith('\n') ? checklist : checklist + '\n'); fs.renameSync(f + '.tmp', f); }
-      const patch = {};
-      if (every !== undefined) patch.heartbeatEvery = Math.min(1440, Math.max(5, Number(every) || 30));
-      if (enabled !== undefined) patch.heartbeatEnabled = !!enabled;
-      if (from !== undefined) patch.heartbeatFrom = String(from || '');
-      if (to !== undefined) patch.heartbeatTo = String(to || '');
-      if (Object.keys(patch).length) writeJson('settings', { ...settings(), ...patch });
-      return heartbeatTools.status();
-    }
+    list: () => heartbeat.status(),
+    save: (o) => { const hb = heartbeat.save(o); return heartbeat.status().find((x) => x.id === hb.id); },
+    remove: (id) => heartbeat.remove(id)
   };
   let hookTimer = null;
 

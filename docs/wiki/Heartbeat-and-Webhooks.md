@@ -10,7 +10,7 @@ In chat, just say it: *"every 30 minutes on weekdays from 9 to 6, check …"*. I
 
 ## Heartbeat
 
-A short checklist, `HEARTBEAT.md` in the memory workspace, that Artemis goes through every few minutes:
+A heartbeat is a short checklist that Artemis goes through every few minutes. You can have several, each with its own name, checklist, interval (2 minutes to 24 hours), hours and model: for example *Inbox* every 10 minutes and *Website* every 6 hours (Scheduled → Heartbeat → New heartbeat). The first one keeps its checklist in `HEARTBEAT.md` in the memory workspace, the others in `heartbeats/<id>.md`:
 
 ```markdown
 # Heartbeat
@@ -23,13 +23,13 @@ A short checklist, `HEARTBEAT.md` in the memory workspace, that Artemis goes thr
 - The same alert is not sent twice within 24 hours, and the last alert is shown to the model so it does not repeat itself.
 - Day and night by default; you can limit it to hours (*Only between…*, e.g. 08:00–23:00, or 22:00–06:00 across midnight).
 - Off by default. With an empty checklist no check runs at all.
-- In chat: *"keep an eye on my inbox for messages from the bank"* → `heartbeat_set` (asks for approval every time).
+- In chat: *"keep an eye on my inbox for messages from the bank, every 5 minutes"* → `heartbeat_set` creates or changes a heartbeat; `heartbeat_get` lists them and `heartbeat_delete` removes one (changes ask for approval every time).
 
 It is the right tool for "tell me when …" without a fixed time; a scheduled task is the right tool for "every morning at 9 …".
 
 ### Cost
 
-Each check is one model call: the system prompt and tools plus the checklist, about 5–8 thousand input tokens and a few output tokens. When an item needs a tool (your mail through a connector, a web search) each extra step sends the context again, so such a check costs 2–4 times as much. Rough numbers for **every 30 minutes, day and night (48 checks a day)**:
+Each check is one model call: the system prompt and tools plus the checklist, about 5–8 thousand input tokens and a few output tokens. When an item needs a tool (your mail through a connector, a web search) each extra step sends the context again, so such a check costs 2–4 times as much. The heartbeat editor shows how many checks a day its settings make. Rough numbers for **every 30 minutes, day and night (48 checks a day)**:
 
 | Model | Per day | Per month |
 | --- | --- | --- |
@@ -38,7 +38,7 @@ Each check is one model call: the system prompt and tools plus the checklist, ab
 | Claude Haiku | ~$0.3 | ~$9 |
 | Claude Sonnet | ~$0.9 | ~$27 |
 
-Prices change and depend on your provider; prompt caching (DeepSeek, Anthropic) lowers them, because most of each check is the same as the last one. To keep it cheap: pick a cheap **model** for the heartbeat (Scheduled → Heartbeat → Model), keep the checklist to a few items, use 30–60 minutes, and limit the hours if night checks are not needed. Every check shows up in Settings → Usage as source `heartbeat`.
+Prices change and depend on your provider; prompt caching (DeepSeek, Anthropic) lowers them, because most of each check is the same as the last one. Every 2 minutes is 720 checks a day, 15 times the table above. To keep it cheap: pick a cheap **model** for each heartbeat, keep checklists to a few items, give fast intervals only to what really needs them, and limit the hours if night checks are not needed. Every check shows up in Settings → Usage as source `heartbeat`.
 
 ## Webhooks
 
@@ -84,4 +84,4 @@ curl -X POST http://127.0.0.1:8790/hooks/form \
   -d '{"type":"signup","name":"Ali","email":"ali@example.com"}'
 ```
 
-Files: `electron/scheduler.js`, `electron/core/heartbeat.js`, `hooks.js`, `hookservice.js`, `tunnel.js`. State: `<data>/heartbeat.json`, `hooks.json` (private, it holds the secrets), `hooks-state.json`.
+Files: `electron/scheduler.js`, `electron/core/heartbeat.js`, `hooks.js`, `hookservice.js`, `tunnel.js`. State: `<data>/heartbeats.json` (the list), `heartbeat-state.json`, `hooks.json` (private, it holds the secrets), `hooks-state.json`.

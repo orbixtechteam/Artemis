@@ -4,17 +4,12 @@ module.exports = function registerAutomationIpc(d) {
   const wrap = (f) => async (...a) => { try { return { ok: true, ...(await f(...a)) }; } catch (e) { return { ok: false, error: (e && e.message) || String(e) }; } };
   const resync = () => { if (!headlessActive()) hookService.sync().catch(() => {}); }; // the headless gateway picks up settings by itself
 
-  ipcMain.handle('heartbeat:status', wrap(() => ({ status: heartbeatTools.status(), headless: headlessActive() })));
-  ipcMain.handle('heartbeat:set', wrap((_e, o = {}) => {
-    const patch = {};
-    if (o.model !== undefined) patch.heartbeatModel = String(o.model || '');
-    if (o.phone !== undefined) patch.heartbeatPhone = !!o.phone;
-    if (Object.keys(patch).length) saveSettings(patch);
-    return { status: heartbeatTools.set(o) };
-  }));
-  ipcMain.handle('heartbeat:run', wrap(async () => {
-    if (headlessActive()) throw new Error('The headless gateway runs the heartbeat now; it checks at the next interval.');
-    return { result: await heartbeat.beat() };
+  ipcMain.handle('heartbeat:list', wrap(() => ({ heartbeats: heartbeatTools.list(), headless: headlessActive() })));
+  ipcMain.handle('heartbeat:save', wrap((_e, o = {}) => ({ heartbeat: heartbeatTools.save(o), heartbeats: heartbeatTools.list() })));
+  ipcMain.handle('heartbeat:delete', wrap((_e, id) => { heartbeatTools.remove(String(id)); return { heartbeats: heartbeatTools.list() }; }));
+  ipcMain.handle('heartbeat:run', wrap(async (_e, id) => {
+    if (headlessActive()) throw new Error('The background gateway runs the heartbeats now; it checks at the next interval.');
+    return { result: await heartbeat.beat(String(id)) };
   }));
 
   const withUrls = () => { const info = hooksInfo(); return { info, hooks: hooks.list().map((h) => ({ ...h, urls: hookUrls(h, info) })) }; };

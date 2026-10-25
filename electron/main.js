@@ -278,7 +278,7 @@ const DEFAULT_SETTINGS = {
   embeddingModel: '', // prov:<provider>:<model> for memory_search by meaning; empty = keywords only
   workspaceFolder: '', // empty = <userData>/workspace
   gatewayEnabled: false, gatewayPort: 8789, gatewayTokenEnc: null, gatewayModel: '', gatewayRestrict: false,
-  // heartbeat: a check of HEARTBEAT.md every few minutes within active hours; silent unless something needs attention
+  // the first heartbeat before heartbeats.json exists (core/heartbeat.js fromSettings); the list itself lives in heartbeats.json
   heartbeatEnabled: false, heartbeatEvery: 30, heartbeatFrom: '', heartbeatTo: '', heartbeatModel: '', heartbeatPhone: true, // no hours = day and night
   // webhooks: their own port (only /hooks/<name>), optionally on the internet through a Cloudflare tunnel ('quick' or 'named')
   hooksEnabled: false, hooksPort: 8790, hooksTunnel: 'off', hooksPublicUrl: '', hooksTunnelTokenEnc: null
@@ -1546,12 +1546,17 @@ async function backgroundTell({ title, user, text, model, source, phone, icon })
     else logger.warn('app', `${title}: should go to the phone, but Telegram is not connected and paired`);
   }
 }
-const heartbeat = require('./core/heartbeat').createHeartbeat({
-  settings: () => getSettings(),
-  checklist: () => { const c = initCore(); return c.ws ? (c.ws.readText('HEARTBEAT.md') || '') : null; },
+const hbLib = require('./core/heartbeat');
+const wsFile = (rel) => { const c = initCore(); return c.ws ? c.ws.abs(rel) : null; };
+const heartbeat = hbLib.createHeartbeats({
+  list: () => readJson('heartbeats', null) || hbLib.fromSettings(getSettings()), // the old single heartbeat (settings) until the list is first saved
+  saveList: (l) => { writeJson('heartbeats', l); toWinSafe('automation:changed', {}); },
+  checklist: (hb) => { const c = initCore(); return c.ws ? (c.ws.readText(hbLib.fileOf(hb)) || '') : null; },
+  writeChecklist: (hb, text) => { const f = wsFile(hbLib.fileOf(hb)); if (!f) throw new Error('Heartbeats need the memory workspace (Settings → Tools → Memory).'); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f + '.tmp', text.endsWith('\n') ? text : text + '\n'); fs.renameSync(f + '.tmp', f); },
+  removeChecklist: (hb) => { const f = wsFile(hbLib.fileOf(hb)); if (f) fs.rmSync(f, { force: true }); },
   run: ({ prompt, model }) => backgroundRun({ prompt, model, source: 'heartbeat' }),
-  deliver: ({ text, model }) => backgroundTell({ title: 'Heartbeat', user: 'Heartbeat check (HEARTBEAT.md)', text, model, source: 'heartbeat', phone: getSettings().heartbeatPhone !== false, icon: '💓' }),
-  readState: () => readJson('heartbeat', {}), writeState: (x) => { writeJson('heartbeat', x); toWinSafe('automation:changed', {}); },
+  deliver: ({ text, model, hb }) => backgroundTell({ title: hb.name === 'Heartbeat' ? 'Heartbeat' : `Heartbeat: ${hb.name}`, user: `Heartbeat check (${hbLib.fileOf(hb)})`, text, model, source: 'heartbeat', phone: hb.phone !== false, icon: '💓' }),
+  readState: () => readJson('heartbeat-state', {}), writeState: (x) => { writeJson('heartbeat-state', x); toWinSafe('automation:changed', {}); },
   log: coreLog('heartbeat')
 });
 const hooksLib = require('./core/hooks');
@@ -1583,19 +1588,9 @@ const hooksTools = {
   remove: (id) => hooks.remove(id), info: () => hooksInfo()
 };
 const heartbeatTools = {
-  status: () => ({ ...heartbeat.status(), phone: getSettings().heartbeatPhone !== false, checklist: (initCore().ws && initCore().ws.readText('HEARTBEAT.md')) || '' }),
-  set: ({ checklist, every, enabled, from, to }) => {
-    const c = initCore();
-    if (typeof checklist === 'string') { if (!c.ws) throw new Error('The heartbeat needs the memory workspace (Settings → Tools → Memory).'); writeWorkspaceFile('HEARTBEAT.md', checklist); }
-    const patch = {};
-    if (every !== undefined) patch.heartbeatEvery = Math.min(1440, Math.max(5, Number(every) || 30));
-    if (enabled !== undefined) patch.heartbeatEnabled = !!enabled;
-    if (from !== undefined) patch.heartbeatFrom = String(from || '');
-    if (to !== undefined) patch.heartbeatTo = String(to || '');
-    if (Object.keys(patch).length) saveSettings(patch);
-    toWinSafe('automation:changed', {});
-    return heartbeatTools.status();
-  }
+  list: () => heartbeat.status(),
+  save: (o) => { const hb = heartbeat.save(o); toWinSafe('automation:changed', {}); return heartbeat.status().find((x) => x.id === hb.id); },
+  remove: (id) => { heartbeat.remove(id); toWinSafe('automation:changed', {}); }
 };
 
 // ---------- built-in terminal ----------

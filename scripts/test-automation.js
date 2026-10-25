@@ -4,7 +4,7 @@ const http = require('http');
 const crypto = require('crypto');
 const { EventEmitter } = require('events');
 const { nextRunAfter, validate, describe, preview } = require('../electron/scheduler');
-const { createHeartbeat, parseReply, inActiveHours, checklistText, TEMPLATE } = require('../electron/core/heartbeat');
+const { createHeartbeats, fromSettings, parseReply, inActiveHours, checklistText, TEMPLATE } = require('../electron/core/heartbeat');
 const hooksLib = require('../electron/core/hooks');
 const { createTunnel } = require('../electron/core/tunnel');
 const { createHookService } = require('../electron/core/hookservice');
@@ -61,48 +61,63 @@ function req(port, path, { method = 'POST', headers = {}, body = '' } = {}) {
 }
 
 (async () => {
-  // ---- heartbeat ----
+  // ---- heartbeats ----
   {
-    let t = at(2026, 10, 25, 9, 0), st = {}, checklist = TEMPLATE, reply = 'HEARTBEAT_OK';
-    const settings = { heartbeatEnabled: true, heartbeatEvery: 30, heartbeatFrom: '08:00', heartbeatTo: '23:00', heartbeatModel: 'cheap' };
+    let t = at(2026, 10, 25, 9, 0), st = {}, list = fromSettings({ heartbeatEnabled: true, heartbeatEvery: 30, heartbeatFrom: '08:00', heartbeatTo: '23:00', heartbeatModel: 'cheap' });
+    const files = { main: TEMPLATE };
+    let reply = 'HEARTBEAT_OK';
     const calls = [], delivered = [];
-    const hb = createHeartbeat({
-      settings: () => settings, checklist: () => checklist, now: () => t,
-      run: async ({ prompt, model }) => { calls.push({ prompt, model }); return typeof reply === 'function' ? reply() : { text: reply }; },
-      deliver: async ({ text }) => { delivered.push(text); },
+    const hb = createHeartbeats({
+      list: () => list, saveList: (l) => { list = l; },
+      checklist: (h) => (h.id in files ? files[h.id] : ''), writeChecklist: (h, text) => { files[h.id] = text; }, removeChecklist: (h) => { delete files[h.id]; },
+      now: () => t,
+      run: async ({ prompt, model, hb: h }) => { calls.push({ prompt, model, id: h.id }); return typeof reply === 'function' ? reply(h) : { text: reply }; },
+      deliver: async ({ text, hb: h }) => { delivered.push([h.id, text]); },
       readState: () => st, writeState: (s) => { st = s; }
     });
-    assert.strictEqual((await hb.tick()).status, 'empty'); // the template has no items: no model call
+    assert.strictEqual(list[0].id, 'main');
+    assert.strictEqual((await Promise.all(hb.tick()))[0].status, 'empty'); // the template has no items: no model call
     assert.strictEqual(calls.length, 0);
-    assert.strictEqual(hb.tick(), null); // not due yet
+    assert.strictEqual(hb.tick().length, 0); // not due yet
     t += 30 * 60000;
-    checklist = '# Heartbeat\n- If the bank emailed, tell me.';
-    assert.strictEqual((await hb.tick()).status, 'ok');
-    assert.strictEqual(calls.length, 1);
+    files.main = '# Heartbeat\n- If the bank emailed, tell me.';
+    assert.strictEqual((await Promise.all(hb.tick()))[0].status, 'ok');
     assert.strictEqual(calls[0].model, 'cheap');
     assert.ok(calls[0].prompt.includes('<HEARTBEAT.md>\n- If the bank emailed, tell me.\n</HEARTBEAT.md>'));
-    assert.strictEqual(delivered.length, 0);
     t += 30 * 60000; reply = 'The bank emailed: your card is blocked.';
-    assert.strictEqual((await hb.tick()).status, 'alert');
-    assert.deepStrictEqual(delivered, ['The bank emailed: your card is blocked.']);
+    assert.strictEqual((await Promise.all(hb.tick()))[0].status, 'alert');
+    assert.deepStrictEqual(delivered, [['main', 'The bank emailed: your card is blocked.']]);
     t += 30 * 60000;
-    const r = await hb.tick();
-    assert.strictEqual(r.status, 'duplicate'); // same text within a day is not sent again
+    assert.strictEqual((await Promise.all(hb.tick()))[0].status, 'duplicate'); // same text within a day is not sent again
     assert.ok(calls[2].prompt.includes('Your last alert'));
-    assert.strictEqual(delivered.length, 1);
     t = at(2026, 10, 25, 23, 30); // outside the active hours
-    assert.strictEqual(hb.tick(), null);
-    t = at(2026, 10, 26, 8, 5); reply = () => ({ text: '', error: 'model down' });
-    assert.strictEqual((await hb.tick()).status, 'error');
-    assert.strictEqual(hb.status().lastError, 'model down');
-    settings.heartbeatEnabled = false; t += 3600000;
-    assert.strictEqual(hb.tick(), null);
-    assert.strictEqual(hb.status().nextAt, null);
-    reply = 'HEARTBEAT_OK';
-    assert.strictEqual((await hb.beat()).status, 'ok'); // by hand, even while switched off
-    assert.strictEqual(st.runs, 5);
-    settings.heartbeatEnabled = true;
-    assert.ok(hb.status().nextAt >= t);
+    assert.strictEqual(hb.tick().length, 0);
+    // a second heartbeat with its own interval, all day
+    assert.throws(() => hb.save({ name: 'Too fast', every: 1 }), /2 minutes/);
+    assert.throws(() => hb.save({ name: '' }), /name/);
+    const site = hb.save({ name: 'Site', every: 2, enabled: true, checklist: '# Site\n- If https://example.com is down, tell me.' });
+    assert.ok(site.id !== 'main' && files[site.id]);
+    reply = (h) => ({ text: h.id === 'main' ? 'HEARTBEAT_OK' : 'example.com is down.' });
+    let r = await Promise.all(hb.tick());
+    assert.deepStrictEqual(r.map((x) => x.status), ['alert']); // only the site check is due at 23:30
+    assert.ok(calls[calls.length - 1].prompt.includes('("Site")'));
+    t += 60000; assert.strictEqual(hb.tick().length, 0);
+    t += 60000; r = await Promise.all(hb.tick()); assert.deepStrictEqual(r.map((x) => x.status), ['duplicate']);
+    const sts = hb.status();
+    assert.strictEqual(sts.length, 2);
+    assert.strictEqual(sts[1].items, 1);
+    assert.strictEqual(sts[1].every, 2);
+    assert.strictEqual(sts[0].items, 1);
+    hb.save({ id: site.id, enabled: false });
+    t += 3600000; assert.strictEqual(hb.tick().length, 0);
+    assert.strictEqual(hb.status()[1].nextAt, null);
+    assert.strictEqual((await hb.beat(site.id)).status, 'duplicate'); // by hand, even while switched off
+    hb.remove(site.id);
+    assert.strictEqual(list.length, 1); assert.ok(!(site.id in files)); assert.ok(!(site.id in st));
+    reply = () => ({ text: '', error: 'model down' });
+    t = at(2026, 10, 26, 8, 5);
+    assert.strictEqual((await Promise.all(hb.tick()))[0].status, 'error');
+    assert.strictEqual(hb.status()[0].lastError, 'model down');
   }
 
   // ---- webhook checks ----
