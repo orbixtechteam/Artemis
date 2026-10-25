@@ -201,7 +201,11 @@ function createCliAgents(deps) {
       child.on('close', (code) => finish(() => {
         if (buf.trim()) { try { reader.line(JSON.parse(buf.trim())); } catch {} }
         const r = reader.end();
-        const tail = errTail.trim() ? errTail.trim().split('\n').slice(-2).join(' ').slice(0, 300) : '';
+        if (errTail.trim()) log(`${kind} exited (${code}). Its error output:\n${errTail.trim()}`);
+        // a Node crash ends with a stack and "Node.js vX": the line that says what went wrong is the "...Error: ..." one
+        const lines = errTail.trim().split('\n').map((x) => x.trim()).filter(Boolean);
+        const why = lines.find((x) => /^(\w*Error|Error)\b.*:|^error:/i.test(x)) || lines.filter((x) => !/^at |^Node\.js v/.test(x)).slice(-2).join(' ');
+        const tail = String(why || '').slice(0, 400);
         if (r.error) return reject(cliError(kind, r.error));
         if (r.final === null) return reject(NOT_SIGNED_IN.test(tail) ? cliError(kind, tail) : new Error(`${KINDS[kind].label} exited (${code}) without an answer.${tail ? ' ' + tail : ''}`));
         resolve(r.final);
