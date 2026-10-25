@@ -14,7 +14,7 @@ let pendingSheet = null;
 export const agentsIntent = { room: (id) => { lastRoom = id; pendingSheet = null; }, newTeam: (projectId) => { lastRoom = null; pendingSheet = { projectId }; } };
 
 /** Agents: teams you deploy on a goal, the roster of agents, and helpers working inside chats right now. */
-export default function AgentsView({ settings, chats, runningIds, groups, onOpenChat, projects = [] }) {
+export default function AgentsView({ settings, chats, runningIds, groups, onOpenChat, projects = [], avatar = null }) {
   const api = window.api;
   const chatGroups = groups.filter((g) => !/^(Image|Video)/.test(g.label));
   const [teams, setTeams] = useState([]);
@@ -53,7 +53,7 @@ export default function AgentsView({ settings, chats, runningIds, groups, onOpen
 
   const room = open && teams.find((t) => t.id === open);
   const sheetEl = sheet && <DeploySheet team={sheet} roster={roster} chatGroups={chatGroups} projects={projects} onDone={closeSheet} onNewAgent={() => { setSheet(null); setEditing({ ...AGENT_BLANK }); }} />;
-  if (room) return <>{<TeamRoom team={room} roster={roster} you={settings.profileName || 'You'} onBack={() => setOpen(null)} onEdit={() => setSheet(room)} />}{sheetEl}</>;
+  if (room) return <>{<TeamRoom team={room} roster={roster} you={settings.profileName || 'You'} youAvatar={avatar} onBack={() => setOpen(null)} onEdit={() => setSheet(room)} />}{sheetEl}</>;
 
   const live = liveAgents(chats, runningIds);
   const busyIn = (name) => { for (const t of teams) { const l = Object.values((t.run && t.run.live) || {}).find((x) => x.name === name); if (l) return { team: t, what: l.what }; } return null; };

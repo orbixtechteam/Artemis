@@ -248,6 +248,16 @@ function fakeSpawn(lines, { code = 0, hang = false, stderr = '' } = {}) {
     await assert.rejects(noCli({ agent: { name: 'H', model: 'cli:claude' }, prompt: 'p', extraTools: [], signal: new AbortController().signal, onUsage: () => {}, onApproval }), /run in the Artemis app, not in the background gateway/);
     fs.rmSync(work, { recursive: true, force: true });
     console.log('cli-agents: team runner hand-off ok');
+    // with cliChat, a CLI member runs through the agent loop: Artemis's tools for its groups (the browser …) go to the CLI
+    let got = null;
+    const viaChat = createTeamRunner({ ...base, cliChat: { turn: async () => 'x' }, tools: ({ caps }) => ({ browser: caps.has('browser') ? { fake: true } : null }),
+      runAgent: async (o) => { got = o; o.send({ type: 'chunk', text: 'posted' }); } });
+    const out2 = await viaChat({ agent: { name: 'Pip', model: 'Claude Code', tools: ['browser', 'read'] }, prompt: 'p', extraTools: [], signal: new AbortController().signal, askWrites: false, onUsage: () => {}, onApproval, folder: os.tmpdir() });
+    assert.strictEqual(out2, 'posted');
+    assert.strictEqual(got.cli.kind, 'claude', '"Claude Code" as written in a prompt is cli:claude');
+    assert.deepStrictEqual(got.browser, { fake: true });
+    assert.strictEqual(got.mcpLazy, false); assert.strictEqual(got.autoAll, true);
+    console.log('cli-agents: CLI member with Artemis tools ok');
   }
   {
     // chats: earlier turns go in as a transcript, the new message last

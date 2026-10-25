@@ -1008,6 +1008,7 @@ const runTeamTurn = require('./core/teamrun').createTeamRunner({
   phone: () => (remote && remote.phone()) || null,
   notify: (title, body) => { if (win && !win.isDestroyed() && !win.isFocused() && Notification.isSupported()) new Notification({ title, body }).show(); },
   cli: cliTeam,
+  cliChat, // Claude Code / Codex members get Artemis's tools for their groups (the browser …), as in a chat on that CLI
   log: (lv, m) => (logger[lv] || logger.info)('teams', m)
 });
 

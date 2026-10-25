@@ -212,3 +212,4 @@ button.tm-hand:hover { background: var(--fill-2); }
 .proj-teams-head { display: flex; align-items: center; justify-content: space-between; }
 .proj-teams-head .link-btn { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
 .proj-chat .tm-dot { display: inline-block; vertical-align: middle; }
+img.tm-av.you { object-fit: cover; padding: 0; background: none; }
