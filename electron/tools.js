@@ -296,12 +296,13 @@ function definitions({ makeEnabled, hasFolder, memoryEnabled, memorySearchEnable
       fn('schedule_task', 'Creates a scheduled task: a prompt that Artemis runs by itself later or on a repeat (shown in the Scheduled page). Use it when the user asks to do something at a time, every day/week, or "remind me". Each run starts a fresh chat with the prompt, so the prompt must be complete and self-contained. Requires approval.', {
         name: { type: 'string', description: 'Short name, e.g. "Morning news summary"' },
         prompt: { type: 'string', description: 'Exactly what to do on each run, complete and self-contained. An instruction to the assistant, unless reminder is true.' },
-        repeat: { type: 'string', enum: ['once', 'interval', 'daily', 'weekdays', 'weekly', 'monthly', 'cron'] },
-        at: { type: 'string', description: 'Time of day HH:MM (24h, the user\'s local time). Not used for interval or cron.' },
-        cron: { type: 'string', description: 'For repeat=cron: a 5-field cron expression in local time, "minute hour day-of-month month day-of-week", e.g. "*/30 9-18 * * 1-5" (every 30 min in working hours) or "0 9 1,15 * *". Use it when the other repeat types cannot say it. At most every 5 minutes.' },
+        repeat: { type: 'string', enum: ['once', 'interval', 'custom', 'daily', 'weekdays', 'weekly', 'monthly'], description: 'custom = every N minutes, only between two times of day and/or only on some weekdays (e.g. every 30 min from 09:00 to 18:00 on weekdays)' },
+        at: { type: 'string', description: 'Time of day HH:MM (24h, the user\'s local time). Not used for interval or custom.' },
+        from: { type: 'string', description: 'For custom: start of the daily window HH:MM (optional)' },
+        to: { type: 'string', description: 'For custom: end of the daily window HH:MM (optional; may be earlier than from to run past midnight)' },
         date: { type: 'string', description: 'For once: the date YYYY-MM-DD' },
-        every_minutes: { type: 'integer', description: 'For interval: minutes between runs (minimum 5)' },
-        days: { type: 'array', items: { type: 'integer' }, description: 'For weekly: weekdays, 0=Sunday … 6=Saturday' },
+        every_minutes: { type: 'integer', description: 'For interval and custom: minutes between runs (minimum 5)' },
+        days: { type: 'array', items: { type: 'integer' }, description: 'For weekly and custom: weekdays, 0=Sunday … 6=Saturday' },
         day_of_month: { type: 'integer', description: 'For monthly: 1-31' },
         reminder: { type: 'boolean', description: 'Set true for a plain reminder. Then prompt is the exact message shown to the user, written to them (for example "Time to drink a glass of water!"), and no AI runs. Use this whenever the user only wants to be reminded of something.' },
         notify_phone: { type: 'boolean', description: 'Send the result to the user\'s phone (Telegram) after every run. Set true whenever the user says to send, notify or message them on their phone or Telegram.' },
@@ -312,12 +313,13 @@ function definitions({ makeEnabled, hasFolder, memoryEnabled, memorySearchEnable
         id: { type: 'string', description: 'Id of the task, from list_schedules' },
         name: { type: 'string' },
         prompt: { type: 'string', description: 'New text (an instruction for the assistant, or the exact message when reminder is true)' },
-        repeat: { type: 'string', enum: ['once', 'interval', 'daily', 'weekdays', 'weekly', 'monthly', 'cron'] },
+        repeat: { type: 'string', enum: ['once', 'interval', 'custom', 'daily', 'weekdays', 'weekly', 'monthly'] },
         at: { type: 'string', description: 'Time of day HH:MM (24h, local time)' },
-        cron: { type: 'string', description: 'For repeat=cron: 5-field cron expression (local time)' },
+        from: { type: 'string', description: 'For custom: start of the daily window HH:MM' },
+        to: { type: 'string', description: 'For custom: end of the daily window HH:MM' },
         date: { type: 'string', description: 'For once: the date YYYY-MM-DD' },
-        every_minutes: { type: 'integer', description: 'For interval: minutes between runs (minimum 5)' },
-        days: { type: 'array', items: { type: 'integer' }, description: 'For weekly: weekdays, 0=Sunday … 6=Saturday' },
+        every_minutes: { type: 'integer', description: 'For interval and custom: minutes between runs (minimum 5)' },
+        days: { type: 'array', items: { type: 'integer' }, description: 'For weekly and custom: weekdays, 0=Sunday … 6=Saturday' },
         day_of_month: { type: 'integer', description: 'For monthly: 1-31' },
         reminder: { type: 'boolean' }, notify_phone: { type: 'boolean' }, allow_edits: { type: 'boolean' },
         enabled: { type: 'boolean', description: 'false pauses the task, true resumes it' }
@@ -585,7 +587,7 @@ function summarize(name, args) {
     case 'use_connector': return 'Switch on the connector ' + String(args.name || '');
     case 'lock_app': return 'Lock Artemis';
     case 'get_location': return 'Look up your approximate location from your IP address (one request to ipwho.is)';
-    case 'schedule_task': return `Schedule "${args.name}": ${args.repeat}${args.cron ? ' ' + args.cron : ''}${args.date ? ' ' + args.date : ''}${args.at ? ' at ' + args.at : ''}${args.every_minutes ? ' every ' + args.every_minutes + ' min' : ''}`;
+    case 'schedule_task': return `Schedule "${args.name}": ${args.repeat}${args.from && args.to ? ` ${args.from}-${args.to}` : ''}${args.date ? ' ' + args.date : ''}${args.at ? ' at ' + args.at : ''}${args.every_minutes ? ' every ' + args.every_minutes + ' min' : ''}`;
     case 'update_schedule': { const f = Object.keys(args).filter((k) => k !== 'id'); return `Change scheduled task ${args.id}${args.name ? ` ("${args.name}")` : ''}${f.length ? ': ' + f.join(', ') : ''}${args.enabled === false ? ' (pause)' : ''}`; }
     case 'delete_schedule': return `Delete scheduled task ${args.id} (permanent)`;
     case 'hook_create': return `${args.id ? 'Change' : 'Create'} webhook "${args.name}" (${args.verify || 'token'}${Array.isArray(args.events) && args.events.length ? ', events: ' + args.events.join(', ') : ''}): an outside service can then start runs that do: ${String(args.instructions || '').slice(0, 160)}`;
@@ -1256,10 +1258,10 @@ async function runTool(name, args, ctx) {
         const type = String(args.repeat || '');
         const repeat = { type, at: args.at || '09:00' };
         if (type === 'once') repeat.date = String(args.date || '');
-        if (type === 'interval') repeat.every = Number(args.every_minutes) || 60;
-        if (type === 'weekly') repeat.days = Array.isArray(args.days) ? args.days.map(Number) : [];
+        if (type === 'interval' || type === 'custom') repeat.every = Number(args.every_minutes) || 60;
+        if (type === 'weekly' || (type === 'custom' && Array.isArray(args.days))) repeat.days = Array.isArray(args.days) ? args.days.map(Number) : [];
+        if (type === 'custom' && args.from && args.to) { repeat.from = String(args.from); repeat.to = String(args.to); }
         if (type === 'monthly') repeat.dayOfMonth = Number(args.day_of_month) || 1;
-        if (type === 'cron') repeat.cron = String(args.cron || '').trim();
         // "reminder" delivers the text as it is, with no AI. A text written as an instruction to the assistant ("Send the user a summary of today's notes")
         // needs a run, or the user gets the instruction itself.
         let reminder = !!args.reminder;
@@ -1279,7 +1281,8 @@ async function runTool(name, args, ctx) {
         if (args.every_minutes) rep.every = Number(args.every_minutes) || 60;
         if (Array.isArray(args.days)) rep.days = args.days.map(Number);
         if (args.day_of_month) rep.dayOfMonth = Number(args.day_of_month) || 1;
-        if (args.cron) rep.cron = String(args.cron).trim();
+        if (args.from !== undefined) rep.from = String(args.from || '');
+        if (args.to !== undefined) rep.to = String(args.to || '');
         const has = (k) => args[k] !== undefined && args[k] !== null;
         const job = ctx.schedule.save({
           id: old.id, name: has('name') ? args.name : old.name, prompt: has('prompt') ? args.prompt : old.prompt, projectId: old.projectId, model: old.model, repeat: rep,

@@ -9,7 +9,25 @@ const api = window.api;
 const DAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
-const blank = () => ({ name: '', prompt: '', projectId: '', model: '', enabled: true, allowEdits: false, notifyPhone: false, reminder: false, repeat: { type: 'daily', at: '09:00', every: 60, days: [1], dayOfMonth: 1, date: today(), cron: '0 9 * * 1-5' } });
+const blank = () => ({ name: '', prompt: '', projectId: '', model: '', enabled: true, allowEdits: false, notifyPhone: false, reminder: false, repeat: { type: 'daily', at: '09:00', every: 60, days: [1], dayOfMonth: 1, date: today(), window: false, from: '09:00', to: '18:00', idays: [0, 1, 2, 3, 4, 5, 6] } });
+const ALL = [0, 1, 2, 3, 4, 5, 6];
+const EVERY = [5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 360, 480, 720];
+const everyLabel = (m) => (m < 60 ? `${m} minutes` : m % 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m / 60} hour${m === 60 ? '' : 's'}`);
+/** A saved job in the editor's shape: "custom" is shown as "every few minutes / hours" with its hours and days. */
+export function toEditor(job) {
+  const b = blank();
+  const r = { ...b.repeat, ...job.repeat };
+  if (r.type === 'custom') { r.type = 'interval'; r.window = !!(r.from && r.to); r.idays = Array.isArray(job.repeat.days) && job.repeat.days.length ? job.repeat.days : ALL; r.days = b.repeat.days; if (!r.window) { r.from = '09:00'; r.to = '18:00'; } }
+  return { ...b, ...job, repeat: r };
+}
+/** The editor's shape back to what is saved. */
+function fromEditor(r) {
+  const every = Number(r.every) || 60;
+  if (r.type !== 'interval') { const { window, from, to, idays, ...rest } = r; return { ...rest, every, dayOfMonth: Number(r.dayOfMonth) || 1 }; }
+  const allDays = !r.idays || r.idays.length === 7;
+  if (!r.window && allDays) return { type: 'interval', every };
+  return { type: 'custom', every, ...(r.window ? { from: r.from, to: r.to } : {}), days: allDays ? ALL : r.idays };
+}
 
 function when(ts) {
   if (!ts) return '—';
@@ -25,12 +43,21 @@ function Editor({ job, projects, models, onSave, onClose }) {
   const r = j.repeat;
   const setR = (patch) => setJ({ ...j, repeat: { ...r, ...patch } });
   const toggleDay = (d) => setR({ days: r.days.includes(d) ? r.days.filter((x) => x !== d) : [...r.days, d].sort() });
+  const toggleIDay = (d) => setR({ idays: r.idays.includes(d) ? r.idays.filter((x) => x !== d) : [...r.idays, d].sort() });
+  // the next run times, worked out by the app as you change the schedule
+  const [preview, setPreview] = useState(null);
+  const repeatKey = JSON.stringify(fromEditor(r));
+  useEffect(() => {
+    if (!api.schedulePreview) return undefined;
+    const t = setTimeout(() => api.schedulePreview({ repeat: fromEditor(r) }).then(setPreview).catch(() => setPreview(null)), 150);
+    return () => clearTimeout(t);
+  }, [repeatKey]);
   const save = async () => {
-    const res = await api.scheduleSave({ ...j, repeat: { ...r, every: Number(r.every) || 60, dayOfMonth: Number(r.dayOfMonth) || 1 } });
+    const res = await api.scheduleSave({ ...j, repeat: fromEditor(r) });
     if (!res.ok) return setErr(res.error);
     onSave();
   };
-  const needsTime = r.type !== 'interval' && r.type !== 'cron';
+  const needsTime = r.type !== 'interval';
   return (
     <div className="overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="modal wide">
@@ -41,16 +68,30 @@ function Editor({ job, projects, models, onSave, onClose }) {
           <label className="field"><span>Repeat</span>
             <Select value={r.type} onChange={(e) => setR({ type: e.target.value })}>
               <option value="daily">Every day</option><option value="weekdays">Weekdays</option><option value="weekly">Certain weekdays</option>
-              <option value="monthly">Every month</option><option value="interval">Every few minutes / hours</option><option value="once">Once</option><option value="cron">Custom (cron expression)</option>
+              <option value="monthly">Every month</option><option value="interval">Every few minutes / hours</option><option value="once">Once</option>
             </Select>
           </label>
           {needsTime && <label className="field"><span>Time</span><input type="time" value={r.at} onChange={(e) => setR({ at: e.target.value })} /></label>}
-          {r.type === 'interval' && <label className="field"><span>Every (minutes)</span><input type="number" min={5} step={5} value={r.every} onChange={(e) => setR({ every: e.target.value })} /></label>}
+          {r.type === 'interval' && <label className="field"><span>Every</span>
+            <Select value={String(r.every)} onChange={(e) => setR({ every: Number(e.target.value) })}>
+              {[...new Set([...EVERY, Number(r.every) || 60])].sort((a, b) => a - b).map((m) => <option key={m} value={m}>{everyLabel(m)}</option>)}
+            </Select>
+          </label>}
           {r.type === 'once' && <label className="field"><span>Date</span><input type="date" min={today()} value={r.date} onChange={(e) => setR({ date: e.target.value })} /></label>}
-          {r.type === 'cron' && <label className="field"><span>Cron expression (minute hour day month weekday)</span><input className="mono" value={r.cron || ''} placeholder="*/30 9-18 * * 1-5" onChange={(e) => setR({ cron: e.target.value })} /></label>}
           {r.type === 'monthly' && <label className="field"><span>Day of month</span><input type="number" min={1} max={31} value={r.dayOfMonth} onChange={(e) => setR({ dayOfMonth: e.target.value })} /></label>}
         </div>
-        {r.type === 'cron' && <small className="hint">Your local time. Examples: <code>*/30 9-18 * * 1-5</code> every 30 min in working hours · <code>0 9 1,15 * *</code> on the 1st and 15th at 9:00 · <code>0 8 * * mon</code> Mondays at 8:00. At most every 5 minutes.</small>}
+        {r.type === 'interval' && (
+          <div className="sched-window">
+            <label className="check"><input type="checkbox" checked={!!r.window} onChange={(e) => setR({ window: e.target.checked })} /> Only between</label>
+            <input type="time" aria-label="From" value={r.from} disabled={!r.window} onChange={(e) => setR({ from: e.target.value })} />
+            <span>and</span>
+            <input type="time" aria-label="Until" value={r.to} disabled={!r.window} onChange={(e) => setR({ to: e.target.value })} />
+          </div>
+        )}
+        {r.type === 'interval' && <div className="day-pick" aria-label="On these days">{DAYS.map((d, i) => <button key={i} type="button" title={DAY_NAMES[i]} aria-label={DAY_NAMES[i]} className={r.idays.includes(i) ? 'on' : ''} onClick={() => toggleIDay(i)}>{d}</button>)}</div>}
+        {preview && (preview.ok
+          ? <small className="hint sched-preview">{preview.description}{preview.next && preview.next.length ? ` · next: ${preview.next.map(when).join(', ')}` : ''}</small>
+          : <small className="hint bad-text">{preview.error}</small>)}
         {r.type === 'weekly' && <div className="day-pick">{DAYS.map((d, i) => <button key={i} type="button" title={DAY_NAMES[i]} aria-label={DAY_NAMES[i]} className={r.days.includes(i) ? 'on' : ''} onClick={() => toggleDay(i)}>{d}</button>)}</div>}
         <div className="sched-grid">
           <label className="field"><span>Project</span>
@@ -110,7 +151,7 @@ export default function SchedulesView({ projects, models, onOpenChat }) {
                 <div className="sched-sub">Next: {j.enabled ? when(j.nextRun) : 'paused'} · Last: {when(j.lastRun)}{j.runs ? ` · ${j.runs} run${j.runs === 1 ? '' : 's'}` : ''}</div>
               </div>
               <button className="icon-btn" title="Run now" aria-label="Run now" onClick={() => api.scheduleRun(j.id)} disabled={j.running}><Icon name="play" size={15} /></button>
-              <button className="icon-btn" title="Edit" aria-label="Edit" onClick={() => setEdit({ ...blank(), ...j, repeat: { ...blank().repeat, ...j.repeat } })}><Icon name="pencil" size={15} /></button>
+              <button className="icon-btn" title="Edit" aria-label="Edit" onClick={() => setEdit(toEditor(j))}><Icon name="pencil" size={15} /></button>
               <button className="icon-btn" title="Delete" aria-label="Delete" onClick={() => askConfirm({ title: 'Delete task', message: `Delete "${j.name}"?`, confirmLabel: 'Delete', danger: true }).then((ok) => ok && api.scheduleDelete(j.id).then(load))}><Icon name="trash" size={15} /></button>
               <label className="switch" title={j.enabled ? 'Pause' : 'Resume'}><input type="checkbox" checked={j.enabled} onChange={(e) => api.scheduleToggle(j.id, e.target.checked).then(load)} /><i /></label>
             </div>

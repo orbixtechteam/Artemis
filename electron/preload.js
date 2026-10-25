@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('api', {
   scheduleToggle: (id, on) => ipcRenderer.invoke('schedule:toggle', id, on),
   scheduleDelete: (id) => ipcRenderer.invoke('schedule:delete', id),
   scheduleRun: (id) => ipcRenderer.invoke('schedule:run', id),
+  schedulePreview: (job) => ipcRenderer.invoke('schedule:preview', job),
   onScheduleStart: (cb) => sub('schedule:start', cb),
   onScheduleChanged: (cb) => sub('schedule:changed', cb),
   heartbeatStatus: () => ipcRenderer.invoke('heartbeat:status'),

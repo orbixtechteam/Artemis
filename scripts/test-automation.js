@@ -1,10 +1,9 @@
-// Cron expressions, the heartbeat, webhooks (signatures, filters, limits, the HTTP port) and the tunnel wrapper.
+// "Every N minutes between … on …" schedules, the heartbeat, webhooks (signatures, filters, limits, the HTTP port) and the tunnel wrapper.
 const assert = require('assert');
 const http = require('http');
 const crypto = require('crypto');
 const { EventEmitter } = require('events');
-const { parseCron, nextCron, describeCron, minGapMinutes } = require('../electron/core/cron');
-const { nextRunAfter, validate, describe } = require('../electron/scheduler');
+const { nextRunAfter, validate, describe, preview } = require('../electron/scheduler');
 const { createHeartbeat, parseReply, inActiveHours, checklistText, TEMPLATE } = require('../electron/core/heartbeat');
 const hooksLib = require('../electron/core/hooks');
 const { createTunnel } = require('../electron/core/tunnel');
@@ -13,32 +12,27 @@ const { createHookService } = require('../electron/core/hookservice');
 const at = (y, mo, d, h, mi) => new Date(y, mo - 1, d, h, mi).getTime();
 const sun = at(2026, 10, 25, 3, 40); // Sunday
 
-// ---- cron ----
-assert.strictEqual(nextCron('*/15 9-18 * * 1-5', sun), at(2026, 10, 26, 9, 0));
-assert.strictEqual(nextCron('*/15 9-18 * * 1-5', at(2026, 10, 26, 9, 0)), at(2026, 10, 26, 9, 15));
-assert.strictEqual(nextCron('*/15 9-18 * * 1-5', at(2026, 10, 26, 18, 45)), at(2026, 10, 27, 9, 0));
-assert.strictEqual(nextCron('0 9 1 * *', sun), at(2026, 11, 1, 9, 0));
-assert.strictEqual(nextCron('30 8 * * mon-fri', sun), at(2026, 10, 26, 8, 30));
-assert.strictEqual(nextCron('0 0 29 2 *', sun), at(2028, 2, 29, 0, 0));
-assert.strictEqual(nextCron('0 9 13 * 5', sun), at(2026, 10, 30, 9, 0)); // day-of-month OR day-of-week
-assert.strictEqual(nextCron('0 12 * * 7', sun), at(2026, 10, 25, 12, 0)); // 7 = Sunday
-assert.strictEqual(nextCron('@hourly', sun), at(2026, 10, 25, 4, 0));
-assert.strictEqual(nextCron('0 0 31 2 *', sun), null);
-assert.strictEqual(nextCron('5 4 * jan,jul *', sun), at(2027, 1, 1, 4, 5));
-for (const bad of ['61 * * * *', '* * * *', '*/0 * * * *', '5-1 * * * *', 'x * * * *', '1,,2 * * * *']) assert.throws(() => parseCron(bad), Error, bad);
-assert.strictEqual(minGapMinutes('*/5 * * * *', sun), 5);
-assert.strictEqual(describeCron('30 8 * * 1-5'), 'Weekdays at 08:30');
-assert.strictEqual(describeCron('0 9,18 * * *'), 'Every day at 09:00, 18:00');
-assert.strictEqual(describeCron('0 */2 * * *'), 'Every 2 hours');
-assert.strictEqual(describeCron('*/15 9-18 * * 1-5'), 'Cron */15 9-18 * * 1-5');
-// in the scheduler
-assert.strictEqual(nextRunAfter({ repeat: { type: 'cron', cron: '0 9 * * 1' } }, sun), at(2026, 10, 26, 9, 0));
-assert.strictEqual(nextRunAfter({ repeat: { type: 'cron', cron: 'broken' } }, sun), null);
-assert.strictEqual(describe({ repeat: { type: 'cron', cron: '0 9 * * 1-5' } }), 'Weekdays at 09:00');
-assert.throws(() => validate({ name: 'a', prompt: 'b', repeat: { type: 'cron', cron: '* * * * *' } }, sun), /5 minutes/);
-assert.throws(() => validate({ name: 'a', prompt: 'b', repeat: { type: 'cron', cron: '0 0 31 2 *' } }, sun), /never/);
-assert.throws(() => validate({ name: 'a', prompt: 'b', repeat: { type: 'cron', cron: '0 25 * * *' } }, sun), /hour must be/);
-validate({ name: 'a', prompt: 'b', repeat: { type: 'cron', cron: '*/10 * * * *' } }, sun);
+// ---- every N minutes, between two times, on some days ----
+const next = (r, from) => nextRunAfter({ repeat: { type: 'custom', ...r } }, from);
+const work = { every: 30, from: '09:00', to: '18:00', days: [1, 2, 3, 4, 5] };
+assert.strictEqual(next(work, sun), at(2026, 10, 26, 9, 0)); // Sunday night -> Monday 09:00
+assert.strictEqual(next(work, at(2026, 10, 26, 9, 0)), at(2026, 10, 26, 9, 30));
+assert.strictEqual(next(work, at(2026, 10, 26, 17, 45)), at(2026, 10, 26, 18, 0)); // the end time is included
+assert.strictEqual(next(work, at(2026, 10, 26, 18, 0)), at(2026, 10, 27, 9, 0));
+assert.strictEqual(next(work, at(2026, 10, 30, 18, 0)), at(2026, 11, 2, 9, 0)); // Friday -> Monday
+assert.strictEqual(next({ every: 45, from: '22:00', to: '02:00' }, at(2026, 10, 26, 1, 0)), at(2026, 10, 26, 1, 45)); // past midnight
+assert.strictEqual(next({ every: 45, from: '22:00', to: '02:00' }, at(2026, 10, 26, 3, 0)), at(2026, 10, 26, 22, 0));
+assert.strictEqual(next({ every: 120 }, at(2026, 10, 26, 1, 0)), at(2026, 10, 26, 2, 0)); // no hours: from midnight
+assert.strictEqual(next({ every: 60, days: [0, 6] }, at(2026, 10, 26, 1, 0)), at(2026, 10, 31, 0, 0)); // weekends only
+assert.strictEqual(describe({ repeat: { type: 'custom', ...work } }), 'Every 30 min, 09:00–18:00, weekdays');
+assert.strictEqual(describe({ repeat: { type: 'custom', every: 90, days: [0, 6] } }), 'Every 1 h 30 min, weekends');
+assert.strictEqual(describe({ repeat: { type: 'custom', every: 120, from: '08:00', to: '20:00', days: [1, 3] } }), 'Every 2 hours, 08:00–20:00, Mon, Wed');
+assert.throws(() => validate({ name: 'a', prompt: 'b', repeat: { type: 'custom', every: 2 } }, sun), /5 minutes/);
+assert.throws(() => validate({ name: 'a', prompt: 'b', repeat: { type: 'custom', every: 30, from: '09:00' } }, sun), /start and an end/);
+assert.throws(() => validate({ name: 'a', prompt: 'b', repeat: { type: 'custom', every: 30, days: [] } }, sun), /one day/);
+const pv = preview({ repeat: { type: 'custom', every: 60, from: '09:00', to: '11:00', days: [1] } }, 3, sun);
+assert.deepStrictEqual(pv.next, [at(2026, 10, 26, 9, 0), at(2026, 10, 26, 10, 0), at(2026, 10, 26, 11, 0)]);
+assert.throws(() => preview({ repeat: { type: 'once', date: '2026-01-01', at: '09:00' } }, 3, sun), /passed/);
 
 // ---- heartbeat helpers ----
 assert.strictEqual(checklistText(TEMPLATE), '');

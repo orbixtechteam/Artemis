@@ -30,7 +30,7 @@ Chats, notes and memory are plain files on your disk. Every line of code is open
 - **Sub-agents**: up to four role agents in parallel (Researcher, Coder, Writer, Reviewer), plus your own agents written as Markdown files.
 - **Brains**: named personalities (Lancelot, Galahad, Percival) that each answer with their own model, or a council that votes on who answers and which skills and agents to use.
 - **Skills**: reusable `SKILL.md` folders (same layout as [agentskills.io](https://agentskills.io)), per user or per project, learned and improved with use.
-- **Scheduled tasks**: once, every N minutes, daily, weekdays, weekly, monthly or a cron expression, with a cheap default model for scheduled runs. Make.com scenarios by asking.
+- **Scheduled tasks**: once, every N minutes (optionally only between two times and on some days), daily, weekdays, weekly or monthly, with a cheap default model for scheduled runs. Make.com scenarios by asking.
 - **Heartbeat and webhooks**: a short checklist checked every few minutes that stays silent unless something needs you, and webhooks that let GitHub, Stripe, forms or n8n start runs (optionally on the internet through a Cloudflare tunnel).
 - **Long-term memory**: plain Markdown files (`SOUL.md`, `USER.md`, `MEMORY.md`, one daily note per day), searched by keywords and optionally by meaning; lasting facts are saved automatically before a long chat is compacted.
 - **Notes**: Markdown notes with folders, search, `[[wiki links]]` and a graph.

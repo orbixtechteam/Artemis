@@ -1,21 +1,12 @@
-# Heartbeat, cron and webhooks
+# Heartbeat, timed tasks and webhooks
 
 Three ways Artemis works by itself, all on the **Scheduled** page. They run where the background jobs run: in the app while it is open, or in the background gateway while it runs (Settings → Gateway → Keep running in the background), so they also work while the app is closed.
 
-## Cron expressions
+## Every few minutes, at certain hours and days
 
-Scheduled tasks have one more repeat type: **Custom (cron expression)**. Five fields in your local time: minute, hour, day of month, month, day of week.
+A scheduled task set to **Every few minutes / hours** can also be limited to a time of day and to some days: *every 30 minutes, only between 09:00 and 18:00, Monday to Friday*. Tick **Only between** for the hours and click the days below it (all days by default). A window such as 22:00–06:00 runs past midnight. The editor shows the next run times as you change it. At most every 5 minutes.
 
-| Expression | Runs |
-| --- | --- |
-| `*/30 9-18 * * 1-5` | every 30 minutes, 9:00–18:30, Monday to Friday |
-| `0 9 1,15 * *` | 9:00 on the 1st and the 15th |
-| `0 8 * * mon` | Mondays at 8:00 |
-| `@daily` / `@hourly` / `@weekly` | shortcuts |
-
-`*`, ranges (`1-5`), lists (`1,15`), steps (`*/15`) and names (`mon-fri`, `jan,jul`) work. When both the day of month and the day of week are set, a day matches when either does (as in classic cron). A task cannot run more often than every 5 minutes. In chat: *"every 30 minutes on weekdays from 9 to 6, check …"* uses `repeat: cron` by itself.
-
-A cron task costs the same as any scheduled task: one run each time.
+In chat, just say it: *"every 30 minutes on weekdays from 9 to 6, check …"*. It costs the same as any scheduled task: one run each time.
 
 ## Heartbeat
 
@@ -93,4 +84,4 @@ curl -X POST http://127.0.0.1:8790/hooks/form \
   -d '{"type":"signup","name":"Ali","email":"ali@example.com"}'
 ```
 
-Files: `electron/core/cron.js`, `heartbeat.js`, `hooks.js`, `hookservice.js`, `tunnel.js`. State: `<data>/heartbeat.json`, `hooks.json` (private, it holds the secrets), `hooks-state.json`.
+Files: `electron/scheduler.js`, `electron/core/heartbeat.js`, `hooks.js`, `hookservice.js`, `tunnel.js`. State: `<data>/heartbeat.json`, `hooks.json` (private, it holds the secrets), `hooks-state.json`.

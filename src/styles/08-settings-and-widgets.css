@@ -248,3 +248,8 @@ input.recording { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(i
 .empty-card.left .pref-inline input { flex: 1; min-width: 240px; }
 .modal .pref-inline { display: flex; gap: 6px; }
 .modal .pref-inline input { flex: 1; }
+.sched-window { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sched-window .check { margin: 0; }
+.sched-window input[type="time"] { width: auto; }
+.sched-window input:disabled { opacity: .45; }
+.sched-preview { color: var(--text-2); }
