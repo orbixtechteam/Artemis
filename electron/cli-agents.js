@@ -148,15 +148,23 @@ function createCliAgents(deps) {
   const found = new Map();
   const DIRS = [path.join(home, '.local', 'bin'), '/opt/homebrew/bin', '/usr/local/bin', path.join(home, '.npm-global', 'bin'), path.join(home, '.bun', 'bin'), path.join(home, '.volta', 'bin')];
 
-  /** Absolute path of a CLI, or ''. An app opened from the Finder does not get the shell's PATH, so look in the usual places, then ask a login shell. */
+  /** Absolute path of a CLI, or ''. An app opened from the Finder does not get the shell's PATH, so: the native install
+   *  (~/.local/bin, it brings its own runtime), then the one your terminal runs (an interactive shell, which loads nvm
+   *  from .zshrc), then the usual folders. A Homebrew copy can run on a newer Node than the one you use in the terminal. */
   async function find(kind) {
     if (found.has(kind)) return found.get(kind);
     const bin = KINDS[kind].bin;
-    let p = DIRS.map((d) => path.join(d, bin)).find((f) => { try { fs.accessSync(f, fs.constants.X_OK); return true; } catch { return false; } }) || '';
+    const ok = (f) => { try { fs.accessSync(f, fs.constants.X_OK); return true; } catch { return false; } };
+    let p = ok(path.join(DIRS[0], bin)) ? path.join(DIRS[0], bin) : '';
     if (!p && deps.execFile && process.platform !== 'win32') {
-      p = await new Promise((resolve) => deps.execFile(env0.SHELL || '/bin/zsh', ['-lc', `command -v ${bin}`], { timeout: 8000 }, (err, out) => resolve(err ? '' : String(out || '').trim().split('\n').pop())));
-      if (p && !path.isAbsolute(p)) p = '';
+      const ask = (flags) => new Promise((resolve) => deps.execFile(env0.SHELL || '/bin/zsh', [flags, `command -v ${bin}`], { timeout: 8000 }, (err, out) => {
+        const last = err ? '' : String(out || '').trim().split('\n').pop().trim();
+        resolve(last && path.isAbsolute(last) && ok(last) ? last : '');
+      }));
+      p = (await ask('-ilc')) || (await ask('-lc'));
     }
+    if (!p) p = DIRS.slice(1).map((d) => path.join(d, bin)).find(ok) || '';
+    if (p) log(`${kind}: using ${p}`);
     found.set(kind, p);
     return p;
   }
@@ -201,7 +209,11 @@ function createCliAgents(deps) {
       child.on('close', (code) => finish(() => {
         if (buf.trim()) { try { reader.line(JSON.parse(buf.trim())); } catch {} }
         const r = reader.end();
-        const tail = errTail.trim() ? errTail.trim().split('\n').slice(-2).join(' ').slice(0, 300) : '';
+        if (errTail.trim()) log(`${kind} exited (${code}). Its error output:\n${errTail.trim()}`);
+        // a Node crash ends with a stack and "Node.js vX": the line that says what went wrong is the "...Error: ..." one
+        const lines = errTail.trim().split('\n').map((x) => x.trim()).filter(Boolean);
+        const why = lines.find((x) => /^(\w*Error|Error)\b.*:|^error:/i.test(x)) || lines.filter((x) => !/^at |^Node\.js v/.test(x)).slice(-2).join(' ');
+        const tail = String(why || '').slice(0, 400);
         if (r.error) return reject(cliError(kind, r.error));
         if (r.final === null) return reject(NOT_SIGNED_IN.test(tail) ? cliError(kind, tail) : new Error(`${KINDS[kind].label} exited (${code}) without an answer.${tail ? ' ' + tail : ''}`));
         resolve(r.final);

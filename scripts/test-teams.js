@@ -157,6 +157,26 @@ const def = (extra) => ({ name: 'Launch', goal: 'Ship the notes', members: [{ na
     console.log('teams: project link ok');
   }
 
+  // a member the agent loop stopped (a tool kept failing) has not done its task, whatever its last words were
+  {
+    let tries = 0;
+    const { teams } = make(async (o) => {
+      if (o.agent.name === 'Artemis' && /Call team_plan/.test(o.prompt)) { tool(o, 'team_plan').run({ tasks: [{ title: 'Read strategy.md', assignee: 'Athena' }] }); return 'ok'; }
+      if (o.agent.name === 'Artemis') return 'Summary';
+      tries++;
+      assert.match(o.prompt, /does not exist yet is not an error/);
+      o.onStep({ type: 'notice', text: 'Stopped: read_file failed 3 times in a row.' });
+      return 'I stopped: the read_file tool failed 3 times in a row.';
+    });
+    const t = teams.save(def({ members: [{ name: 'Athena' }] }));
+    teams.start(t.id);
+    const end = await teams.idle(t.id);
+    assert.notStrictEqual(end.run.tasks[0].status, 'done');
+    assert.ok(end.run.messages.some((m) => m.kind === 'error' && /did not finish: read_file failed 3 times/.test(m.text)));
+    assert.ok(tries >= 1);
+    console.log('teams: stopped members are not done ok');
+  }
+
   // budget: the team pauses at the cap; resume gives it the same amount again
   {
     let calls = 0;

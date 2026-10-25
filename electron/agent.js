@@ -770,6 +770,7 @@ async function runAgent(opts) {
   // reading the same page again after a click or typing is not a loop: browser reads count per page state
   const BROWSER_LOOKS = new Set(['browser_read_page', 'browser_screenshot', 'browser_get_text', 'browser_find', 'browser_tabs', 'browser_console', 'browser_network', 'browser_wait']);
   let browserMoves = 0;
+  const missStreak = new Map(); // tool name -> 'not found' answers in a row
   const failStreak = new Map(); // tool name -> failures in a row (any arguments): the same tool failing three times stops the run
   const fileReads = new Map();
   let exploreCalls = 0, wrote = false;
@@ -1237,7 +1238,12 @@ async function runAgent(opts) {
           else if (!wrote && exploreCalls >= 8 && (exploreCalls - 8) % 4 === 0) text += `\n[${exploreCalls} read/search calls so far and nothing has changed. Stop exploring: make the change now, or ask the user one short question if the target is unclear.]`;
         }
         if (WRITE_TOOLS.has(tc.name) && r.ok) wrote = wroteSince = true;
-        if (r.ok || r.denied) failStreak.set(tc.name, 0); else failStreak.set(tc.name, (failStreak.get(tc.name) || 0) + 1);
+        // "not found" from a read is an answer (the file is not there yet), not a broken tool: it does not count toward the stop
+        const missing = !r.ok && /^(read_file|list_dir|search_files|read_spreadsheet)$/.test(tc.name) && /\b(File|Folder) not found\b|does not exist|no such file/i.test(String(r.text || ''));
+        // ...but a run that only guesses paths still ends: 6 misses in a row count as 3 failures
+        if (r.ok || r.denied) { failStreak.set(tc.name, 0); missStreak.set(tc.name, 0); }
+        else if (missing) { const m = (missStreak.get(tc.name) || 0) + 1; missStreak.set(tc.name, m); if (m >= 6) failStreak.set(tc.name, 3); }
+        else failStreak.set(tc.name, (failStreak.get(tc.name) || 0) + 1);
         send({ type: 'tool:result', id: tc.id, name: tc.name, ok: r.ok, denied: !!r.denied, text, image: r.image });
         history.push({ role: 'tool', tool_call_id: tc.id, content: text });
         images.push(...(r.images || (r.image ? [r.image] : [])));

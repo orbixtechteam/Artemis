@@ -401,7 +401,7 @@ import('../src/lib/clip.mjs').then(({ stripFences, codeOnly }) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fail-')); const events = [];
   await runAgent({ baseUrl: `http://127.0.0.1:${srv.address().port}`, key: 'k', model: 'm', maxTokens: 50, root, toolsEnabled: true, autoApprove: true, send: (e) => events.push(e), approve: async () => true, messages: [{ role: 'user', content: 'read it' }] });
   srv.close();
-  assert.strictEqual(n, 3, 'the model is called exactly 3 times, then the run stops');
+  assert.strictEqual(n, 6, 'files that are not there: 6 guesses in a row, then the run stops (a missing file is an answer, not a broken tool)');
   assert(events.some((e) => e.type === 'chunk' && /failed 3 times in a row/.test(e.text)), 'the user is told');
   // the main agent (not only its sub-agents) uses the chosen search engine for web_search
   { let m = 0;

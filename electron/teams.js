@@ -223,6 +223,7 @@ function createTeams(deps) {
       `Team goal:\n${t.goal}`,
       rulesFor(t), notebookFor(t, 3000),
       `Your task (#${t.run.tasks.indexOf(k) + 1}): ${k.title}`,
+      'A file the task mentions that does not exist yet is not an error: this may be the first run. Go on without it, and create it when the task needs it.',
       k.feedback ? `The reviewer sent it back. Fix this:\n${k.feedback}\n\nYour previous result:\n${clip(k.result, 3000)}` : '',
       depResults(t, k) ? `Results you build on:\n${depResults(t, k)}` : '',
       roomFor(t, k.assignee) ? `Team room (newest last):\n${roomFor(t, k.assignee)}` : '',
@@ -366,6 +367,8 @@ function createTeams(deps) {
     const said = calls.filter((c) => c.name === 'team_done' && c.args.result).map((c) => c.args.result).pop() || '';
     for (const c of calls) if (c.name === 'team_post' && c.args.text) post(t, { from: k.assignee, to: c.args.to && agentOf(t, c.args.to) ? agentOf(t, c.args.to).name : '', text: c.args.text, task: k.id });
     if (!result && !text && !said) throw new Error(`${k.assignee} stopped without a result${out.notice ? ` (${out.notice.replace(/\.$/, '')})` : ''}.`);
+    // the agent loop stopped the member (a tool kept failing, it kept repeating itself): its last words are the stop message, not the work
+    if (!result && !said && out.notice && /^Stopped:/.test(out.notice)) throw new Error(`${k.assignee} did not finish: ${out.notice.replace(/^Stopped:\s*/, '').replace(/\.$/, '')}.`);
     k.result = result || text || clip(said, 20000);
     k.feedback = '';
     post(t, { from: k.assignee, text: clip(k.result, 1200), task: k.id, kind: 'result', extra: out.steps && out.steps.length ? { steps: out.steps } : {} });
