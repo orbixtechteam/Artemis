@@ -19,6 +19,10 @@
 //   GET  /v1/memory/list                    -> { entries }
 //   POST /v1/memory { text }                -> { entry }  (adds a durable fact to MEMORY.md)
 //   POST /v1/memory/note { text }           -> { path }   (appends to today's daily note)
+//   GET  /v1/teams?since=<ms>               -> { teams }  (agent teams; since: only those changed after that time)
+//   POST /v1/teams { team }                 -> { team }   (create or change)
+//   DELETE /v1/teams/:id                    -> { ok }
+//   POST /v1/teams/:id/start|pause|resume|stop|say|notebook-clear { text? } -> { team }
 const http = require('http');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -147,6 +151,16 @@ function createGateway({ host = '127.0.0.1', port = 8789, token, log = () => {},
       return json(res, 200, { ok: true });
     }
     if (m === 'GET' && p === '/v1/phone') { const ph = handlers.phone && handlers.phone(); return json(res, 200, { ok: true, paired: !!ph }); }
+    if (seg[1] === 'teams' && handlers.teams) { // agent teams (the app follows and controls runs here while this process owns them)
+      const T = handlers.teams;
+      const bad = (e) => { throw Object.assign(e instanceof Error ? e : new Error(String(e)), { status: e && e.status ? e.status : 400 }); };
+      try {
+        if (m === 'GET' && seg.length === 2) { const since = Number(u.searchParams.get('since')) || 0; return json(res, 200, { ok: true, teams: since ? T.since(since) : T.list() }); }
+        if (m === 'POST' && seg.length === 2) return json(res, 200, { ok: true, team: T.save(await readBody(req)) });
+        if (m === 'DELETE' && seg.length === 3) return json(res, 200, { ok: !!T.remove(decodeURIComponent(seg[2])) });
+        if (m === 'POST' && seg.length === 4) return json(res, 200, { ok: true, team: await T.act(decodeURIComponent(seg[2]), seg[3], await readBody(req)) });
+      } catch (e) { bad(e); }
+    }
     if (seg[1] === 'memory') {
       const mem = handlers.memory;
       if (!mem) return fail(res, 404, 'Memory is off');

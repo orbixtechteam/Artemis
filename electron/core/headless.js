@@ -14,17 +14,21 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
-const { runAgent } = require('../agent');
+const { runAgent, stripThinkText } = require('../agent');
 const providersLib = require('../providers');
 const chatSearch = require('../chatsearch');
 const { createSkills } = require('../skills');
 const { createAgents } = require('../subagents');
 const { createNotes } = require('../notes');
 const { createScheduler } = require('../scheduler');
+const prompts = require('../prompts');
 const { createHeartbeats, fromSettings: hbFromSettings, fileOf: hbFileOf } = require('./heartbeat');
+const { createTeams } = require('../teams');
+const { createTeamRunner } = require('./teamrun');
+const { createMake } = require('../make');
 const { createHooks } = require('./hooks');
 const { createHookService } = require('./hookservice');
-const { checkLimits } = require('../limits');
+const { checkLimits, costOf } = require('../limits');
 const personality = require('../personality');
 const brainsLib = require('../brains');
 const web = require('../web');
@@ -44,8 +48,6 @@ const { createComputer } = require('../computer');
 const { summarizeAll } = require('../agent');
 const files = require('../files');
 
-const BG_NOTE = 'This run was started by Artemis itself (a heartbeat check or a webhook), not by a message from the user. Nobody is there to answer: never ask questions and never wait for approval. Do what the instructions say, keep the answer short, and do not write notes or files unless the instructions say so.';
-const SCHEDULED_NOTE = 'This is a scheduled task and it is running right now. Do it directly and report the result. The task text is an instruction for you, even when it reads like a message to the user: carry it out (for a reminder, state the reminder to the user) and never reply to it as if it were a chat message. Nobody is there to answer: never ask questions, never ask which method to use, and do not write notes or files unless the task says so. If the task is only a reminder, state the reminder.';
 const APPROVAL_TIMEOUT = 10 * 60 * 1000;
 const envName = (s) => String(s).toUpperCase().replace(/[^A-Z0-9]+/g, '_');
 
@@ -58,6 +60,8 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
     fs.writeFileSync(tmp, JSON.stringify(data), mode ? { mode } : undefined); fs.renameSync(tmp, f);
   }
   const settings = () => readJson('settings', {});
+  prompts.setSource(() => settings().promptOverrides); // Settings → Advanced, written by the app
+  require('../shell').setSource(() => settings().shellPolicy);
   const headlessCfg = () => readJson('headless', {}); // { keys: { <providerId>: "..." }, braveKey, telegramToken, token }
   const lockAlive = (mode) => { try { const l = JSON.parse(fs.readFileSync(file(mode + '.lock'), 'utf8')); return l && l.pid && l.pid !== process.pid && gatewayLib.alive(l.pid) ? l : null; } catch { return null; } };
   const secrets = createSecretReader({ keychain, log: L('secrets') });
@@ -237,11 +241,17 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
   const sched = createScheduler({
     read: () => readJson('schedules', []), write: (l) => writeJson('schedules', l), changed: () => {},
     run: async (job) => {
+      if (job.teamId) {
+        const t = teams.get(job.teamId);
+        if (!t) return { ok: false, error: 'The team no longer exists.' };
+        if (!teams.isWorking(job.teamId)) { teams.start(job.teamId); log('info', 'teams', `team "${t.name}" started by its schedule`); }
+        return { ok: true };
+      }
       const runId = 'sch-' + crypto.randomBytes(5).toString('hex');
       const modelId = pickModel(job.model || settings().scheduleModel);
       let res;
       if (job.reminder) res = { text: String(job.prompt || '').trim(), steps: [String(job.prompt || '').trim()], error: '' };
-      else res = await run({ runId, messages: [{ role: 'user', content: job.prompt }], modelId, project: projectFor(job.projectId), chatId: runId, send: () => {}, unattended: true, allowEdits: job.allowEdits, restrict: true, system: SCHEDULED_NOTE });
+      else res = await run({ runId, messages: [{ role: 'user', content: job.prompt }], modelId, project: projectFor(job.projectId), chatId: runId, send: () => {}, unattended: true, allowEdits: job.allowEdits, restrict: true, system: prompts.text('scheduled', prompts.defaultOf('scheduled')) });
       sessions.appendTurn(runId, { user: job.prompt, steps: res.steps.map((t) => ({ text: t, toolCalls: [] })), assistant: res.error ? `Failed: ${res.error}` : '', title: job.name, source: 'schedule', model: modelId, projectId: job.projectId || null });
       mirror();
       log('info', 'schedule', `${job.name}: ${res.error ? 'failed: ' + res.error : 'done'}`);
@@ -259,7 +269,7 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
   async function backgroundRun({ prompt, model, allowEdits, projectId, source }) {
     const modelId = pickModel(model || settings().scheduleModel);
     const runId = 'bg-' + crypto.randomBytes(5).toString('hex');
-    const res = await run({ runId, messages: [{ role: 'user', content: prompt }], modelId, project: projectFor(projectId), chatId: runId, send: () => {}, unattended: true, allowEdits: !!allowEdits, restrict: true, system: BG_NOTE, source });
+    const res = await run({ runId, messages: [{ role: 'user', content: prompt }], modelId, project: projectFor(projectId), chatId: runId, send: () => {}, unattended: true, allowEdits: !!allowEdits, restrict: true, system: prompts.text('background', prompts.defaultOf('background')), source });
     return { text: res.text, error: res.error, model: modelId };
   }
   async function backgroundTell({ title, user, text, model, source, phone, icon }) {
@@ -303,6 +313,38 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
   };
   let hookTimer = null;
 
+  // ---- Make, and agent teams (they run here while this process owns the background jobs) ----
+  const make = createMake({ getAuth: () => ({ token: getSecret('makeToken', 'makeTokenEnc'), zone: settings().makeZone }) });
+  const runTeamTurn = createTeamRunner({
+    runAgent, settings, userData: dataDir, stripThinkText,
+    resolveModel: (m) => providersLib.resolve(pickModel(m), readProviders(), getProviderKey), fallbackModel: () => pickModel(settings().model),
+    prices: () => providersLib.priceMap(readProviders()), costOf, recordUsage, limitBlocked: () => limitState().blocked || '', filesDir,
+    tools: ({ caps }) => {
+      const st = settings();
+      const sb = caps.has('shell') ? sandbox() : null;
+      return {
+        webEnabled: st.webEnabled !== false, searchVia: searchVia(st),
+        chats: st.chatSearchEnabled !== false ? { search: (q, n) => sessions.search(q, { limit: n, projects: readJson('projects', []) }), read: (id, last) => sessions.read(id, last) } : null,
+        make: caps.has('make') && st.makeEnabled !== false && getSecret('makeToken', 'makeTokenEnc') ? make : null,
+        browser: caps.has('browser') && browserOn && st.browserTools !== false && browserAvailable() ? browserFor() : null,
+        mcp: caps.has('connectors') && mcp && st.connectorsEnabled !== false ? (sb ? hideHostShellTools(mcp) : mcp) : null,
+        // commands: in the sandbox, or on this machine only when the gateway was started with --allow-shell
+        shellEnabled: caps.has('shell') && st.shellEnabled !== false && (!!sb || allowShell), sandbox: sb,
+        phone: caps.has('phone') && remote ? remote.phone() : null,
+        memoryEnabled: caps.has('memory') && !!memoryApi, memoryApi: caps.has('memory') ? memoryApi : null,
+        schedule: caps.has('automation') ? { list: () => sched.list(), save: (j) => sched.save(j), remove: (id) => sched.remove(id), hooks: hooksTools, heartbeat: heartbeatTools } : null
+      };
+    },
+    approvals: { add: (id, decide) => approvals.set(id, decide), drop: (id) => handlers.approve(id, false) },
+    phone: () => (remote ? remote.phone() : null),
+    log: L('teams')
+  });
+  const teams = createTeams({
+    load: () => readJson('teams', { teams: [] }), save: (d) => writeJson('teams', d), emit: () => {},
+    roster: () => agents.list(null), runTurn: (o) => runTeamTurn(o), log: (m) => log('warn', 'teams', m),
+    hire: (a) => agents.save({ name: a.name, role: a.role, description: a.role, body: a.body, tools: a.tools, model: a.model })
+  });
+
   // ---- gateway ----
   function token() {
     const t = process.env.ARTEMIS_GATEWAY_TOKEN || headlessCfg().token || secrets.decrypt(settings().gatewayTokenEnc);
@@ -328,6 +370,15 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
     abort: (id) => { const c = runs.get(id); if (!c) return false; c.abort(); return true; },
     phone: () => (remote ? remote.phone() : null),
     approve: (id, ok) => { const r = approvals.get(id); if (!r) return false; approvals.delete(id); r(!!ok); return true; },
+    teams: {
+      list: () => teams.list(), since: (ts) => teams.since(ts), save: (def) => teams.save(def || {}), remove: (id) => teams.remove(id),
+      act: async (id, what, body = {}) => {
+        if (what === 'say') { const t = teams.get(id); if (!t) throw Object.assign(new Error('That team no longer exists.'), { status: 404 }); teams.say(id, String(body.text || '')).catch((e) => log('warn', 'teams', e.message)); return teams.get(id); }
+        if (what === 'notebook-clear') return teams.clearNotebook(id);
+        if (!['start', 'pause', 'resume', 'stop'].includes(what)) throw Object.assign(new Error('Unknown action'), { status: 404 });
+        return teams[what](id);
+      }
+    },
     sessions: { recent: (n) => sessions.recent(n, readJson('projects', [])), get: (id) => sessions.get(id), search: (q, n) => sessions.search(q, { limit: n, projects: readJson('projects', []) }) },
     memory: memoryApi ? { search: (q, n) => memoryApi.search(q, n), list: () => memoryApi.list(), add: (t) => memoryApi.add(t), note: (t) => memoryApi.note(t) } : null
   };
@@ -437,6 +488,7 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
     try { if (remote) remote.stop(); } catch {}
     try { sched.stop(); } catch {}
     try { heartbeat.stop(); } catch {}
+    try { teams.flush(); } catch {}
     if (hookTimer) { clearInterval(hookTimer); hookTimer = null; }
     try { await hookService.stop(); } catch {}
     for (const c of runs.values()) { try { c.abort(); } catch {} }
@@ -450,7 +502,7 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
     db.close();
   }
 
-  return { start, stop, handlers, sessions, workspace: ws, index, run, pickModel, getProviderKey, remote: () => remote, sandbox, browserAvailable, heartbeat, hooks, hookService };
+  return { start, stop, handlers, sessions, workspace: ws, index, run, pickModel, getProviderKey, remote: () => remote, sandbox, browserAvailable, heartbeat, hooks, hookService, teams };
 }
 
 module.exports = { createHeadless };

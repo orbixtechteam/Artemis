@@ -23,6 +23,7 @@ New here? Start with [Getting Started](Getting-Started.md).
 ## Agents and automation
 
 - [Sub-Agents](Sub-Agents.md): role agents that work in parallel, and how to write your own
+- [Agent Teams](Agent-Teams.md): several agents on one goal, running by themselves every day with Make, the browser and memory
 - [Brains](Brains.md): named personalities, each with its own model, and the council vote
 - [Skills](Skills.md): reusable `SKILL.md` instructions
 - [Scheduled Tasks](Scheduled-Tasks.md)
@@ -32,6 +33,7 @@ New here? Start with [Getting Started](Getting-Started.md).
 ## Tools and control
 
 - [Tools and Approvals](Tools-and-Approvals.md): what each tool group does and when Artemis asks
+- [Advanced](Advanced.md): edit every prompt, and the command blocklist
 - [Terminal](Terminal.md)
 - [Browser](Browser.md)
 - [Computer Control](Computer-Control.md) (macOS)

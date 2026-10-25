@@ -168,7 +168,8 @@ function createRemote(deps) {
       send: (text) => tg.say(text),
       sendMd: (md) => tg.sayMd(md),
       sendFile: (p, caption) => tg.sendFile(p, caption),
-      sendPhoto: (dataUrl, caption) => tg.sendPhoto(dataUrl, caption)
+      sendPhoto: (dataUrl, caption) => tg.sendPhoto(dataUrl, caption),
+      askApproval: (id, text) => tg.askApproval(id, text)
     } : null),
     /** Typed in the desktop app, in the chat that Telegram is continuing: show it on the phone too. Returns the phone helper or null. */
     mirrorTarget: (chatId) => { const l = channel.linked(); return chatId && l && l.id === chatId && paired() ? { send: (md) => tg.sayMd(md), addTurn: (u, a) => channel.addTurn(u, a) } : null; },

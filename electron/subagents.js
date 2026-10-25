@@ -9,14 +9,29 @@ const MAX_BODY = 20000;
 const MAX_DESC = 300;
 const PROJECT_DESC = 200, PROJECT_BODY = 8000;
 
-// Tool groups an agent can be given. Deleting files, shell, computer control and Make are never available to agents.
+// Tool groups an agent can be given. Read, write, web and chats work everywhere (also for delegate helpers); the others
+// only in agent teams, where each member is a full worker: Make, the browser, connectors, commands (in the sandbox when one
+// is set), the phone, memory and scheduling. Deleting files and computer control are never available to agents.
 const GROUPS = {
   read: ['list_dir', 'read_file', 'search_files'],
   write: ['write_file', 'edit_file', 'write_spreadsheet', 'update_cells', 'create_folder', 'move_file'],
   web: ['web_search', 'web_fetch'],
-  chats: ['search_chats', 'read_chat']
+  chats: ['search_chats', 'read_chat'],
+  make: ['make_*'],
+  browser: ['browser_*'],
+  connectors: ['mcp__*', 'use_connector'],
+  shell: ['run_command'],
+  phone: ['send_to_phone'],
+  memory: ['memory_search', 'memory_get', 'memory_note', 'memory_save'],
+  automation: ['schedule_task', 'list_schedules', 'update_schedule', 'delete_schedule', 'hook_create', 'hook_list', 'hook_delete', 'heartbeat_get', 'heartbeat_set', 'heartbeat_delete']
 };
-const GROUP_LABELS = { read: 'Read project files', write: 'Write and edit files (asks you each time)', web: 'Search and read the web', chats: 'Search your saved chats' };
+const GROUP_LABELS = {
+  read: 'Read project files', write: 'Write and edit files (asks you each time)', web: 'Search and read the web', chats: 'Search your saved chats',
+  make: 'Make.com scenarios (in teams)', browser: 'Drive the browser (in teams)', connectors: 'Your connectors, MCP (in teams)', shell: 'Run commands, in the sandbox when one is set (in teams)',
+  phone: 'Send to your phone (in teams)', memory: 'Long-term memory (in teams)', automation: 'Scheduled tasks, heartbeats and webhooks (in teams)'
+};
+/** Groups that only agent teams can give (a delegate helper has no Make, browser … of its own). */
+const TEAM_ONLY = ['make', 'browser', 'connectors', 'shell', 'phone', 'memory', 'automation'];
 
 const BUILTIN = [
   {
@@ -67,7 +82,16 @@ function render({ name, role, description, model, tools, body }) {
 }
 
 /** Tool names an agent may call, from its groups. */
-const toolNames = (groups) => new Set((groups || []).flatMap((g) => GROUPS[g] || []));
+/** The tools of some groups, as a Set whose has() also matches the "prefix*" entries (make_*, mcp__* …). */
+function toolNames(groups) {
+  const all = (groups || []).flatMap((g) => GROUPS[g] || []);
+  const set = new Set(all.filter((n) => !n.endsWith('*')));
+  const prefixes = all.filter((n) => n.endsWith('*')).map((n) => n.slice(0, -1));
+  const has = set.has.bind(set);
+  set.has = (n) => has(n) || prefixes.some((p) => String(n).startsWith(p));
+  set.groups = new Set(groups || []);
+  return set;
+}
 
 /** deps: { userDir } */
 function createAgents(deps) {
@@ -147,4 +171,4 @@ function createAgents(deps) {
   return { list, find, save, remove, indexText, dir: deps.userDir };
 }
 
-module.exports = { createAgents, parseAgent, render, slugOf, toolNames, GROUPS, GROUP_LABELS, BUILTIN };
+module.exports = { createAgents, parseAgent, render, slugOf, toolNames, GROUPS, GROUP_LABELS, TEAM_ONLY, BUILTIN };

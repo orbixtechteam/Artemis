@@ -187,6 +187,22 @@ function fakeModel(script) {
   assert.ok(r.json.entry.id);
   r = await call(addr.port, 'POST', '/v1/memory/note', { token: T, body: { text: 'Tested the gateway' } });
   assert.ok(/^memory\/\d{4}-\d{2}-\d{2}\.md$/.test(r.json.path));
+  // agent teams through the API (the app uses this while the headless gateway owns the background jobs)
+  r = await call(addr.port, 'GET', '/v1/teams', { token: T });
+  assert.ok(r.status === 200 && Array.isArray(r.json.teams), 'teams listed');
+  r = await call(addr.port, 'POST', '/v1/teams', { token: T, body: { name: '', goal: 'x', members: [{ name: 'Athena' }] } });
+  assert.ok(r.status === 400 && /name/.test(r.json.error), 'a bad team gets its reason back');
+  r = await call(addr.port, 'POST', '/v1/teams', { token: T, body: { name: 'Gw team', goal: 'Find a niche', members: [{ name: 'Athena' }], repeat: { type: 'daily', at: '08:00' } } });
+  assert.ok(r.status === 200 && r.json.team.id && r.json.team.repeat.at === '08:00', 'team saved: ' + JSON.stringify(r.body));
+  const teamId = r.json.team.id, since0 = r.json.team.updatedAt - 1;
+  r = await call(addr.port, 'GET', `/v1/teams?since=${since0}`, { token: T });
+  assert.ok(r.json.teams.some((x) => x.id === teamId));
+  r = await call(addr.port, 'POST', `/v1/teams/${teamId}/pause`, { token: T, body: {} });
+  assert.strictEqual(r.status, 200);
+  r = await call(addr.port, 'POST', `/v1/teams/${teamId}/fly`, { token: T, body: {} });
+  assert.strictEqual(r.status, 404);
+  r = await call(addr.port, 'DELETE', `/v1/teams/${teamId}`, { token: T });
+  assert.ok(r.status === 200 && r.json.ok);
   r = await call(addr.port, 'GET', '/v1/memory?q=gateway', { token: T });
   assert.ok(r.json.hits.some((x) => x.path.startsWith('memory/')));
   assert.ok(fs.readFileSync(path.join(data, 'workspace', 'MEMORY.md'), 'utf8').includes('- Deploys with Kamal.'));

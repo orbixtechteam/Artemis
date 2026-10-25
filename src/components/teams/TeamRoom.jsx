@@ -3,6 +3,7 @@ import Markdown from '../Markdown.jsx';
 import { Icon } from '../Icons.jsx';
 import { labelFor, target } from '../ToolCard.jsx';
 import { Avatar, Stack, LEAD, teamState, usd, tokens, elapsed } from './parts.jsx';
+import { useMentionMenu, MentionMenu } from './MentionMenu.jsx';
 
 const STATUS_LABEL = { todo: 'to do', doing: 'doing', review: 'review', done: 'done' };
 const time = (t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -54,6 +55,7 @@ export default function TeamRoom({ team: t, roster, you, onBack, onEdit }) {
   const [logs, setLogs] = useState({}); // message id -> its task's steps are shown
   const [err, setErr] = useState('');
   const scroller = useRef(null);
+  const taRef = useRef(null);
   const stick = useRef(true);
   const st = teamState(t);
   const members = t.members.map((m) => m.name);
@@ -73,6 +75,7 @@ export default function TeamRoom({ team: t, roster, you, onBack, onEdit }) {
     if (res && res.ok === false) setErr(res.error);
   };
   const mention = (n) => setText((x) => (x && !/\s$/.test(x) ? x + ' ' : x) + '@' + n + ' ');
+  const menu = useMentionMenu({ text, setText, ta: taRef, members, lead: LEAD, roster });
 
   const done = r.tasks.filter((k) => k.status === 'done').length;
   const budget = t.budgetUsd ? t.budgetUsd + (r.extraUsd || 0) : 0;
@@ -151,8 +154,9 @@ export default function TeamRoom({ team: t, roster, you, onBack, onEdit }) {
           </div>
           {err && <div className="tm-err" role="alert">{err}</div>}
           <div className="tm-compose">
-            <textarea value={text} rows={2} aria-label="Message the team" placeholder={r.status === 'done' ? 'Ask a follow-up, or give the team more to do…' : 'Message the team, or @mention one agent…'}
-              onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(); } }} />
+            <MentionMenu menu={menu} />
+            <textarea ref={taRef} value={text} rows={2} aria-label="Message the team" placeholder={r.status === 'done' ? 'Ask a follow-up, or give the team more to do…' : 'Message the team, or @mention one agent…'}
+              onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (menu.onKey(e)) return; if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(); } }} />
             <div className="tm-ct">
               {members.map((n) => <button type="button" key={n} className="tm-chipbtn" onClick={() => mention(n)}><Icon name="at" size={12} />{n}</button>)}
               <button type="button" className="tm-go" aria-label="Send" disabled={!text.trim()} onClick={send}><Icon name="arrowUp" size={15} /></button>
@@ -180,7 +184,15 @@ export default function TeamRoom({ team: t, roster, you, onBack, onEdit }) {
           })}
           <div className="tm-ph"><span>Spent</span><span title={r.spent.usd || !r.spent.tokens ? undefined : 'Set prices for these models in Settings → Models & providers to see costs'}>{r.spent.usd || !r.spent.tokens ? usd(r.spent.usd) : 'Not priced'}{budget ? ` of ${usd(budget)}` : ''}</span></div>
           {budget > 0 && <div className="tm-meter" role="progressbar" aria-label="Budget used" aria-valuenow={Math.min(100, Math.round((r.spent.usd / budget) * 100))} aria-valuemin={0} aria-valuemax={100}><i style={{ width: `${Math.min(100, (r.spent.usd / budget) * 100)}%` }} /></div>}
-          <div className="tm-mrow"><span>{tokens(r.spent.tokens)} tokens</span><span>{t.minutes ? `Pauses at ${t.minutes + (r.extraMin || 0)} min` : 'No time limit'}</span></div>
+          <div className="tm-mrow"><span>{tokens(r.spent.tokens)} tokens{t.budgetTokens ? ` of ${tokens(t.budgetTokens + (r.extraTokens || 0))}` : ''}</span><span>{t.minutes ? `Pauses at ${t.minutes + (r.extraMin || 0)} min` : 'No time limit'}</span></div>
+          {t.repeat && <><div className="tm-ph"><span>Runs by itself</span></div><p className="tm-none">{t.repeat.type === 'interval' ? `Every ${Math.round((t.repeat.every || 60) / 60)} h` : `${t.repeat.type === 'weekdays' ? 'Weekdays' : 'Every day'} at ${t.repeat.at || '09:00'}`}: a new run that reads the notebook.</p></>}
+          {t.notebook && (
+            <details className="tm-note">
+              <summary><span>Notebook</span><span>{t.notebook.split('\n## ').length} run{t.notebook.split('\n## ').length === 1 ? '' : 's'}</span></summary>
+              <div className="tm-note-body"><Markdown text={t.notebook} /></div>
+              <button type="button" className="quiet" onClick={() => act(window.api.teamsNotebookClear)}>Clear notebook</button>
+            </details>
+          )}
         </aside>
       </div>
     </div>

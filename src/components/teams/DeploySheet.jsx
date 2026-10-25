@@ -8,12 +8,15 @@ import { Avatar, MODES } from './parts.jsx';
 
 const BUDGETS = [['0', 'No cap'], ['0.5', '$0.50'], ['1', '$1'], ['3', '$3'], ['5', '$5'], ['10', '$10'], ['25', '$25']];
 const MINUTES = [['0', 'No limit'], ['10', '10 min'], ['30', '30 min'], ['60', '1 hour'], ['120', '2 hours']];
+const TOKENS = [['0', 'No token cap'], ['200000', '200k tokens'], ['500000', '500k tokens'], ['1000000', '1M tokens'], ['3000000', '3M tokens'], ['10000000', '10M tokens']];
+const REPEATS = [['', 'Only when I start it'], ['daily', 'Every day'], ['weekdays', 'Weekdays'], ['interval', 'Every few hours']];
+const EVERY = [['60', '1 hour'], ['120', '2 hours'], ['180', '3 hours'], ['360', '6 hours'], ['720', '12 hours']];
 
 /** Create or edit a team. onDone(team | null, { start }) closes it; a deleted team comes back as onDone(null, { deleted }). */
 export default function DeploySheet({ team, roster, chatGroups, onDone, onNewAgent }) {
   const fresh = !team || !team.id;
   const [d, setD] = useState(() => (fresh
-    ? { name: '', goal: '', members: roster.filter((a) => a.builtin).map((a) => ({ name: a.name, model: '' })), mode: 'lead', leadModel: '', budgetUsd: 3, minutes: 30, askWrites: true, ...(team || {}) }
+    ? { name: '', goal: '', members: roster.filter((a) => a.builtin).map((a) => ({ name: a.name, model: '' })), mode: 'lead', leadModel: '', budgetUsd: 3, budgetTokens: 0, minutes: 30, askWrites: true, canHire: false, rules: '', repeat: null, ...(team || {}) }
     : { ...team, members: team.members.map((m) => ({ ...m })) }));
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
@@ -31,7 +34,7 @@ export default function DeploySheet({ team, roster, chatGroups, onDone, onNewAge
   const submit = async (start) => {
     setErr(''); setBusy(true);
     try {
-      const r = await window.api.teamsSave({ ...d, budgetUsd: Number(d.budgetUsd) || 0, minutes: Number(d.minutes) || 0 });
+      const r = await window.api.teamsSave({ ...d, budgetUsd: Number(d.budgetUsd) || 0, budgetTokens: Number(d.budgetTokens) || 0, minutes: Number(d.minutes) || 0 });
       if (!r.ok) { setErr(r.error); return; }
       if (start) { const s = await window.api.teamsStart(r.team.id); if (!s.ok) { setErr(s.error); return; } onDone(s.team, { start: true }); }
       else onDone(r.team, {});
@@ -83,8 +86,25 @@ export default function DeploySheet({ team, roster, chatGroups, onDone, onNewAge
             <Select value={String(d.budgetUsd)} onChange={(e) => set('budgetUsd')(e.target.value)} aria-label="Budget">{opt(BUDGETS, d.budgetUsd).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Select>
             <Select value={String(d.minutes)} onChange={(e) => set('minutes')(e.target.value)} aria-label="Time limit">{opt(MINUTES, d.minutes).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Select>
           </div>
-          <div className="tm-r"><div className="tm-r-t"><b>Ask me before writing files</b><small>Agents write into your Files folder. Deleting is never allowed.</small></div><Switch checked={d.askWrites !== false} onChange={set('askWrites')} label="Ask me before writing files" /></div>
+          <div className="tm-r"><div className="tm-r-t"><b>Token budget</b><small>Counts every model, also ones without a price</small></div>
+            <Select value={String(d.budgetTokens || 0)} onChange={(e) => set('budgetTokens')(e.target.value)} aria-label="Token budget">{opt(TOKENS, d.budgetTokens || 0).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Select>
+          </div>
+          <div className="tm-r"><div className="tm-r-t"><b>Ask me before acting</b><small>Writing files, commands, Make, posting, sending. In the room, and on Telegram when it is paired. Off: the team acts on its own.</small></div><Switch checked={d.askWrites !== false} onChange={set('askWrites')} label="Ask me before acting" /></div>
+          <div className="tm-r"><div className="tm-r-t"><b>Let Artemis add agents</b><small>When no member fits a task, the lead creates a new agent (up to 3 per team)</small></div><Switch checked={!!d.canHire} onChange={set('canHire')} label="Let Artemis add agents" /></div>
         </div>
+
+        <div className="tm-lbl">Runs by itself</div>
+        <div className="tm-grp">
+          <div className="tm-r"><div className="tm-r-t"><b>Start a new run</b><small>Each run reads the team notebook: what earlier runs did and learned</small></div>
+            <Select value={(d.repeat && d.repeat.type) || ''} aria-label="Start a new run" onChange={(e) => { const v = e.target.value; set('repeat')(!v ? null : v === 'interval' ? { type: 'interval', every: 360 } : { type: v, at: (d.repeat && d.repeat.at) || '09:00' }); }}>
+              {REPEATS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </Select>
+            {d.repeat && d.repeat.type !== 'interval' && <input type="time" className="tm-in tm-time" aria-label="At" value={d.repeat.at || '09:00'} onChange={(e) => set('repeat')({ ...d.repeat, at: e.target.value })} />}
+            {d.repeat && d.repeat.type === 'interval' && <Select value={String(d.repeat.every || 360)} aria-label="Every" onChange={(e) => set('repeat')({ ...d.repeat, every: Number(e.target.value) })}>{opt(EVERY, d.repeat.every || 360).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Select>}
+          </div>
+        </div>
+        <label className="tm-lbl" htmlFor="tm-rules">Team rules <small>(optional)</small></label>
+        <textarea id="tm-rules" className="tm-in" rows={2} value={d.rules || ''} placeholder="Anything every member should follow: tone, platforms, what not to do, where results go." onChange={(e) => set('rules')(e.target.value)} />
 
         {err && <div className="tm-err" role="alert">{err}</div>}
         <div className="tm-foot">

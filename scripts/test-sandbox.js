@@ -48,6 +48,16 @@ const { createSandbox, runProc } = require('../electron/core/sandbox');
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'artemis-sb-'));
   const proj = path.join(tmp, 'proj'); fs.mkdirSync(path.join(proj, 'sub'), { recursive: true });
   fs.writeFileSync(path.join(proj, 'sub', 'a.txt'), 'inside');
+  // The in-container script uses timeout(1). macOS has no GNU coreutils: a tiny Perl stand-in keeps the test running there.
+  if (require('child_process').spawnSync('sh', ['-c', 'command -v timeout']).status !== 0) {
+    const shim = path.join(tmp, 'shim'); fs.mkdirSync(shim);
+    fs.writeFileSync(path.join(shim, 'timeout'), `#!/bin/sh
+[ "$1" = "-s" ] && shift 2
+n="$1"; shift
+exec perl -e 'my $n = shift; my $pid = fork; if (!$pid) { exec @ARGV or exit 127 } $SIG{ALRM} = sub { kill "KILL", $pid; exit 137 }; alarm $n; waitpid($pid, 0); exit($? >> 8)' "$n" "$@"
+`, { mode: 0o755 });
+    process.env.PATH = shim + path.delimiter + process.env.PATH;
+  }
   const bin = path.join(tmp, 'docker');
   fs.writeFileSync(bin, `#!/bin/sh
 case "$1" in

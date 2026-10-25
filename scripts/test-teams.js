@@ -247,6 +247,78 @@ const def = (extra) => ({ name: 'Launch', goal: 'Ship the notes', members: [{ na
     assert.deepStrictEqual(t.run.live, {}); assert.strictEqual(t.run.active, undefined);
     console.log('teams: restart ok');
   }
+  // Teams 2: rules and the notebook in the prompts, hiring, a token budget, the "no price" warning, since() and reload()
+  {
+    const roster = ROSTER.map((a) => ({ ...a }));
+    let saved = null; const hired = []; const prompts = [];
+    let runN = 0;
+    const teams = createTeams({ load: () => saved, save: (d) => { saved = JSON.parse(JSON.stringify(d)); }, emit: () => {}, roster: () => roster,
+      hire: async (a) => { hired.push(a); roster.push({ name: a.name, role: a.role, description: a.role, tools: a.tools, body: a.body }); return { ok: true, name: a.name }; },
+      runTurn: async (o) => {
+        prompts.push(o.prompt);
+        o.onUsage({ prompt: 400, completion: 100, usd: 0, priced: false });
+        if (o.agent.name === 'Artemis' && /Call team_plan/.test(o.prompt)) {
+          if (runN === 1) assert.match(await tool(o, 'team_hire').run({ name: 'Mira', role: 'Marketer', instructions: 'posts', tools: ['make', 'web'] }), /now a member/);
+          tool(o, 'team_plan').run({ tasks: [{ title: 'Do it', assignee: runN === 1 ? 'Mira' : 'Athena' }] });
+          return 'plan';
+        }
+        if (o.agent.name === 'Artemis') return `Run ${runN} found: niche ${runN}`;
+        tool(o, 'team_done').run({ result: 'ok' }); return '';
+      } });
+    const t = teams.save({ name: 'Biz', goal: 'Find a niche', members: [{ name: 'Athena' }], rules: 'Post only in English', canHire: true, budgetUsd: 2, budgetTokens: 1e6, repeat: { type: 'daily', at: '09:00', junk: 1 } });
+    assert.deepStrictEqual(t.repeat, { type: 'daily', at: '09:00' });
+    assert.strictEqual(cleanDef({ name: 'a', goal: 'g', members: [{ name: 'Athena' }], repeat: { type: 'hourly' } }, ROSTER).repeat, null);
+    runN = 1; teams.start(t.id); let done = await teams.idle(t.id);
+    assert.strictEqual(done.run.status, 'done', JSON.stringify(done.run.messages.slice(-3)));
+    assert.ok(prompts[0].includes('Team rules from the user:\nPost only in English') && prompts[0].includes('team_hire adds a new agent'));
+    assert.strictEqual(hired.length, 1); assert.deepStrictEqual(hired[0].tools, ['make', 'web']);
+    assert.ok(done.members.some((m) => m.name === 'Mira') && done.run.tasks[0].assignee === 'Mira');
+    assert.ok(done.run.messages.some((m) => m.kind === 'status' && /No price is set/.test(m.text)), 'warns once that $ cannot be counted');
+    assert.strictEqual(done.run.messages.filter((m) => /No price is set/.test(m.text)).length, 1);
+    assert.match(done.notebook, /^## \d{4}-\d\d-\d\d\nRun 1 found: niche 1$/);
+    const ts = done.updatedAt;
+    runN = 2; prompts.length = 0; teams.start(t.id); done = await teams.idle(t.id); // a second run reads the notebook
+    assert.ok(prompts[0].includes('Team notebook') && prompts[0].includes('Run 1 found: niche 1'));
+    assert.ok(done.notebook.includes('Run 2 found') && done.notebook.includes('Run 1 found'));
+    assert.ok(teams.since(ts).some((x) => x.id === t.id) && !teams.since(done.updatedAt).length);
+    // the token budget pauses the run
+    const t2 = teams.save({ name: 'Small', goal: 'g', members: [{ name: 'Athena' }], budgetTokens: 900 });
+    runN = 3; teams.start(t2.id); const p = await teams.idle(t2.id);
+    assert.strictEqual(p.run.status, 'paused'); assert.strictEqual(p.run.reason, 'tokens');
+    assert.ok(p.run.messages.some((m) => /Token budget reached/.test(m.text)));
+    teams.stop(t2.id);
+    assert.strictEqual(teams.clearNotebook(t.id).notebook, '');
+    assert.ok(teams.reload()); assert.strictEqual(teams.get(t.id).notebook, '');
+    console.log('teams: rules, notebook, hiring, token budget ok');
+  }
+  // core/teamrun.js: a member gets the tools of its groups, approvals go to the room and to Telegram
+  {
+    const { createTeamRunner } = require('../electron/core/teamrun');
+    let got = null; const asked = []; const reg = new Map(); const phoneAsks = [];
+    const run = createTeamRunner({
+      runAgent: async (o) => { got = o; const ok = o.autoAll ? true : await o.approve({ name: 'make_run', summary: 'Run scenario 7' }); o.send({ type: 'chunk', text: ok ? 'ran it' : 'denied' }); },
+      settings: () => ({ maxTokens: 1000 }), userData: '/tmp', resolveModel: (m) => (m === 'bad' ? { error: 'no key' } : { baseUrl: 'u', key: 'k', model: m }), fallbackModel: () => 'chat',
+      prices: () => ({}), costOf: () => 0, recordUsage: () => {}, limitBlocked: () => '', filesDir: () => '/files',
+      tools: ({ caps }) => ({ make: caps.has('make') ? { m: 1 } : null, browser: caps.has('browser') ? { b: 1 } : null, shellEnabled: caps.has('shell') }),
+      approvals: { add: (id, decide) => reg.set(id, decide), drop: (id) => { const d = reg.get(id); reg.delete(id); if (d) d(false); } },
+      phone: () => ({ askApproval: async (id, text) => phoneAsks.push([id, text]) })
+    });
+    const ctrl = new AbortController();
+    const p = run({ agent: { name: 'Mira', tools: ['make', 'web'], model: 'bad', body: 'posts' }, prompt: 'go', extraTools: [], signal: ctrl.signal, askWrites: true, team: 'Biz',
+      onUsage: () => {}, onApproval: { asked: (i) => asked.push(i), done: () => {} } });
+    await wait(10);
+    assert.strictEqual(asked.length, 1); assert.strictEqual(phoneAsks.length, 1);
+    assert.match(phoneAsks[0][1], /Team "Biz" · Mira wants to:\nRun scenario 7/);
+    reg.get(asked[0].id)(true);
+    assert.strictEqual(await p, 'ran it');
+    assert.strictEqual(got.model, 'chat', 'a model without a key falls back to the chat model');
+    assert.ok(got.make && !got.browser && !got.shellEnabled && got.isSub && got.memberCaps.has('make'));
+    assert.ok(got.allowTools.has('make_run') && got.allowTools.has('web_search') && !got.allowTools.has('browser_click'));
+    assert.ok(!got.autoAll);
+    await run({ agent: { name: 'Mira', tools: [] }, prompt: 'go', extraTools: [], signal: new AbortController().signal, askWrites: false, onUsage: () => {}, onApproval: { asked: () => {}, done: () => {} } }).catch(() => {});
+    assert.ok(got.autoAll && got.autoApprove, '"ask me first" off: the member acts on its own');
+    console.log('teams: member tools and approvals ok');
+  }
   console.log('teams: all tests passed');
   process.exit(0);
 })().catch((e) => { console.error(e); process.exit(1); });
