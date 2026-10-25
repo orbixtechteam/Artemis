@@ -721,7 +721,8 @@ function pruneImages(history, keep = KEEP_IMAGES, keepUser = KEEP_USER_IMAGES) {
 /**
  * opts: { baseUrl, key, model, messages, maxTokens, custom, project, root, toolsEnabled, memoryEnabled,
  *         webEnabled, shellEnabled, computer, computerHooks:{onStart,onEnd}, searchFallback,
- *         autoApprove, memoryApi, approve(info)->Promise<boolean>, send(ev), signal }
+ *         autoApprove, memoryApi, approve(info)->Promise<boolean>, send(ev), signal,
+ *         extraTools: [{ name, description, parameters, run(args) -> string }] (tools of the caller, e.g. a team's room tools; never ask) }
  */
 async function runAgent(opts) {
   const { baseUrl, key, model, maxTokens, send, signal } = opts;
@@ -732,6 +733,7 @@ async function runAgent(opts) {
   const partsSkip = []; // roles whose content must stay a string even in parts mode (learned from errors)
   let partsMode = ''; // '' = automatic; 'parts' = every content a list of parts; 'text' = plain text, images dropped. Learned from the endpoint's schema errors.
   let effortOff = false; // set when the endpoint rejects reasoning_effort: it is then left out for the rest of the run
+  let effortNone = false; // set when the endpoint takes tools only without reasoning (OpenAI gpt-6 on chat/completions: "set reasoning_effort to 'none'")
   const dropped = new Set(); // optional request fields the endpoint rejected: left out for the rest of the run
   let maxTokKey = 'max_tokens'; // some endpoints (OpenAI reasoning models) want max_completion_tokens
   let ctxRetried = false; // a context-length error is retried once after aggressive compaction
@@ -753,6 +755,7 @@ async function runAgent(opts) {
   let exploreCalls = 0, wrote = false;
   let agentRuns = 0;
   const allow = opts.allowTools || null;
+  const extra = new Map((Array.isArray(opts.extraTools) ? opts.extraTools : []).map((t) => [t.name, t]));
   const flags = () => ({
     makeEnabled: !!opts.make && !opts.isSub, hasFolder: !!opts.root, memoryEnabled: !!opts.memoryEnabled,
     webEnabled: !!opts.webEnabled, shellEnabled: !!opts.shellEnabled, computerEnabled: !!opts.computer, phoneEnabled: !!opts.phone, scheduleEnabled: !!opts.schedule && !opts.isSub, notesEnabled: !!opts.notes && !opts.isSub, termEnabled: !!opts.term && !opts.isSub, mediaEnabled: !!opts.media,
@@ -891,6 +894,7 @@ async function runAgent(opts) {
       const mcpList = toolsOn ? mcpDefs() : [];
       let defs = toolsOn ? [...tools.definitions(f), ...useToolsDef(), ...mcpList] : [];
       if (allow) defs = defs.filter((d) => allow.has(d.function.name));
+      if (toolsOn) for (const t of extra.values()) defs.push({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } });
       if (schemaFix) defs = simplifySchemas(defs);
       {
         const cap = toolCap || (/(^|\/\/)api\.groq\.com\//.test(String(url)) ? 128 : 0);
@@ -931,6 +935,7 @@ async function runAgent(opts) {
       const body = { model, messages: withNote(cacheOn ? withCache(plain) : plain), stream: true, stream_options: { include_usage: true }, ...routingBody(url), ...(opts.sessionId && /openrouter\.ai/i.test(String(url)) ? { session_id: String(opts.sessionId).slice(0, 256) } : {}) };
       if (maxTokens) body[maxTokKey] = maxTokens;
       if (effort && !effortOff) body.reasoning_effort = effort;
+      if (effortNone && defs.length) body.reasoning_effort = 'none';
       for (const k of dropped) delete body[k];
       if (defs.length) { body.tools = defs; body.tool_choice = 'auto'; }
 
@@ -994,6 +999,12 @@ async function runAgent(opts) {
           if (partsMode === 'parts') { partsMode = 'text'; iter--; continue; }
         }
         if (defs.length && (err.status === 400 || err.status === 422) && /tool|function/i.test(err.message)) {
+          // Tools are allowed only with reasoning off: keep the tools, turn reasoning off for the rest of the run.
+          if (!effortNone && /reasoning_effort/i.test(err.message) && /['"]none['"]/.test(err.message)) {
+            effortNone = true;
+            send({ type: 'notice', text: 'This model uses tools only with reasoning off on this endpoint, so reasoning is off for this task.' });
+            iter--; continue;
+          }
           const capM = /maximum number of items is (\d+)/i.exec(err.message);
           if (capM && Number(capM[1]) > 0 && Number(capM[1]) < defs.length) { toolCap = Number(capM[1]); iter--; continue; } // too many tools: send fewer, keep tools on
           // The model tried to call a tool and failed (Groq: tool_use_failed "Failed to call a function"): that is not missing tool support, so try again.
@@ -1112,6 +1123,8 @@ async function runAgent(opts) {
       });
       const exec = async ({ tc, args, parseErr }) => {
         if (parseErr) return { ok: false, text: `Error: tool arguments are not valid JSON (${parseErr}).` + (result.finish === 'length' ? ' The reply was cut off at the output limit.' : '') + ' Send a shorter call: put long text in several smaller calls (write_file or create_artifact with append=true for each next part, notes_append, or edit_file with a small change) and escape quotes and newlines.' };
+        const xt = extra.get(tc.name);
+        if (xt) { try { return { ok: true, text: String(await xt.run(args)) }; } catch (e) { return { ok: false, text: `Error: ${e.message}` }; } }
         if (allow && !allow.has(tc.name)) return { ok: false, text: `Error: ${tc.name} is not available to this agent.` };
         if (tc.name === 'task_note') {
           const t = String(args.text || '').trim().slice(0, 2000);
