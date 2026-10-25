@@ -6,7 +6,7 @@ const os = require('os');
 const path = require('path');
 const { EventEmitter } = require('events');
 const { PassThrough } = require('stream');
-const { createCliAgents, createCliTeamTurn, kindOf, modelOf, argsFor, claudeReader, codexReader, claudeAsk, unwrapShell, cliError } = require('../electron/cli-agents');
+const { createCliAgents, createCliTeamTurn, createCliChat, transcript, kindOf, modelOf, argsFor, claudeReader, codexReader, claudeAsk, unwrapShell, cliError } = require('../electron/cli-agents');
 const { createMcpServer } = require('../electron/mcp-server');
 
 const CLAUDE = [
@@ -248,6 +248,47 @@ function fakeSpawn(lines, { code = 0, hang = false, stderr = '' } = {}) {
     await assert.rejects(noCli({ agent: { name: 'H', model: 'cli:claude' }, prompt: 'p', extraTools: [], signal: new AbortController().signal, onUsage: () => {}, onApproval }), /run in the Artemis app, not in the background gateway/);
     fs.rmSync(work, { recursive: true, force: true });
     console.log('cli-agents: team runner hand-off ok');
+  }
+  {
+    // chats: earlier turns go in as a transcript, the new message last
+    assert.strictEqual(transcript([{ role: 'user', content: 'hi' }]), 'hi');
+    const t = transcript([{ role: 'system', content: 'x' }, { role: 'user', content: 'a' }, { role: 'assistant', content: [{ type: 'text', text: 'b' }] }, { role: 'user', content: [{ type: 'text', text: 'c' }, { type: 'image_url', image_url: { url: 'data:x' } }] }]);
+    assert.ok(/User: a\n\nAssistant: b/.test(t) && /new message:\nc\n\[image\]$/.test(t), t);
+    const long = transcript([{ role: 'user', content: 'x'.repeat(50) }, { role: 'assistant', content: 'y'.repeat(50) }, { role: 'user', content: 'z' }], 70);
+    assert.ok(long.includes('[earlier messages left out]') && long.includes('Assistant: ' + 'y'.repeat(50)) && !long.includes('xxx'), long);
+    // a chat's tools reach the CLI on a server named "artemis"; Claude Code's own prompts go through artemis_permission
+    const a = argsFor('claude', { mcp: { url: 'http://127.0.0.1:1/mcp', token: 't' }, server: 'artemis', permissionMode: 'default' });
+    assert.strictEqual(a[a.indexOf('--allowedTools') + 1], 'mcp__artemis');
+    assert.strictEqual(a[a.indexOf('--permission-prompt-tool') + 1], 'mcp__artemis__artemis_permission');
+    assert.strictEqual(a[a.indexOf('--permission-mode') + 1], 'default');
+    assert.ok(JSON.parse(a[a.indexOf('--mcp-config') + 1]).mcpServers.artemis);
+    const c = argsFor('codex', { mcp: { url: 'u', token: 't' }, server: 'artemis', folder: '/w' });
+    assert.ok(c.includes('mcp_servers.artemis.bearer_token_env_var="ARTEMIS_TEAM_TOKEN"'));
+    // bridged steps are marked so the chat shows Artemis's own result for them
+    const steps = [];
+    feed(claudeReader((e) => steps.push(e), () => {}), [{ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'u1', name: 'mcp__artemis__browser_navigate', input: { url: 'https://x' } }] } }]);
+    assert.deepStrictEqual(steps[1], { type: 'tool', id: 'u1', name: 'browser_navigate', args: { url: 'https://x' }, bridged: true });
+    // the turn: tools served to the CLI with this turn's token, permission tool answered by ask()
+    let seen = null;
+    const fakeCli = { available: async () => ({ claude: true, codex: false }), run: async (o) => {
+      seen = o;
+      const srv = createMcpServer({ sessions: () => null });
+      const tools = await (async () => { const r = await fetch(o.mcp.url, { method: 'POST', headers: { authorization: 'Bearer ' + o.mcp.token, 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) }); return (await r.json()).result.tools.map((x) => x.name); })();
+      assert.deepStrictEqual(tools, ['make_list', 'artemis_permission']);
+      const call = async (name, args) => { const r = await fetch(o.mcp.url, { method: 'POST', headers: { authorization: 'Bearer ' + o.mcp.token, 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name, arguments: args } }) }); return (await r.json()).result; };
+      assert.strictEqual((await call('make_list', {})).content[0].text, 'scenarios');
+      assert.strictEqual(JSON.parse((await call('artemis_permission', { tool_name: 'Bash', input: { command: 'ls' } })).content[0].text).behavior, 'deny');
+      void srv;
+      return 'done';
+    } };
+    const asked = [];
+    const chat = createCliChat({ cli: fakeCli, createMcpServer });
+    const out = await chat.turn({ kind: 'claude', system: 's', prompt: 'p', folder: os.tmpdir(), perm: 'ask', tools: [{ name: 'make_list', description: 'd', inputSchema: { type: 'object', properties: {} }, run: async () => 'scenarios' }], ask: async (i) => { asked.push(i.summary); return false; } });
+    assert.strictEqual(out, 'done');
+    assert.deepStrictEqual(asked, ['Run: ls']);
+    assert.strictEqual(seen.server, 'artemis'); assert.strictEqual(seen.permissionMode, 'default'); assert.strictEqual(seen.askWrites, true);
+    await chat.stop();
+    console.log('cli-agents: chat turn ok');
   }
   console.log('cli-agents: all tests passed');
 })().catch((e) => { console.error('FAILED:', e); process.exit(1); });

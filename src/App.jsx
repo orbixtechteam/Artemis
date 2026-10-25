@@ -38,7 +38,7 @@ import Message from './components/Message.jsx';
 import Composer from './components/Composer.jsx';
 import { SettingsModal } from './components/Settings.jsx';
 import SkillsView from './components/SkillsView.jsx';
-import AgentsView from './components/AgentsView.jsx';
+import AgentsView, { agentsIntent } from './components/AgentsView.jsx';
 import { progressOf } from './lib/outputs.js';
 import LogsView from './components/LogsView.jsx';
 import AutomationsView from './components/AutomationsView.jsx';
@@ -91,6 +91,8 @@ export default function App() {
   const [currentId, setCurrentId] = useState(null);
   const [view, setView] = useState('chat'); // 'chat' | 'projects' | { project: id }
   const [providers, setProviders] = useState([]);
+  const [clis, setClis] = useState({}); // Claude Code / Codex installed on this computer (plan-login chat models)
+  useEffect(() => { window.api.teamsClis?.().then((c) => c && setClis(c)).catch(() => {}); }, []);
   const applyProviders = (r) => { setProviders(r.providers || []); setExtraPrices(r.prices || {}); };
   const [runningIds, setRunningIds] = useState([]); // chats with a run in progress
   const [connectorCount, setConnectorCount] = useState(0);
@@ -1723,7 +1725,7 @@ export default function App() {
 
   if (!loaded || !settings || !chat) return <div className="boot" role="status" aria-label="Loading Artemis"><Logo size={56} className="boot-logo" /><span className="boot-spinner" /></div>;
 
-  const groups = modelGroups(chat.model, providers);
+  const groups = modelGroups(chat.model, providers, clis);
   const editingProject = modal && modal.project && modal.project !== 'new' ? projects.find((p) => p.id === modal.project) : null;
   const mac = api.platform === 'darwin';
   const viewProject = view && view.project ? projects.find((p) => p.id === view.project) : null;
@@ -1858,7 +1860,7 @@ export default function App() {
     if (kind === 'files') return <FilesView onOpen={openLibFile} onUse={useLibFile} />;
     if (kind === 'graph') return <NoteGraph rev={notes.items} onOpen={noteActions.open} onCreate={(name) => noteActions.create('', name)} />;
     if (kind === 'automations') return <AutomationsView onOpenSettings={(t) => { setSettingsTab(t || 'general'); setModal('settings'); }} />;
-    if (kind === 'agents') return <AgentsView settings={settings} chats={chats} runningIds={runningIds} groups={groups} onOpenChat={(id) => select(id)} />;
+    if (kind === 'agents') return <AgentsView settings={settings} chats={chats} runningIds={runningIds} groups={groups} projects={projects} onOpenChat={(id) => select(id)} />;
     // Settings is a page like Home: it saves every change itself (no Save / Cancel) and is closed with its tab (⌘W)
     if (kind === 'settings') return <SettingsModal onBack={split ? undefined : closePage} profile={{ name: settings.profileName, avatar }} onProfile={() => setModal('profile')} projects={projects} onApply={async (patch) => { const { hasApiKey: _ro, ...rest } = patch || {}; const r = await api.setSettings(rest); setSettings({ ...r }); return r; }} settings={settings} groups={groups} providers={providers} onProviders={applyProviders} initialTab={split && splitT ? splitT.s.settingsTab : settingsTab} onTabChange={split ? undefined : setSettingsTab} />;
     if (kind === 'memory') body = <MemoryModal memory={memory} enabled={settings.memoryEnabled} onChange={changeMemory} onToggle={toggleMemory} onClose={close} />;
@@ -1944,6 +1946,7 @@ export default function App() {
             brains={brains} groups={groups} defaultModel={defaultModel(settings, providers)} settings={settings}
             onUsageDetails={settings && (() => setModal('usage'))} onOpenSettings={() => setModal('settings')}
             sentinel={sent.state} onSentinel={toggleSentinel}
+            onOpenTeam={(id) => { agentsIntent.room(id); setView('agents'); }} onNewTeam={() => { agentsIntent.newTeam(viewProject.id); setView('agents'); }}
           />
         )}
         {(chatView || noteView || primaryPage) && (
@@ -1988,7 +1991,7 @@ export default function App() {
           </div>}
           {showSplit && (
             <ErrorBoundary name="the split view" resetKey={chat2.id}>
-            <SplitPane chat={chat2} msgH={msgH} busy={isRunning(chat2.id)} settings={settings} projects={projects} brains={brains} brain={brainOf(chat2)} groups={modelGroups(chat2.model, providers)}
+            <SplitPane chat={chat2} msgH={msgH} busy={isRunning(chat2.id)} settings={settings} projects={projects} brains={brains} brain={brainOf(chat2)} groups={modelGroups(chat2.model, providers, clis)}
               h={{
                 update: (patch) => updateChat(chat2.id, patch), onClose: () => setSplitTab(null),
                 onSend: (text, atts, extra) => sendTo(chat2, text, atts, extra), onStop: () => stop(chat2), ...queueFor(chat2), onRegenerate: (m) => regenerate(m, chat2), onDecide: decide,

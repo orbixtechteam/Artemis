@@ -367,6 +367,8 @@ function definitions({ teamsEnabled, makeEnabled, hasFolder, memoryEnabled, memo
         members: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, model: { type: 'string', description: 'Optional model for this member' } }, required: ['name'] } },
         mode: { type: 'string', enum: ['lead', 'pipeline', 'open'], description: 'lead: Artemis plans and hands out tasks; pipeline: tasks one after another; open: everyone at once' },
         lead_model: { type: 'string' }, rules: { type: 'string', description: 'Team rules added to every prompt (voice, audience, format)' },
+        project: { type: 'string', description: 'Project the team works for (name or id; empty string to unlink). The team then works in its folder, follows its instructions and can use its agents.' },
+        folder: { type: 'string', description: 'Absolute folder for the team\'s files, only when it should differ from the project\'s (empty string = the project\'s folder, or the Files folder)' },
         budget_usd: { type: 'number' }, budget_tokens: { type: 'integer' }, minutes: { type: 'integer', description: 'Time limit per run' },
         ask_first: { type: 'boolean', description: 'Ask the user before acting (default true)' }, can_hire: { type: 'boolean', description: 'The lead may add agents' },
         repeat: { type: 'object', description: 'Start a new run by itself: {type:"daily"|"weekdays", at:"HH:MM"} or {type:"interval", every: minutes}. Omit or null for only by hand.', properties: { type: { type: 'string', enum: ['daily', 'weekdays', 'interval'] }, at: { type: 'string' }, every: { type: 'integer' } } }
@@ -1350,7 +1352,7 @@ async function runTool(name, args, ctx) {
       case 'team_list': {
         if (!ctx.teams) throw new Error('Agents and teams are not available here.');
         const l = await ctx.teams.list();
-        return { ok: true, text: l.map((t) => `${t.id} · "${t.name}" · ${t.run ? t.run.status : 'idle'} · members: ${t.members.map((m) => m.name).join(', ')}${t.repeat ? ` · runs ${t.repeat.type}${t.repeat.at ? ' ' + t.repeat.at : ''}` : ''}\n  goal: ${String(t.goal).slice(0, 200)}`).join('\n') || 'No teams.' };
+        return { ok: true, text: l.map((t) => `${t.id} · "${t.name}" · ${t.run ? t.run.status : 'idle'} · members: ${t.members.map((m) => m.name).join(', ')}${t.projectId && ctx.teams.projects ? ((p) => (p ? ` · project: ${p.name}` : ''))(ctx.teams.projects().find((x) => x.id === t.projectId)) : ''}${t.repeat ? ` · runs ${t.repeat.type}${t.repeat.at ? ' ' + t.repeat.at : ''}` : ''}\n  goal: ${String(t.goal).slice(0, 200)}`).join('\n') || 'No teams.' };
       }
       case 'team_save': {
         if (!ctx.teams) throw new Error('Agents and teams are not available here.');
@@ -1362,10 +1364,22 @@ async function runTool(name, args, ctx) {
           budgetTokens: args.budget_tokens !== undefined ? args.budget_tokens : old ? old.budgetTokens : 0, minutes: args.minutes !== undefined ? args.minutes : old ? old.minutes : 30,
           askWrites: args.ask_first !== undefined ? !!args.ask_first : old ? old.askWrites : true, canHire: args.can_hire !== undefined ? !!args.can_hire : old ? old.canHire : false,
           repeat: args.repeat !== undefined ? args.repeat : old ? old.repeat : null };
-        const missing = def.members.filter((m) => !ctx.teams.agents().some((a) => a.name.toLowerCase() === String(m.name).toLowerCase())).map((m) => m.name);
+        if (args.project !== undefined) {
+          const q = String(args.project || '').trim().toLowerCase();
+          if (!q) def.projectId = '';
+          else {
+            const ps = ctx.teams.projects ? ctx.teams.projects() : [];
+            const p = ps.find((x) => x.id === args.project || String(x.name).toLowerCase() === q) || ps.find((x) => String(x.name).toLowerCase().includes(q));
+            if (!p) throw new Error(`No project "${args.project}". Projects: ${ps.map((x) => `"${x.name}"`).join(', ') || 'none yet (the user creates them in Projects)'}.`);
+            def.projectId = p.id;
+          }
+        }
+        if (args.folder !== undefined) def.folder = String(args.folder || '').trim();
+        const proj = def.projectId && ctx.teams.projects ? ctx.teams.projects().find((x) => x.id === def.projectId) : null;
+        const missing = def.members.filter((m) => !ctx.teams.agents(proj ? proj.folder : null).some((a) => a.name.toLowerCase() === String(m.name).toLowerCase())).map((m) => m.name);
         if (missing.length) throw new Error(`These agents do not exist yet: ${missing.join(', ')}. Create them with agent_save first.`);
         const t = await ctx.teams.save(def);
-        return { ok: true, text: `Team "${t.name}" ${old ? 'changed' : 'created'} (id ${t.id}) with ${t.members.map((m) => m.name).join(', ')}.${t.repeat ? ' It starts by itself: ' + (t.repeat.type === 'interval' ? `every ${Math.round((t.repeat.every || 60) / 60)} h` : `${t.repeat.type} at ${t.repeat.at || '09:00'}`) + '.' : ''} The user finds it on the Agents page.` };
+        return { ok: true, text: `Team "${t.name}" ${old ? 'changed' : 'created'} (id ${t.id}) with ${t.members.map((m) => m.name).join(', ')}.${proj ? ` It works for the project "${proj.name}".` : ''}${t.repeat ? ' It starts by itself: ' + (t.repeat.type === 'interval' ? `every ${Math.round((t.repeat.every || 60) / 60)} h` : `${t.repeat.type} at ${t.repeat.at || '09:00'}`) + '.' : ''} The user finds it on the Agents page.` };
       }
       case 'team_start': {
         if (!ctx.teams) throw new Error('Agents and teams are not available here.');

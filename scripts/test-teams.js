@@ -95,6 +95,68 @@ const def = (extra) => ({ name: 'Launch', goal: 'Ship the notes', members: [{ na
     console.log('teams: follow-up ok');
   }
 
+  // "@Name" in the room: a paused team picks up, and that member answers first (no review, no new summary after the end)
+  {
+    const seen = [];
+    let pauseNow = true;
+    const { teams } = make(async (o) => {
+      const who = o.agent.name;
+      if (who === 'Artemis' && /Call team_plan/.test(o.prompt)) { tool(o, 'team_plan').run({ tasks: [{ title: 'Write it', assignee: 'Calliope' }] }); return 'ok'; }
+      if (who === 'Artemis') return 'Summary';
+      if (who === 'Themis') { tool(o, 'team_review').run({ verdict: 'approve', note: 'ok' }); return ''; }
+      seen.push(`${who}: ${/user wrote to you/.test(o.prompt) ? 'answer' : 'task'}`);
+      if (who === 'Calliope' && pauseNow) { pauseNow = false; o.onUsage({ prompt: 400000, completion: 0, usd: 0 }); }
+      if (/user wrote to you/.test(o.prompt)) assert.match(o.prompt, /post it on Notes/);
+      tool(o, 'team_done').run({ result: 'did it' });
+      return '';
+    });
+    const t = teams.save(def({ budgetTokens: 300000 }));
+    teams.start(t.id);
+    let end = await teams.idle(t.id);
+    assert.strictEqual(end.run.status, 'paused');
+    await teams.say(t.id, '@Athena post it on Notes please');
+    end = await teams.idle(t.id);
+    assert.strictEqual(end.run.status, 'done', JSON.stringify(end.run.messages.slice(-3)));
+    assert.strictEqual(seen[1], 'Athena: answer', seen.join(' | '));
+    const direct = end.run.tasks.find((k) => k.direct);
+    assert.ok(direct && direct.status === 'done' && direct.assignee === 'Athena');
+    const summaries = end.run.messages.filter((m) => m.kind === 'summary').length;
+    await teams.say(t.id, '@Calliope one more thing: post it on Notes');
+    end = await teams.idle(t.id);
+    assert.strictEqual(end.run.status, 'done');
+    assert.strictEqual(end.run.messages.filter((m) => m.kind === 'summary').length, summaries, 'answering after the end writes no new summary');
+    assert.strictEqual(seen[seen.length - 1], 'Calliope: answer');
+    console.log('teams: @mention answers ok');
+  }
+
+  // a team that works for a project: its folder, its instructions in every prompt, its own agents in the roster
+  {
+    const got = []; const roots = [];
+    let saved = null;
+    const PROJ_AGENT = { name: 'Pip', role: 'Publisher', description: 'Posts', tools: ['browser'], body: 'post' };
+    const teams = createTeams({
+      load: () => saved, save: (d) => { saved = d; }, emit: () => {},
+      roster: (root) => { roots.push(root); return root === '/p/sticky' ? [...ROSTER, PROJ_AGENT] : ROSTER; },
+      project: (id) => (id === 'p1' ? { id: 'p1', name: 'Sticky', folder: '/p/sticky', instructions: 'Voice: we, the Artemis team.' } : null),
+      runTurn: async (o) => {
+        got.push({ who: o.agent.name, folder: o.folder, prompt: o.prompt });
+        if (o.agent.name === 'Artemis' && /Call team_plan/.test(o.prompt)) { tool(o, 'team_plan').run({ tasks: [{ title: 'Post', assignee: 'Pip' }] }); return 'ok'; }
+        if (o.agent.name === 'Artemis') return 'Summary';
+        tool(o, 'team_done').run({ result: 'posted' }); return '';
+      }
+    });
+    assert.throws(() => teams.save({ name: 'S', goal: 'g', members: [{ name: 'Pip' }] }), /at least one/, 'a project agent needs the project');
+    const t = teams.save({ name: 'S', goal: 'g', members: [{ name: 'Pip' }], projectId: 'p1' });
+    teams.start(t.id);
+    const end = await teams.idle(t.id);
+    assert.strictEqual(end.run.status, 'done', JSON.stringify(end.run.messages.slice(-2)));
+    assert.ok(got.every((x) => x.folder === '/p/sticky'), 'turns run in the project folder');
+    assert.ok(got.filter((x) => !/All tasks are done/.test(x.prompt)).every((x) => /project "Sticky"/.test(x.prompt) && /Voice: we, the Artemis team\./.test(x.prompt)), 'project instructions in every prompt');
+    const own = teams.save({ ...teams.get(t.id), folder: '/elsewhere' });
+    assert.strictEqual(own.projectId, 'p1');
+    console.log('teams: project link ok');
+  }
+
   // budget: the team pauses at the cap; resume gives it the same amount again
   {
     let calls = 0;

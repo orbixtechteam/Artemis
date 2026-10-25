@@ -19,8 +19,8 @@ const CLAUDE_TOOLS = { Read: 'read_file', Write: 'write_file', Edit: 'edit_file'
 const HIDDEN_CLAUDE = new Set(['ToolSearch', 'TodoWrite']); // Claude Code's own bookkeeping (loading MCP tools, its to-do list), not work
 const claudeStep = (name, input) => {
   const n = String(name || '');
-  const team = /^mcp__team__(.+)$/.exec(n);
-  if (team) return { name: team[1], args: input || {} };
+  const team = /^mcp__(team|artemis)__(.+)$/.exec(n); // our own MCP server: the team tools, or Artemis's tools in a chat
+  if (team) return { name: team[2], args: input || {}, bridged: true };
   const a = input || {};
   const mapped = CLAUDE_TOOLS[n] || n;
   return { name: mapped, args: { path: a.file_path || a.notebook_path || a.path, query: a.query || a.pattern, pattern: a.pattern, url: a.url, command: a.command } };
@@ -48,6 +48,8 @@ const NOT_SIGNED_IN = /not (logged|signed) in|run \/login|login expired|no codex
 const cliError = (kind, text) => new Error(NOT_SIGNED_IN.test(text) ? `${SIGN_IN[kind]} (${KINDS[kind].label} said: ${String(text).trim().slice(0, 200)})` : `${KINDS[kind].label}: ${text}`);
 const unwrapShell = (cmd) => { const m = /^\/bin\/(?:zsh|bash|sh) -l?c '([\s\S]*)'$/.exec(String(cmd || '')); return m ? m[1] : String(cmd || ''); };
 
+const resultText = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.map((x) => (x && x.type === 'text' ? x.text : '')).filter(Boolean).join('\n') : '').slice(0, 4000);
+
 /** Reads Claude Code's stream-json, one parsed line at a time. Returns the final text when the run ends. */
 function claudeReader(onStep, onUsage) {
   let final = null, error = '';
@@ -56,12 +58,12 @@ function claudeReader(onStep, onUsage) {
       if (j.type === 'assistant' && j.message && Array.isArray(j.message.content)) {
         onStep({ type: 'step' });
         for (const c of j.message.content) {
-          if (c.type === 'thinking' || c.type === 'redacted_thinking') onStep({ type: 'thinking' });
+          if (c.type === 'thinking' || c.type === 'redacted_thinking') onStep({ type: 'thinking', ...(c.thinking ? { text: c.thinking } : {}) });
           else if (c.type === 'text' && c.text) onStep({ type: 'text', text: c.text });
-          else if (c.type === 'tool_use' && !HIDDEN_CLAUDE.has(c.name)) { const st = claudeStep(c.name, c.input); onStep({ type: 'tool', id: c.id, name: st.name, args: st.args }); }
+          else if (c.type === 'tool_use' && !HIDDEN_CLAUDE.has(c.name)) { const st = claudeStep(c.name, c.input); onStep({ type: 'tool', id: c.id, name: st.name, args: st.args, ...(st.bridged ? { bridged: true } : {}) }); }
         }
       } else if (j.type === 'user' && j.message && Array.isArray(j.message.content)) {
-        for (const c of j.message.content) if (c.type === 'tool_result') onStep({ type: 'tool:done', id: c.tool_use_id, ok: !c.is_error });
+        for (const c of j.message.content) if (c.type === 'tool_result') { const t = resultText(c.content); onStep({ type: 'tool:done', id: c.tool_use_id, ok: !c.is_error, ...(t ? { text: t } : {}) }); }
       } else if (j.type === 'result') {
         const u = j.usage || {};
         onUsage({ prompt: (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0), completion: u.output_tokens || 0, cached: u.cache_read_input_tokens || 0 });
@@ -81,7 +83,7 @@ function codexReader(onStep, onUsage) {
       if (phase === 'started') onStep({ type: 'tool', id: it.id, name: 'run_command', args: { command: unwrapShell(it.command) } });
       else onStep({ type: 'tool:done', id: it.id, ok: it.exit_code === 0 || it.status === 'completed' && it.exit_code == null });
     } else if (it.type === 'mcp_tool_call') {
-      if (phase === 'started') onStep({ type: 'tool', id: it.id, name: String(it.tool || ''), args: it.arguments || {} });
+      if (phase === 'started') onStep({ type: 'tool', id: it.id, name: String(it.tool || ''), args: it.arguments || {}, ...(it.server === 'artemis' || it.server === 'team' ? { bridged: true } : {}) });
       else onStep({ type: 'tool:done', id: it.id, ok: it.status !== 'failed' && !it.error });
     } else if (it.type === 'web_search') {
       if (phase === 'started') onStep({ type: 'tool', id: it.id, name: 'web_search', args: { query: it.query || '' } });
@@ -100,7 +102,7 @@ function codexReader(onStep, onUsage) {
       if (j.type === 'item.started') tool(it, 'started');
       else if (j.type === 'item.completed') {
         if (it.type === 'agent_message' && it.text) { onStep({ type: 'step' }); onStep({ type: 'text', text: it.text }); last = it.text; }
-        else if (it.type === 'reasoning') onStep({ type: 'thinking' });
+        else if (it.type === 'reasoning') onStep({ type: 'thinking', ...(it.text ? { text: it.text } : {}) });
         else tool(it, 'completed');
       } else if (j.type === 'turn.completed') {
         ended = true;
@@ -114,14 +116,14 @@ function codexReader(onStep, onUsage) {
 }
 
 /** The command line for one turn. The prompt goes on stdin (Claude Code) or as the last argument (Codex). */
-function argsFor(kind, { mcp, askWrites, system, folder, model }) {
+function argsFor(kind, { mcp, askWrites, system, folder, model, server = 'team', permissionMode }) {
   if (kind === 'claude') {
     return [
       '-p', '--output-format', 'stream-json', '--verbose', '--no-session-persistence',
-      '--strict-mcp-config', '--mcp-config', JSON.stringify({ mcpServers: { team: { type: 'http', url: mcp.url, headers: { Authorization: `Bearer ${mcp.token}` } } } }),
-      '--allowedTools', 'mcp__team', // the team tools never ask; Claude Code's own tools follow the permission mode
-      '--permission-prompt-tool', 'mcp__team__team_permission',
-      '--permission-mode', askWrites ? 'manual' : 'acceptEdits',
+      '--strict-mcp-config', '--mcp-config', JSON.stringify({ mcpServers: { [server]: { type: 'http', url: mcp.url, headers: { Authorization: `Bearer ${mcp.token}` } } } }),
+      '--allowedTools', `mcp__${server}`, // our tools never ask here (Artemis asks itself when a tool needs it); Claude Code's own tools follow the permission mode
+      '--permission-prompt-tool', `mcp__${server}__${server}_permission`,
+      '--permission-mode', permissionMode || (askWrites ? 'manual' : 'acceptEdits'),
       ...(system ? ['--append-system-prompt', system] : []),
       ...(model ? ['--model', model] : [])
     ];
@@ -130,9 +132,9 @@ function argsFor(kind, { mcp, askWrites, system, folder, model }) {
     'exec', '--json', '--ephemeral', '--skip-git-repo-check',
     '--sandbox', askWrites ? 'read-only' : 'workspace-write', // Codex cannot ask in the middle of a run: "ask before writing" keeps it read-only
     '-C', folder,
-    '-c', `mcp_servers.team.url=${JSON.stringify(mcp.url)}`,
-    '-c', 'mcp_servers.team.bearer_token_env_var="ARTEMIS_TEAM_TOKEN"',
-    '-c', 'mcp_servers.team.default_tools_approval_mode="approve"', // exec never asks, so the team tools must be allowed up front
+    '-c', `mcp_servers.${server}.url=${JSON.stringify(mcp.url)}`,
+    '-c', `mcp_servers.${server}.bearer_token_env_var="ARTEMIS_TEAM_TOKEN"`,
+    '-c', `mcp_servers.${server}.default_tools_approval_mode="approve"`, // exec never asks, so our tools must be allowed up front
     ...(model ? ['-m', model] : [])
   ];
 }
@@ -163,7 +165,7 @@ function createCliAgents(deps) {
     const kind = o.kind;
     const bin = await find(kind);
     if (!bin) throw new Error(`${KINDS[kind].label} is not installed on this computer. Install it and sign in, then try again.`);
-    if (!o.folder || !fs.existsSync(o.folder)) throw new Error(`The team's folder does not exist: ${o.folder || '(none)'}`);
+    if (!o.folder || !fs.existsSync(o.folder)) throw new Error(`The working folder does not exist: ${o.folder || '(none)'}`);
     const args = argsFor(kind, o);
     if (kind === 'codex') args.push([o.system, o.prompt].filter(Boolean).join('\n\n'));
     const env = { ...env0, PATH: [path.dirname(bin), ...DIRS, env0.PATH || ''].join(path.delimiter), ARTEMIS_TEAM_TOKEN: o.mcp.token };
@@ -252,4 +254,67 @@ function createCliTeamTurn({ cli, createMcpServer, isLocked = () => false, log =
   return { turn, available: () => cli.available(), stop: () => (server ? server.stop() : Promise.resolve()) };
 }
 
-module.exports = { createCliAgents, createCliTeamTurn, kindOf, modelOf, argsFor, claudeReader, codexReader, claudeAsk, claudeStep, unwrapShell, cliError, KEY_VARS, KINDS, PREFIX };
+/** A chat as one prompt: the CLI keeps no session here, so earlier turns go in as a transcript (newest kept when long). */
+function transcript(messages, maxChars = 60000) {
+  const textOf = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.map((p) => (p && p.type === 'text' ? p.text : p && p.type === 'image_url' ? '[image]' : '')).filter(Boolean).join('\n') : '');
+  const msgs = (messages || []).filter((m) => m && (m.role === 'user' || m.role === 'assistant'));
+  if (!msgs.length) return '';
+  const last = msgs[msgs.length - 1];
+  const now = textOf(last.content).trim();
+  const before = [];
+  let size = 0;
+  for (let i = msgs.length - 2; i >= 0; i--) {
+    const t = textOf(msgs[i].content).trim();
+    if (!t) continue;
+    const line = `${msgs[i].role === 'user' ? 'User' : 'Assistant'}: ${t}`;
+    if (size + line.length > maxChars) { before.unshift('[earlier messages left out]'); break; }
+    before.unshift(line); size += line.length;
+  }
+  if (last.role !== 'user') return [...before, `Assistant: ${now}`].join('\n\n') + '\n\nContinue.';
+  return before.length ? `The conversation so far:\n\n${before.join('\n\n')}\n\n---\nThe user's new message:\n${now}` : now;
+}
+
+/**
+ * Claude Code / Codex as the model of a normal chat, on the user's own plan login. Artemis's tools (browser, Make,
+ * connectors, memory, scheduling …) reach the CLI over a local MCP server named "artemis", with a token for this turn.
+ * Claude Code's permission prompts come back through artemis_permission.
+ * deps: { cli (createCliAgents), createMcpServer, isLocked?, log? }
+ */
+function createCliChat({ cli, createMcpServer, isLocked = () => false, log = () => {} }) {
+  const sessions = new Map();
+  let server = null;
+  async function url() {
+    if (!server) server = createMcpServer({
+      sessions: (token) => sessions.get(token) || null, isLocked,
+      info: { name: 'artemis', version: '1.0.0' },
+      instructions: 'Artemis desktop app tools: its integrated browser, Make.com, the user\'s connectors, memory, notes, scheduled tasks, the phone and more.',
+      log: (lvl, msg) => log(lvl === 'warn' ? 'warn' : 'debug', msg)
+    });
+    if (!server.running()) await server.start(0);
+    return `http://127.0.0.1:${server.port()}/mcp`;
+  }
+  /** o: { kind, model, system, prompt, tools: [{ name, description, inputSchema, run }], folder, perm: 'ask'|'edits'|'auto', ask(info) -> Promise<bool>, signal, onStep, onUsage } */
+  async function turn(o) {
+    const token = crypto.randomBytes(24).toString('hex');
+    const tools = [...(o.tools || [])];
+    if (o.kind === 'claude') tools.push({
+      name: 'artemis_permission', description: 'Asks the user whether a tool call may run.',
+      inputSchema: { type: 'object', properties: { tool_name: { type: 'string' }, input: { type: 'object' }, tool_use_id: { type: 'string' } }, required: ['tool_name'] },
+      run: async (a) => {
+        const ok = o.perm === 'auto' ? true : await o.ask({ name: a.tool_name, category: /^(Bash)$/.test(a.tool_name) ? 'shell' : 'write', summary: claudeAsk(a.tool_name, a.input) });
+        return JSON.stringify(ok ? { behavior: 'allow', updatedInput: a.input || {} } : { behavior: 'deny', message: 'The user declined this.' });
+      }
+    });
+    sessions.set(token, tools);
+    try {
+      return await cli.run({
+        kind: o.kind, model: o.model || '', prompt: o.prompt, system: o.system, folder: o.folder, signal: o.signal, server: 'artemis',
+        askWrites: o.perm === 'ask', permissionMode: o.kind === 'claude' ? (o.perm === 'ask' ? 'default' : 'acceptEdits') : undefined,
+        mcp: { url: await url(), token }, onStep: o.onStep, onUsage: o.onUsage
+      });
+    } finally { sessions.delete(token); }
+  }
+  return { turn, available: () => cli.available(), stop: () => (server ? server.stop() : Promise.resolve()) };
+}
+
+module.exports = { createCliAgents, createCliTeamTurn, createCliChat, transcript, kindOf, modelOf, argsFor, claudeReader, codexReader, claudeAsk, claudeStep, unwrapShell, cliError, KEY_VARS, KINDS, PREFIX };

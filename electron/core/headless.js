@@ -42,7 +42,7 @@ const { createSecretReader } = require('./secrets');
 const gatewayLib = require('./gateway');
 const { sandboxFromSettings, hideHostShellTools } = require('./sandbox');
 const { createPwBrowser, loadPlaywright } = require('./pwbrowser');
-const { createMcpManager } = require('../mcp');
+const { createMcpManager, hideServers, isSelfConnector } = require('../mcp');
 const { createRemote } = require('../remote');
 const { createComputer } = require('../computer');
 const { summarizeAll } = require('../agent');
@@ -144,6 +144,8 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
   const mapMcp = (c, f) => (!c || typeof c !== 'object' ? c : { ...c, env: mapVals(c.env, f), headers: mapVals(c.headers, f), ...(c.clientSecret !== undefined ? { clientSecret: f(c.clientSecret) } : {}), ...(c.oauth && typeof c.oauth === 'object' ? { oauth: { ...c.oauth, accessToken: f(c.oauth.accessToken), refreshToken: f(c.oauth.refreshToken) } } : {}) });
   const readMcpList = () => { const l = readJson('mcp', []); return Array.isArray(l) ? l.map((c) => mapMcp(c, mcpDec)) : []; };
   const mcp = mcpOn ? createMcpManager() : null;
+  // connectors as the agents see them: without one that is Artemis itself (its MCP server or a gateway on this computer)
+  const agentMcp = () => hideServers(mcp, () => mcp.slugsWhere((c) => isSelfConnector(c, [Number(settings().mcpServerPort) || 8788, Number(settings().gatewayPort) || 8789, Number(port) || 0].filter(Boolean))));
   if (mcp) mcp.setTokenSaver((id, oauth) => { // refreshed OAuth tokens: stored as plain values; the app encrypts them again when it starts
     try { const raw = readJson('mcp', []); writeJson('mcp', raw.map((c) => (c.id === id ? { ...c, oauth: { ...(c.oauth || {}), ...oauth } } : c)), 0o600); } catch (e) { log('warn', 'mcp', 'could not save refreshed tokens: ' + e.message); }
   });
@@ -216,11 +218,11 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
         shellEnabled: st.shellEnabled !== false && (!!sandbox() || (allowShell && !restrict)),
         computer: computer && st.computerEnabled !== false && !restrict && !unattended ? computer : null,
         browser: browserOn && st.browserTools !== false && !restrict && !unattended && browserAvailable() ? browserFor() : null,
-        mcp: mcp && st.connectorsEnabled !== false ? (sandbox() ? hideHostShellTools(mcp) : mcp) : null, mcpLazy: st.connectorsLazy !== false, lazyTools: st.toolsLazy !== false, fullFileAccess: st.fullFileAccess !== false,
+        mcp: mcp && st.connectorsEnabled !== false ? (sandbox() ? hideHostShellTools(agentMcp()) : agentMcp()) : null, mcpLazy: st.connectorsLazy !== false, lazyTools: st.toolsLazy !== false, fullFileAccess: st.fullFileAccess !== false,
         phone: remote ? remote.phone() : null,
         schedule: unattended ? null : { list: () => sched.list(), save: (j) => sched.save(j), remove: (id) => sched.remove(id), hooks: hooksTools, heartbeat: heartbeatTools },
         teams: unattended ? null : {
-          agents: () => agents.list(null).map(({ file, ...a }) => a), saveAgent: (a) => agents.save(a),
+          agents: (root) => agents.list(root || null).map(({ file, ...a }) => a), projects: () => readJson('projects', []).map((p) => ({ id: p.id, name: p.name, folder: p.folder || '', instructions: p.instructions || '' })), saveAgent: (a) => agents.save(a),
           list: async () => teams.list(), get: async (id) => teams.list().find((t) => t.id === id || String(t.name).toLowerCase() === String(id).toLowerCase()) || null,
           save: async (d) => { const t = teams.save(d); syncTeamJob(t); return t; }, start: async (id) => teams.start(id), remove: async (id) => { const j = sched.list().find((x) => x.teamId === id); if (j) sched.remove(j.id); return teams.remove(id); }
         },
@@ -347,7 +349,7 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
         chats: st.chatSearchEnabled !== false ? { search: (q, n) => sessions.search(q, { limit: n, projects: readJson('projects', []) }), read: (id, last) => sessions.read(id, last) } : null,
         make: caps.has('make') && st.makeEnabled !== false && getSecret('makeToken', 'makeTokenEnc') ? make : null,
         browser: caps.has('browser') && browserOn && st.browserTools !== false && browserAvailable() ? browserFor() : null,
-        mcp: caps.has('connectors') && mcp && st.connectorsEnabled !== false ? (sb ? hideHostShellTools(mcp) : mcp) : null,
+        mcp: caps.has('connectors') && mcp && st.connectorsEnabled !== false ? (sb ? hideHostShellTools(agentMcp()) : agentMcp()) : null,
         // commands: in the sandbox, or on this machine only when the gateway was started with --allow-shell
         shellEnabled: caps.has('shell') && st.shellEnabled !== false && (!!sb || allowShell), sandbox: sb,
         phone: caps.has('phone') && remote ? remote.phone() : null,
@@ -361,7 +363,9 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
   });
   const teams = createTeams({
     load: () => readJson('teams', { teams: [] }), save: (d) => writeJson('teams', d), emit: () => {},
-    roster: () => agents.list(null), runTurn: (o) => runTeamTurn(o), log: (m) => log('warn', 'teams', m),
+    roster: (root) => agents.list(root || null),
+    project: (id) => { const p = readJson('projects', []).find((x) => x.id === id); return p ? { id: p.id, name: p.name, folder: p.folder && fs.existsSync(p.folder) ? p.folder : '', instructions: p.instructions || '' } : null; },
+    runTurn: (o) => runTeamTurn(o), log: (m) => log('warn', 'teams', m),
     hire: (a) => agents.save({ name: a.name, role: a.role, description: a.role, body: a.body, tools: a.tools, model: a.model })
   });
 

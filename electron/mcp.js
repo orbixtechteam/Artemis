@@ -662,7 +662,38 @@ function createMcpManager(opts = {}) {
       rebuildNames();
     },
     count: () => servers.filter((s) => s.live()).length,
+    /** Slugs of the servers whose saved settings match pred(cfg). */
+    slugsWhere: (pred) => servers.filter((s) => { try { return !!pred(s.cfg); } catch { return false; } }).map((s) => s.slug),
   };
+}
+
+/** The manager without some servers (by slug, worked out at each call so reconnects are followed). */
+function hideServers(mcp, hiddenSlugs) {
+  if (!mcp) return mcp;
+  const hidden = () => new Set(hiddenSlugs() || []);
+  const visible = () => mcp.index().map((x) => x.slug).filter((s) => !hidden().has(s));
+  return {
+    ...mcp,
+    definitions: (slugs) => { const v = visible(); return mcp.definitions(Array.isArray(slugs) ? slugs.filter((s) => v.includes(s)) : v); },
+    index: () => { const h = hidden(); return mcp.index().filter((x) => !h.has(x.slug)); },
+    resolveSlug: (q) => { const s = mcp.resolveSlug(q); return s && !hidden().has(s) ? s : ''; },
+    info: (name) => { const i = mcp.info(name); return i && !hidden().has(i.server) ? i : null; },
+    call: (name, ...rest) => { const i = mcp.info(name); return i && hidden().has(i.server) ? Promise.reject(new Error(`Connector tool not available here: ${name}`)) : mcp.call(name, ...rest); }
+  };
+}
+
+/** A connector that is Artemis itself (its own MCP server, or the gateway, on this computer): calling it from inside
+ *  Artemis only goes round in circles, and its file paths are relative to another folder. */
+function isSelfConnector(cfg, ports) {
+  if (!cfg) return false;
+  if (cfg.url) {
+    try {
+      const u = new URL(cfg.url);
+      const local = ['127.0.0.1', 'localhost', '[::1]', '::1', '0.0.0.0'].includes(u.hostname);
+      if (local && (ports || []).map(Number).includes(Number(u.port))) return true;
+    } catch {}
+  }
+  return false;
 }
 
 /** Accepts Claude Desktop's { mcpServers: { name: { command, args, env } | { url, headers } } } or a plain array. */
@@ -702,6 +733,8 @@ function parseImport(text) {
 
 module.exports = {
   createMcpManager,
+  hideServers,
+  isSelfConnector,
   parseImport,
   formatResult,
   safeToolName,

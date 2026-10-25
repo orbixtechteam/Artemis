@@ -70,7 +70,7 @@ function createTeamRunner(deps) {
         messages: [{ role: 'user', content: prompt }], custom: '', project: null, root, defaultRoot: root === deps.filesDir(),
         webEnabled: t.webEnabled !== false && st.webEnabled !== false, searchVia: t.searchVia || null,
         shellEnabled: !!t.shellEnabled, sandbox: t.sandbox || null, computer: null, media: null,
-        phone: t.phone || null, make: t.make || null, browser: t.browser || null, mcp: t.mcp || null, mcpLazy: false,
+        phone: t.phone || null, make: t.make || null, browser: t.browser || null, mcp: t.mcp || null, mcpLazy: st.connectorsLazy !== false, // all connector tools in every turn cost ~10k tokens a step
         memoryEnabled: !!t.memoryEnabled, memoryApi: t.memoryApi || null, schedule: t.schedule || null,
         skills: null, chats: t.chats || null, autoLearn: false, delegateEnabled: false,
         allowTools: toolNames(agent.tools || []), agentRole: agent.body || '', extraTools,

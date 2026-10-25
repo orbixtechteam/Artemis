@@ -767,6 +767,9 @@ async function runAgent(opts) {
   const budget = opts.runTokenBudget || DEFAULT_RUN_BUDGET;
   let spent = 0, spentBase = 0, softResets = 0, wroteSince = false; // spent counts cache-discounted tokens; spentBase/softResets: runs that were summarized and continued
   const seenCalls = new Map();
+  // reading the same page again after a click or typing is not a loop: browser reads count per page state
+  const BROWSER_LOOKS = new Set(['browser_read_page', 'browser_screenshot', 'browser_get_text', 'browser_find', 'browser_tabs', 'browser_console', 'browser_network', 'browser_wait']);
+  let browserMoves = 0;
   const failStreak = new Map(); // tool name -> failures in a row (any arguments): the same tool failing three times stops the run
   const fileReads = new Map();
   let exploreCalls = 0, wrote = false;
@@ -829,7 +832,7 @@ async function runAgent(opts) {
     root: opts.root, autoApprove: opts.autoApprove, autoAll: !!opts.autoAll, approve: opts.approve, signal,
     memory: opts.memoryEnabled ? opts.memoryApi : null, sandbox: opts.sandbox || null, runState: {}, // runState: counters that must outlive the per-call copies of ctx
     session: new Set(), send, media: opts.media || null, mcp: opts.mcp || null, computer: opts.computer || null, phone: opts.phone || null, schedule: opts.schedule && subOk('automation') ? opts.schedule : null, teams: opts.teams && !opts.isSub ? opts.teams : null, notes: opts.notes && !opts.isSub ? opts.notes : null, library: opts.library && !opts.isSub ? opts.library : null, term: opts.term && !opts.isSub ? opts.term : null, browser: opts.browser && subOk('browser') ? opts.browser : null, searchFallback: opts.searchFallback, searchVia: opts.searchVia,
-    allowPrivateFetch: opts.allowPrivateFetch, userData: opts.userData || '', fullAccess: opts.fullFileAccess === true && !opts.isSub, userLocation: opts.userLocation || '', activeConnectors: new Set(), activeGroups, groupsAvailable, mcpLazy: !!opts.mcp && opts.mcpLazy === true && !opts.isSub,
+    allowPrivateFetch: opts.allowPrivateFetch, userData: opts.userData || '', fullAccess: opts.fullFileAccess === true && !opts.isSub, userLocation: opts.userLocation || '', activeConnectors: new Set(), activeGroups, groupsAvailable, mcpLazy: !!opts.mcp && opts.mcpLazy === true && (!opts.isSub || !!opts.memberCaps), // team members switch connectors on as needed too
     lockApp: opts.lockApp && !opts.isSub ? opts.lockApp : null,
     appShot: opts.appShot && !opts.isSub ? opts.appShot : null, withArtemisVisible: opts.withArtemisVisible && !opts.isSub ? opts.withArtemisVisible : null,
     make: opts.make && subOk('make') ? opts.make : null, skills: opts.skills || null, chats: opts.chats || null, autoLearn: !!opts.autoLearn, autoLearnAllowed: !!opts.autoLearn && !opts.isSub,
@@ -896,6 +899,56 @@ async function runAgent(opts) {
     else if (lazyTools && (mt.kind === 'make' || mt.kind === 'agent')) { const g = mt.kind === 'make' ? 'make' : 'agents'; if (groupsAvailable().includes(g)) activeGroups.add(g); }
   }
 
+  // Claude Code / Codex as the chat's model: one CLI run per message. Artemis's own tools (those the CLI does not have:
+  // the browser, Make, connectors, memory, notes, scheduling, the phone …) are served to it over MCP and run here, with
+  // the same approvals; the CLI's own steps (files, commands, web) are shown as they come.
+  async function cliTurn(system, defs) {
+    const CLI_HAS = new Set(['list_dir', 'read_file', 'write_file', 'edit_file', 'search_files', 'create_folder', 'move_file', 'delete_file', 'run_command', 'web_search', 'web_fetch', 'use_tools', 'use_connector', 'task_note', 'delegate', 'run_agents']);
+    const waiting = new Map(); // tool name -> ids the CLI announced and Artemis has not run yet (so approvals land on the right card)
+    const bridged = new Set();
+    let steps = 0, said = false, n = 0;
+    const toolList = defs.filter((d) => !CLI_HAS.has(d.function.name)).map((d) => ({
+      name: d.function.name, description: d.function.description, inputSchema: d.function.parameters && d.function.parameters.type ? d.function.parameters : { type: 'object', properties: {} },
+      run: async (args) => {
+        const name = d.function.name;
+        const q = waiting.get(name);
+        let id = q && q.length ? q.shift() : '';
+        if (!id) { id = `cli-${Date.now().toString(36)}-${++n}`; bridged.add(id); send({ type: 'tool:call', id, name, args }); }
+        let r;
+        try {
+          const xt = extra.get(name);
+          if (xt) r = { ok: true, text: String(await xt.run(args)) };
+          else if (allow && !allow.has(name)) r = { ok: false, text: `Error: ${name} is not available here.` };
+          else r = await tools.run(name, args, { ...ctx, callId: id, approve: (info) => opts.approve({ id, ...info }) });
+        } catch (e) { r = { ok: false, text: `Error: ${e.message}` }; }
+        const text = tools.clip(r.text);
+        if (WRITE_TOOLS.has(name) && r.ok) wrote = true;
+        send({ type: 'tool:result', id, name, ok: r.ok, denied: !!r.denied, text, image: r.image });
+        if (!r.ok && !r.denied) throw new Error(text);
+        const imgs = r.images || (r.image ? [r.image] : []);
+        const content = [{ type: 'text', text }];
+        for (const u of imgs) { const mm = /^data:(image\/[a-z0-9+.-]+);base64,([\s\S]+)$/i.exec(String(u || '')); if (mm) content.push({ type: 'image', mimeType: mm[1], data: mm[2] }); }
+        return { __content: content };
+      }
+    }));
+    const final = await opts.cli.turn({
+      kind: opts.cli.kind, model: opts.cli.model || '', system, prompt: opts.cli.transcript(history), tools: toolList, folder: opts.root, signal,
+      perm: opts.autoAll ? 'auto' : opts.autoApprove ? 'edits' : 'ask',
+      ask: (info) => opts.approve({ id: `cli-ask-${Date.now().toString(36)}-${++n}`, ...info }),
+      onUsage: (u) => opts.onUsage?.({ model: usageModel, prompt: u.prompt || 0, completion: u.completion || 0, cached: u.cached || 0 }),
+      onStep: (ev) => {
+        if (ev.type === 'step') { if (steps++ > 0) send({ type: 'step:new' }); }
+        else if (ev.type === 'text') { said = true; send({ type: 'chunk', text: ev.text }); }
+        else if (ev.type === 'thinking') { if (ev.text) send({ type: 'thinking', text: ev.text }); }
+        else if (ev.type === 'tool') {
+          if (ev.bridged) { const q = waiting.get(ev.name) || []; q.push(ev.id); waiting.set(ev.name, q); bridged.add(ev.id); }
+          send({ type: 'tool:call', id: ev.id, name: ev.name, args: ev.args });
+        } else if (ev.type === 'tool:done' && !bridged.has(ev.id)) send({ type: 'tool:result', id: ev.id, ok: !!ev.ok, text: ev.text || '' });
+      }
+    });
+    if (!said && final) send({ type: 'chunk', text: final });
+  }
+
   try {
     const tagStrip = () => (textMemory ? makeTagStripper((kind, val) => {
       if (kind === 'remember' && val) { const it = opts.memoryApi.add(val); send({ type: 'notice', text: `Saved to memory: ${it.text}` }); }
@@ -930,6 +983,7 @@ async function runAgent(opts) {
         skillsEnabled: toolsOn && f.skillsEnabled, skillsIndex: toolsOn && opts.skills ? (skillsIdx ??= opts.skills.index()) : '', learnEnabled: toolsOn && f.learnEnabled, chatsEnabled: toolsOn && f.chatsEnabled, delegateEnabled: toolsOn && f.delegateEnabled, isSub: !!opts.isSub, role: opts.agentRole || '', userName: opts.isSub ? '' : opts.userName, userAbout: opts.isSub ? '' : opts.userAbout, userLocation: opts.isSub ? '' : opts.userLocation, agentsIndex: toolsOn && f.delegateEnabled && opts.agents ? (agentsIdx ??= opts.agents.index()) : '',
         webEnabled: toolsOn && f.webEnabled, shellEnabled: toolsOn && f.shellEnabled, computerEnabled: toolsOn && f.computerEnabled, phoneEnabled: toolsOn && f.phoneEnabled, scheduleEnabled: toolsOn && f.scheduleEnabled, notesEnabled: toolsOn && f.notesEnabled, termEnabled: toolsOn && f.termEnabled, mediaEnabled: toolsOn && f.mediaEnabled, mcpEnabled: toolsOn && !!opts.mcp && mcpList.length > 0, connectorIndex: toolsOn ? connectorIndex() : '', toolsIndex: toolsOn ? toolsIndex() : '', browserEnabled: toolsOn && f.browserEnabled, teamsEnabled: toolsOn && f.teamsEnabled
       });
+      if (opts.cli) { await cliTurn(system, defs); return; } // Claude Code / Codex on the user's plan login: the CLI runs the loop itself
       pruneImages(history);
       {
         const limitTokens = opts.contextTokens || DEFAULT_CONTEXT_TOKENS;
@@ -1156,7 +1210,8 @@ async function runAgent(opts) {
       };
       const announce = ({ tc, args }) => {
         send({ type: 'tool:call', id: tc.id, name: tc.name, args });
-        const sig = tc.name + ':' + (tc.arguments || '');
+        if (/^browser_/.test(tc.name) && !BROWSER_LOOKS.has(tc.name)) browserMoves++;
+        const sig = tc.name + ':' + (tc.arguments || '') + (BROWSER_LOOKS.has(tc.name) ? '@' + browserMoves : '');
         const times = (seenCalls.get(sig) || 0) + 1; seenCalls.set(sig, times);
         if (times > 3) { send({ type: 'notice', text: `Stopped: the model kept repeating the same ${tc.name} call.` }); return false; }
         return true;
