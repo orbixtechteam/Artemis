@@ -18,6 +18,18 @@ const rid = () => Math.random().toString(36).slice(2, 10);
 const today = () => `Today is ${new Date().toDateString()}.`;
 const clip = (s, n) => { const t = String(s == null ? '' : s).trim(); return t.length > n ? t.slice(0, n) + '…' : t; };
 const same = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+const abortErr = () => { const e = new Error('Stopped.'); e.name = 'AbortError'; return e; };
+/** Some models write the team tools as text ("team_done(result=\"…\")") instead of calling them: read those, and the text without them. */
+const textCalls = (text) => {
+  const calls = [];
+  const rest = String(text || '').replace(/`{0,3}\s*\b(team_(?:done|post|review|ask))\s*\(((?:[^()"]|"(?:[^"\\]|\\.)*")*)\)\s*`{0,3}/g, (_, name, body) => {
+    const args = {};
+    body.replace(/(\w+)\s*=\s*"((?:[^"\\]|\\.)*)"/g, (__, k, v) => { args[k] = v.replace(/\\n/g, '\n').replace(/\\(.)/g, '$1'); return ''; });
+    calls.push({ name, args });
+    return '';
+  });
+  return { calls, rest: rest.replace(/\n{3,}/g, '\n\n').trim() };
+};
 /** The few arguments worth showing for a step (path, query, url…), short. */
 const brief = (args) => {
   const a = args && typeof args === 'object' ? args : {};
@@ -203,23 +215,26 @@ function createTeams(deps) {
       k.feedback ? `The reviewer sent it back. Fix this:\n${k.feedback}\n\nYour previous result:\n${clip(k.result, 3000)}` : '',
       depResults(t, k) ? `Results you build on:\n${depResults(t, k)}` : '',
       roomFor(t, k.assignee) ? `Team room (newest last):\n${roomFor(t, k.assignee)}` : '',
-      `Do the task with your tools and stop as soon as you have enough: a few good sources beat many. If a page fails to load, do not retry similar addresses. ${others.length ? 'team_ask asks a teammate something only they know or can do (it is answered right away). ' : ''}team_post shares something the others need. When you are finished, call team_done with your result: the deliverable itself, or which files you wrote and what is in them.`
+      `Do the task with your tools and stop as soon as you have enough: a few good sources beat many. If a page fails to load, do not retry similar addresses. ${others.length ? 'team_ask asks a teammate something only they know or can do (it is answered right away). ' : ''}team_post shares something the others need. When you are finished, call team_done with your result: the deliverable itself, or which files you wrote and what is in them. Call these as tools; writing them out as text does nothing. If you could not do the task, say so in team_done and why; never report something as done that you did not do.`
     ].filter(Boolean).join('\n\n');
   };
 
   const reviewPrompt = (t, k, reviewer) => [
     `You are ${reviewer}, reviewing ${k.assignee}'s work for the team. ${LEAD} leads it. ${today()}`,
     `Team goal:\n${t.goal}`, `Task: ${k.title}`, `Work submitted by ${k.assignee}:\n${clip(k.result, 6000)}`,
-    'Check it: facts against sources you can reach, files it says it wrote, and whether it does what the task asked. Then call team_review: "approve", or "changes" with what is wrong and how to fix it. Do not ask for polish that the goal does not need.'
+    'Check it: facts against sources you can reach, files it says it wrote, and whether it does what the task asked. Files the team wrote are in the team folder: open them with read_file or list_dir and the same paths (not with a connector, whose paths start somewhere else). Something the work says it posted, sent or published counts only with proof (a link, or a page you checked). Then call team_review (as a tool, not as text): "approve", or "changes" with what is wrong and how to fix it. Do not ask for polish that the goal does not need.'
   ].join('\n\n');
 
   // ---------- one agent turn ----------
   // run.live[turn id] = { name, what, task, steps: [{ id, name, args, status }], text, thinking } while the turn runs;
   // its steps are then kept on the task (task.log) so finished work can show what was done.
+  // A turn cut off by Pause, Stop or a limit throws AbortError, so half-done work is never taken as finished;
+  // out.keep() says the turn already handed in what counts (team_done, team_review) and its result stays.
   async function turn(t, name, prompt, extraTools, activity, taskId, out) {
     const agent = agentOf(t, name);
     if (!agent) throw new Error(`${name} is no longer one of your agents.`);
     const l = L(t);
+    const signal = l.controller.signal;
     const id = uid();
     const live = { name: agent.name, what: activity || '', task: taskId || '', steps: [], text: '', thinking: false, since: now() };
     t.run.live = t.run.live || {};
@@ -240,19 +255,22 @@ function createTeams(deps) {
       else if (ev.type === 'step') live.text = '';
       else if (ev.type === 'notice') { // the agent loop's own warnings (tools rejected, context compacted…): each one once per run
         const text = clip(ev.text, 400);
+        if (out) out.notice = text;
         if (text && !t.run.messages.some((m) => m.kind === 'status' && m.notice === text)) post(t, { from: agent.name, kind: 'status', text, extra: { notice: text } });
         return;
       } else return;
       pulse(t);
     };
     try {
-      return String(await deps.runTurn({
-        agent, prompt, extraTools, signal: l.controller.signal, askWrites: t.askWrites, folder: t.folder || '', onUsage: usage(t), onStep, team: t.name,
+      const text = String(await deps.runTurn({
+        agent, prompt, extraTools, signal, askWrites: t.askWrites, folder: t.folder || '', onUsage: usage(t), onStep, team: t.name,
         onApproval: {
           asked: (info) => { post(t, { from: agent.name, kind: 'approval', text: info.summary || 'Wants to use a tool', extra: { approvalId: info.id, decided: null } }); },
           done: (id, ok) => { const m = t.run.messages.find((x) => x.approvalId === id); if (m) { m.decided = !!ok; changed(t); } }
         }
       }) || '').trim();
+      if (signal.aborted && !(out && out.keep && out.keep())) throw abortErr();
+      return text;
     } finally {
       const done = live.steps.map((x) => ({ ...x, status: x.status === 'running' ? 'stopped' : x.status, by: agent.name }));
       if (out) out.steps = done;
@@ -305,7 +323,7 @@ function createTeams(deps) {
       post(t, { kind: 'status', text: `${LEAD} added ${r.name} (${clip(a.role, 40)}) to the team.` });
       return `${r.name} is now a member. Assign tasks to "${r.name}".`;
     } });
-    const text = await turn(t, LEAD, planPrompt(t, followUp), tools, 'Planning');
+    const text = await turn(t, LEAD, planPrompt(t, followUp), tools, 'Planning', '', { keep: () => !!(planned && planned.length) });
     if (planned && planned.length) post(t, { kind: 'plan', text: clip(text, PLAN_NOTE) || `Split into ${planned.length} tasks.`, extra: { tasks: planned.map((k) => k.id) } });
     else if (followUp) { if (text) post(t, { text }); }
     else { // no plan: give the whole goal to the first worker so the run still does something
@@ -331,9 +349,13 @@ function createTeams(deps) {
       post(t, { from: to.name, to: k.assignee, text: answer || '(no answer)', task: k.id });
       return answer || `${to.name} had no answer.`;
     } });
-    const out = {};
-    const text = await turn(t, k.assignee, workPrompt(t, k), tools, clip(k.title, 80), k.id, out);
-    k.result = result || text || '(no result)';
+    const out = { keep: () => !!result };
+    const raw = await turn(t, k.assignee, workPrompt(t, k), tools, clip(k.title, 80), k.id, out);
+    const { calls, rest: text } = textCalls(raw);
+    const said = calls.filter((c) => c.name === 'team_done' && c.args.result).map((c) => c.args.result).pop() || '';
+    for (const c of calls) if (c.name === 'team_post' && c.args.text) post(t, { from: k.assignee, to: c.args.to && agentOf(t, c.args.to) ? agentOf(t, c.args.to).name : '', text: c.args.text, task: k.id });
+    if (!result && !text && !said) throw new Error(`${k.assignee} stopped without a result${out.notice ? ` (${out.notice.replace(/\.$/, '')})` : ''}.`);
+    k.result = result || text || clip(said, 20000);
     k.feedback = '';
     post(t, { from: k.assignee, text: clip(k.result, 1200), task: k.id, kind: 'result', extra: out.steps && out.steps.length ? { steps: out.steps } : {} });
   }
@@ -341,7 +363,11 @@ function createTeams(deps) {
   async function review(t, k, reviewer) {
     let verdict = '', note = '';
     const tool = { ...TOOL_REVIEW, run: (a) => { verdict = a.verdict === 'changes' ? 'changes' : 'approve'; note = clip(a.note, 4000); return 'Verdict saved.'; } };
-    const text = await turn(t, reviewer, reviewPrompt(t, k, reviewer), [tool], `Reviewing ${k.assignee}'s work`, k.id);
+    const raw = await turn(t, reviewer, reviewPrompt(t, k, reviewer), [tool], `Reviewing ${k.assignee}'s work`, k.id, { keep: () => !!verdict });
+    const { calls, rest: text } = textCalls(raw);
+    const said = calls.filter((c) => c.name === 'team_review' && c.args.verdict).pop();
+    if (!verdict && said) { verdict = said.args.verdict === 'changes' ? 'changes' : 'approve'; note = clip(said.args.note || text, 4000); }
+    if (!verdict && !text) throw new Error(`${reviewer} stopped without a verdict.`);
     if (!verdict) { verdict = /\b(needs? fix|changes?|not ok|wrong)\b/i.test(text) ? 'changes' : 'approve'; note = clip(text, 4000); }
     k.rounds = (k.rounds || 0) + 1;
     if (verdict === 'changes' && k.rounds <= MAX_REVIEW_ROUNDS) {

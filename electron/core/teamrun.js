@@ -7,6 +7,7 @@
 //   recordUsage(rec), limitBlocked() -> '' | reason, filesDir(), userData,
 //   tools({ caps, agent, team, runId }) -> { webEnabled, searchVia, chats, make, browser, mcp, sandbox, shellEnabled, phone, memoryEnabled, memoryApi, schedule },
 //   approvals: { add(id, decide(ok)), drop(id) },   // where Allow/Deny from the window (or the gateway API) land
+//   release?(runId),                                // the turn ended: free what tools() handed out (the browser bar)
 //   phone() -> { askApproval(id, text) } | null,        // Telegram buttons for approvals
 //   notify?(title, body), stripThinkText(t), log(level, message),
 //   cli?: createCliTeamTurn(...)                        // Claude Code / Codex members (the app only)
@@ -93,7 +94,10 @@ function createTeamRunner(deps) {
         },
         signal
       });
-    } finally { signal.removeEventListener('abort', onAbort); }
+    } finally {
+      signal.removeEventListener('abort', onAbort);
+      try { if (deps.release) deps.release(runId); } catch {}
+    }
     const strip = deps.stripThinkText || ((x) => x);
     return steps.map(strip).filter((x) => x.trim()).pop() || '';
   };

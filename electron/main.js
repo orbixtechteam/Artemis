@@ -986,13 +986,13 @@ const runTeamTurn = require('./core/teamrun').createTeamRunner({
   runAgent, settings: () => getSettings(), userData: app.getPath('userData'), stripThinkText,
   resolveModel: (m) => providersLib.resolve(m, readProviders(), getProviderKey), fallbackModel: () => liveModel(getSettings().model),
   prices: () => providersLib.priceMap(readProviders()), costOf, recordUsage, limitBlocked: () => limitState().blocked || '', filesDir: () => defaultFilesDir(),
-  tools: ({ caps, runId }) => {
+  tools: ({ caps, agent, team, runId }) => {
     const st = getSettings();
     const sb = caps.has('shell') ? currentSandbox() : null;
     return {
       webEnabled: st.webEnabled, searchVia: searchViaFor(st), chats: st.chatSearchEnabled !== false ? chatsApi() : null,
       make: caps.has('make') && st.makeEnabled !== false && makeReady() ? make : null,
-      browser: caps.has('browser') && st.browserTools !== false ? browser.agent(runId) : null,
+      browser: caps.has('browser') && st.browserTools !== false ? browser.agent(runId, { who: agent.name, team }) : null,
       mcp: caps.has('connectors') && st.connectorsEnabled !== false ? (sb ? sandboxedMcp() : mcp) : null,
       shellEnabled: caps.has('shell') && st.shellEnabled !== false, sandbox: sb,
       phone: caps.has('phone') ? phoneNow() : null,
@@ -1001,6 +1001,7 @@ const runTeamTurn = require('./core/teamrun').createTeamRunner({
     };
   },
   approvals: { add: (id, decide) => { approvals.set(id, (ok) => { approvalMeta.delete(id); decide(ok); }); approvalMeta.set(id, { name: 'team', category: 'team' }); }, drop: (id) => decideTool(id, false) },
+  release: (runId) => browser.agentDone(runId),
   phone: () => (remote && remote.phone()) || null,
   notify: (title, body) => { if (win && !win.isDestroyed() && !win.isFocused() && Notification.isSupported()) new Notification({ title, body }).show(); },
   cli: cliTeam,
