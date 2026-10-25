@@ -72,7 +72,7 @@ export default function SkillsView({ projects = [] }) {
           <button className="primary-btn" onClick={() => setEdit(blank())}><Icon name="plus" size={15} /> New skill</button>
         </div>
       </div>
-      <p className="muted small" style={{ marginTop: 0 }}>Skills are saved instructions for tasks you repeat. Artemis loads one when it fits your request. It can also write and improve skills itself when you teach it a routine (turn this off in Settings → Tools &amp; safety).</p>
+      <p className="page-sub">Skills are saved instructions for tasks you repeat. Artemis loads one when it fits your request. It can also write and improve skills itself when you teach it a routine (turn this off in Settings → Tools &amp; safety).</p>
       {msg && <small className="hint">{msg}</small>}
       {list.length === 0 ? (
         <div className="empty-card">

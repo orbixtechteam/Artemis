@@ -190,7 +190,6 @@ button.danger-solid:hover { filter: brightness(1.08); }
 .pf-avatar { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; flex: none; }
 .pf-avatar.blank { background: var(--active); display: grid; place-items: center; font-size: 28px; font-weight: 600; }
 .pf-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-.agents-page h2 { font-size: 16px; margin: 0 0 10px; }
 .agent-row.live { width: 100%; text-align: left; cursor: pointer; border-color: var(--accent, #7c6cf0); }
 .agent-row.live:hover { background: var(--active); }
 

@@ -1,0 +1,80 @@
+/* Pages that open in a tab (Projects, Files, Scheduled, Agents, Skills, Automations, Connectors, Memory, Usage):
+   one width, one header (title, a line of description, actions on the right) and the grouped-card look from
+   Settings. The ones that are also dialogs (Memory, Connectors, Usage) render inside .page-host > .modal.page. */
+
+.page, .files-page { max-width: 900px; padding: 8px 40px 40px; }
+.page-host:where(:not(:has(> .settings))) { padding: 8px 40px 40px; }
+.page-host > .modal.page { max-width: 820px; gap: 0; }
+.page-host > .modal.page > :not(.page-head, .page-sub, .actions-row) + * { margin-top: 12px; }
+
+.page-head { min-height: 32px; margin: 10px 0 6px; }
+.page-head h1 { font-size: 24px; line-height: 1.2; }
+.page-head + :not(.page-sub) { margin-top: 18px; }
+.page-sub { max-width: 640px; margin: 0 0 22px; color: var(--text-2); font-size: var(--fs-ui); line-height: 1.5; }
+.page-sub kbd { font: 11px var(--font-mono); border: .5px solid var(--line-2); border-radius: 4px; padding: 1px 5px; }
+
+/* header buttons: the same 28px push buttons as Settings */
+.page-head :is(button, .head-actions button):not(.seg button) { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border: .5px solid var(--line-2); border-radius: var(--r-sm); background: var(--elev); color: var(--text); font-size: var(--fs-ui); font-weight: 400; box-shadow: var(--btn-shadow), var(--hi); }
+.page-head :is(button.primary, button.primary-btn) { border-color: transparent; background: var(--accent); color: var(--accent-text); font-weight: 500; }
+.page-head :is(button.primary, button.primary-btn):hover:not(:disabled) { filter: brightness(1.07); }
+.page-head > .row, .page-head .head-actions { gap: 8px; }
+
+/* an empty page: a quiet card, not a dashed drop zone */
+.empty-card { border: 0; border-radius: 12px; background: var(--pref-card); padding: 36px 24px; gap: 12px; }
+.empty-card p { max-width: 460px; margin: 0; line-height: 1.5; }
+.empty-card > svg { color: var(--muted); }
+.empty-card :is(button.primary, button.primary-btn) { height: 28px; padding: 0 14px; }
+.small-card { padding: 22px; margin: 0 0 12px; }
+
+.text-link { padding: 0; border: 0; background: none; box-shadow: none; color: var(--accent); font: inherit; cursor: pointer; }
+.text-link:hover { text-decoration: underline; background: none; }
+
+/* Memory */
+.mem-card { margin-bottom: 18px; border-radius: 12px; background: var(--pref-card); border: .5px solid var(--line-2); }
+.mem-on { display: flex; align-items: center; gap: 12px; padding: 10px 14px; }
+.mem-on > span { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.mem-on b { font-weight: 500; }
+.mem-on small { color: var(--muted); font-size: var(--fs-sm); }
+.mem-card .mem-add { padding: 10px 14px; border-top: .5px solid var(--line); }
+.mem-card .mem-add input { height: 28px; padding: 0 10px; }
+.mem-card .mem-add button { height: 28px; padding: 0 14px; }
+.mem-list { max-height: none; gap: 0; border-radius: 12px; background: var(--pref-card); border: .5px solid var(--line-2); overflow: hidden; }
+.mem-list:has(.mem-empty) { border: 0; background: none; }
+.mem-empty { padding: 8px 4px; color: var(--muted); }
+.mem-item { align-items: center; padding: 3px 8px 3px 4px; }
+.mem-item + .mem-item { border-top: .5px solid var(--line); }
+.mem-item input { border-color: transparent; background: transparent; box-shadow: none; }
+.mem-item input:hover { background: var(--fill); }
+.mem-item button { visibility: hidden; width: 24px; height: 24px; display: grid; place-items: center; padding: 0; border-radius: 6px; }
+.mem-item:hover button, .mem-item:focus-within button { visibility: visible; }
+
+/* Connectors */
+.modal.page .conn { margin: 0 0 10px; padding: 12px 14px; gap: 12px; border-radius: 12px; background: var(--pref-card); }
+.modal.page .conn-name { font-weight: 500; }
+.modal.page .conn-name .small { margin-left: 4px; }
+.modal.page .conn-sub { margin-top: 2px; }
+.modal.page .conn-form { border-radius: 12px; background: var(--pref-card); padding: 14px; }
+.modal.page .preset-row { margin-top: 16px; }
+.modal.page .preset-row button { height: 28px; padding: 0 12px; }
+.modal.page > .error { margin-top: 10px; }
+
+/* Agents */
+.agents-idle { padding: 13px 14px; border-radius: 12px; background: var(--pref-card); color: var(--muted); }
+.agent-mono { display: inline-grid; place-items: center; width: 22px; height: 22px; margin-right: 9px; border-radius: 50%; background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); font-size: 11px; font-weight: 600; vertical-align: -5px; }
+.agents-mine .pref-row-desc { padding-left: 31px; }
+.agents-mine .pref-row-label { font-weight: 500; }
+.agents-mine .pref-dim, .agents-mine .pref-tag { font-weight: 400; }
+.pref-tag { border-width: .5px; border-color: var(--line-2); }
+.pref-row .agent-chips span, .proc-card .agent-chips span { border: 0; padding: 1px 8px; border-radius: var(--r-full); background: var(--fill); color: var(--text-2); font-size: 11px; opacity: 1; }
+.proc-card { border: .5px solid var(--line-2); background: var(--pref-card); }
+.proc-card:hover { background: var(--fill); }
+.proc-card.waiting { border-color: var(--warn); }
+.proc-now { background: var(--fill); }
+
+/* Usage */
+.usage-bar-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.usage-bar-row .sel { width: auto; min-width: 150px; height: 26px; }
+.usage-cards { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.usage-cards > div { gap: 2px; padding: 10px 12px; border-radius: 12px; background: var(--pref-card); }
+.usage-cards b { font-size: 19px; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+@media (max-width: 760px) { .usage-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
