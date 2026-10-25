@@ -277,7 +277,11 @@ const DEFAULT_SETTINGS = {
   memoryModel: '', // model for the memory flush; empty = the scheduled-task model, else the chat's model
   embeddingModel: '', // prov:<provider>:<model> for memory_search by meaning; empty = keywords only
   workspaceFolder: '', // empty = <userData>/workspace
-  gatewayEnabled: false, gatewayPort: 8789, gatewayTokenEnc: null, gatewayModel: '', gatewayRestrict: false
+  gatewayEnabled: false, gatewayPort: 8789, gatewayTokenEnc: null, gatewayModel: '', gatewayRestrict: false,
+  // the first heartbeat before heartbeats.json exists (core/heartbeat.js fromSettings); the list itself lives in heartbeats.json
+  heartbeatEnabled: false, heartbeatEvery: 30, heartbeatFrom: '', heartbeatTo: '', heartbeatModel: '', heartbeatPhone: true, // no hours = day and night
+  // webhooks: their own port (only /hooks/<name>), optionally on the internet through a Cloudflare tunnel ('quick' or 'named')
+  hooksEnabled: false, hooksPort: 8790, hooksTunnel: 'off', hooksPublicUrl: '', hooksTunnelTokenEnc: null
 };
 const getSettings = () => ({ ...DEFAULT_SETTINGS, ...readJson('settings', {}) });
 
@@ -323,7 +327,7 @@ let mirrorTimer = null;
 /** After a write that did not come from the window (gateway, phone without a window): refresh the chats.json backup copy. */
 const mirrorChats = () => { if (mirrorTimer) return; mirrorTimer = setTimeout(() => { mirrorTimer = null; const c = initCore(); if (c.sessions) { try { writeJson('chats', c.sessions.toArray()); } catch (e) { logger.warn('db', 'chats.json backup copy failed: ' + e.message); } } }, 3000); };
 
-const SECRET_FIELDS = { telegramToken: 'telegramTokenEnc', makeToken: 'makeTokenEnc', mcpToken: 'mcpTokenEnc', braveKey: 'braveKeyEnc', gatewayToken: 'gatewayTokenEnc' };
+const SECRET_FIELDS = { telegramToken: 'telegramTokenEnc', makeToken: 'makeTokenEnc', mcpToken: 'mcpTokenEnc', braveKey: 'braveKeyEnc', gatewayToken: 'gatewayTokenEnc', hooksTunnelToken: 'hooksTunnelTokenEnc' };
 const cleanSecret = (v) => String(v == null ? '' : v).replace(/[\s\u00a0\u200b-\u200f\u2028\u2029\ufeff]+/g, '');
 const encStr = (v0) => { const v = cleanSecret(v0); return (!v ? null : safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(v).toString('base64') : 'plain:' + v); };
 let decWarned = false;
@@ -340,7 +344,7 @@ const getSecret = (name) => decStr(getSettings()[SECRET_FIELDS[name]]) || (name 
 const setSecret = (name, value) => writeJson('settings', { ...getSettings(), [SECRET_FIELDS[name]]: encStr(value) });
 const saveSettings = (patch) => writeJson('settings', { ...getSettings(), ...patch });
 
-const publicSettings = () => ({ ...getSettings(), telegramTokenEnc: undefined, makeTokenEnc: undefined, mcpTokenEnc: undefined, braveKeyEnc: undefined, gatewayTokenEnc: undefined, hasBraveKey: !!getSecret('braveKey'), hasMakeToken: !!getSecret('makeToken'), hasApiKey: readProviders().some((p) => p.enabled !== false && (p.models || []).length && (!p.needsKey || getProviderKey(p.id))), hasTelegramToken: !!getSecret('telegramToken'), shortcutError, shortcutErrors });
+const publicSettings = () => ({ ...getSettings(), telegramTokenEnc: undefined, makeTokenEnc: undefined, mcpTokenEnc: undefined, braveKeyEnc: undefined, gatewayTokenEnc: undefined, hooksTunnelTokenEnc: undefined, hasBraveKey: !!getSecret('braveKey'), hasMakeToken: !!getSecret('makeToken'), hasApiKey: readProviders().some((p) => p.enabled !== false && (p.models || []).length && (!p.needsKey || getProviderKey(p.id))), hasTelegramToken: !!getSecret('telegramToken'), shortcutError, shortcutErrors });
 
 // ---------- app lock, voice recognition, unauthorized-access alerts (electron/lock.js, speaker.js, voice-gate.js) ----------
 const lockAuthWaiting = new Map(); // id -> resolve(password | null): a password asked from the window (to approve a sensitive action)
@@ -476,7 +480,7 @@ ipcMain.handle('store:set', (_e, name, data) => {
 ipcMain.handle('settings:get', () => publicSettings());
 ipcMain.handle('settings:set', async (_e, patch) => {
   // never let the renderer overwrite stored secrets: undefined values survive IPC and would wipe them
-  const { apiKey, apiKeyEnc, telegramToken, telegramTokenEnc, makeTokenEnc, mcpTokenEnc, braveKey, braveKeyEnc, hasBraveKey, mcpServerEnabled, mcpServerPort, mcpAlwaysAllow, hasMakeToken, hasApiKey, hasTelegramToken, gatewayTokenEnc: _gwTok, gatewayEnabled: _gwOn, gatewayPort: _gwPort, sqliteStore: _sq, ...rest } = patch;
+  const { apiKey, apiKeyEnc, telegramToken, telegramTokenEnc, makeTokenEnc, mcpTokenEnc, braveKey, braveKeyEnc, hasBraveKey, mcpServerEnabled, mcpServerPort, mcpAlwaysAllow, hasMakeToken, hasApiKey, hasTelegramToken, gatewayTokenEnc: _gwTok, gatewayEnabled: _gwOn, gatewayPort: _gwPort, sqliteStore: _sq, hooksTunnelTokenEnc: _htTok, ...rest } = patch;
   // an empty field means "unchanged", never "delete"
   if (typeof telegramToken === 'string' && telegramToken.trim()) setSecret('telegramToken', telegramToken.trim());
   if (typeof braveKey === 'string' && braveKey.trim()) setSecret('braveKey', braveKey.trim());
@@ -1039,7 +1043,7 @@ async function executeRun({ requestId, model: model0, messages, project, system,
       sandbox: sb, webEnabled: settings.webEnabled, shellEnabled: settings.shellEnabled && (!restrict || !!sb),
       searchVia: (() => { if (settings.searchEngine === 'brave') { const k = getSecret('braveKey'); return k ? (q, sig) => require('./web').braveSearch({ key: k, query: q, signal: sig }) : async () => { throw new Error('Brave Search is selected but no key is saved. Open Settings → Tools → Search engine and paste the Brave key'); }; } if (!settings.searchProvider) return null; const r = providersLib.resolve(`prov:${settings.searchProvider}:x`, readProviders(), getProviderKey); if (r.error) return null; return (q, sig) => require('./web').endpointSearch({ baseUrl: r.baseUrl, key: r.key, query: q, signal: sig, model: settings.searchModel || 'perplexity/sonar' }); })(),
       computer: settings.computerEnabled && !restrict && process.platform === 'darwin' ? computer : null,
-      schedule: unattended || restrict ? null : { list: () => scheduler.list(), save: (j) => scheduler.save({ ...j, projectId: j.projectId !== undefined ? j.projectId : (project?.id || null) }), remove: (id) => scheduler.remove(id) },
+      schedule: unattended || restrict ? null : { list: () => scheduler.list(), save: (j) => scheduler.save({ ...j, projectId: j.projectId !== undefined ? j.projectId : (project?.id || null) }), remove: (id) => scheduler.remove(id), hooks: hooksTools, heartbeat: heartbeatTools },
       lockApp: unattended || restrict ? null : () => lock.lock('ai'),
       appShot: unattended || restrict ? null : appScreenshot, withArtemisVisible: unattended || restrict ? null : withArtemisVisible,
       notes: settings.notesAi !== false ? notesAi : null,
@@ -1518,6 +1522,77 @@ const scheduler = createScheduler({
   changed: () => toWinSafe('schedule:changed', {}), run: (job) => runScheduled(job)
 });
 
+// ---------- heartbeat and webhooks (electron/core/heartbeat.js, hooks.js, hookservice.js) ----------
+// Both run unattended, like scheduled tasks, and only where the background jobs run (here, unless the headless gateway does).
+const BG_NOTE = 'This run was started by Artemis itself (a heartbeat check or a webhook), not by a message from the user. Nobody is there to answer: never ask questions and never wait for approval. Do what the instructions say, keep the answer short, and do not write notes or files unless the instructions say so.';
+/** One unattended run without window events. Returns the final text. */
+async function backgroundRun({ prompt, model: m0, allowEdits, projectId, source }) {
+  const st = getSettings();
+  const model = (m0 ? liveModel(m0) : '') || (st.scheduleModel ? liveModel(st.scheduleModel) : '') || st.model;
+  const requestId = 'bg-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+  let text = '', error = '';
+  const send = (ev) => { if (ev.type === 'step:new') text = ''; if (ev.type === 'chunk') text += ev.text; if (ev.type === 'error') error = ev.message; };
+  await executeRun({ requestId, messages: [{ role: 'user', content: prompt }], send, restrict: true, source, unattended: true, allowEdits: !!allowEdits, model, system: (st.systemPrompt || '') + '\n\n' + BG_NOTE, maxTokens: st.maxTokens, project: projectFor(projectId) });
+  return { text: text.trim(), error, model };
+}
+/** Tells the user: a saved chat, a notification and (when asked) Telegram. */
+async function backgroundTell({ title, user, text, model, source, phone, icon }) {
+  const c = initCore();
+  if (c.sessions) { try { c.sessions.appendTurn('bg-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), { writer: 'desktop', user, assistant: text, title, via: source, source, model }); mirrorChats(); } catch (e) { logger.warn('db', 'Could not save the ' + source + ' chat: ' + e.message); } }
+  try { if (Notification.isSupported()) { const n = new Notification({ title, body: text.slice(0, 160) }); n.on('click', () => showMain(source + ' notification clicked')); n.show(); } } catch {}
+  if (phone) {
+    const ph = phoneNow();
+    if (ph) await ph.send(`${icon} ${title}\n\n${text.slice(0, 3500)}`);
+    else logger.warn('app', `${title}: should go to the phone, but Telegram is not connected and paired`);
+  }
+}
+const hbLib = require('./core/heartbeat');
+const wsFile = (rel) => { const c = initCore(); return c.ws ? c.ws.abs(rel) : null; };
+const heartbeat = hbLib.createHeartbeats({
+  list: () => readJson('heartbeats', null) || hbLib.fromSettings(getSettings()), // the old single heartbeat (settings) until the list is first saved
+  saveList: (l) => { writeJson('heartbeats', l); toWinSafe('automation:changed', {}); },
+  checklist: (hb) => { const c = initCore(); return c.ws ? (c.ws.readText(hbLib.fileOf(hb)) || '') : null; },
+  writeChecklist: (hb, text) => { const f = wsFile(hbLib.fileOf(hb)); if (!f) throw new Error('Heartbeats need the memory workspace (Settings → Tools → Memory).'); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f + '.tmp', text.endsWith('\n') ? text : text + '\n'); fs.renameSync(f + '.tmp', f); },
+  removeChecklist: (hb) => { const f = wsFile(hbLib.fileOf(hb)); if (f) fs.rmSync(f, { force: true }); },
+  run: ({ prompt, model }) => backgroundRun({ prompt, model, source: 'heartbeat' }),
+  deliver: ({ text, model, hb }) => backgroundTell({ title: hb.name === 'Heartbeat' ? 'Heartbeat' : `Heartbeat: ${hb.name}`, user: `Heartbeat check (${hbLib.fileOf(hb)})`, text, model, source: 'heartbeat', phone: hb.phone !== false, icon: '💓' }),
+  readState: () => readJson('heartbeat-state', {}), writeState: (x) => { writeJson('heartbeat-state', x); toWinSafe('automation:changed', {}); },
+  log: coreLog('heartbeat')
+});
+const hooksLib = require('./core/hooks');
+const hooks = hooksLib.createHooks({
+  read: () => readJson('hooks', []), write: (l) => { writeJson('hooks', l); try { fs.chmodSync(dataFile('hooks'), 0o600); } catch {} toWinSafe('automation:changed', {}); },
+  run: (hook, ev) => backgroundRun({ prompt: ev.prompt, model: hook.model, allowEdits: hook.allowEdits, projectId: hook.projectId, source: 'webhook' }),
+  deliver: (hook, { text, event }) => backgroundTell({ title: `Webhook: ${hook.name}`, user: `Webhook "${hook.name}"${event ? ` · ${event}` : ''}`, text, source: 'webhook', phone: hook.notifyPhone !== false, icon: '🔔', model: hook.model }),
+  log: coreLog('webhooks')
+});
+const hookService = require('./core/hookservice').createHookService({
+  hooks, owner: 'desktop', settings: () => getSettings(), tunnelToken: () => getSecret('hooksTunnelToken'),
+  writeState: (x) => { writeJson('hooks-state', x); toWinSafe('automation:changed', {}); }, log: coreLog('webhooks')
+});
+/** What the Scheduled page shows: the state written by whichever process serves the webhooks. */
+function hooksInfo() {
+  const st = getSettings();
+  let x = readJson('hooks-state', null);
+  if (x && x.pid !== process.pid && !gatewayLib.alive(x.pid)) x = null; // written by a process that is gone
+  if (x && x.pid === process.pid) x = hookService.info();
+  return { enabled: !!st.hooksEnabled, port: Number(st.hooksPort) || 8790, tunnelMode: st.hooksTunnel || 'off', publicUrlSetting: st.hooksPublicUrl || '', hasTunnelToken: !!getSecret('hooksTunnelToken'),
+    running: !!(x && x.running), owner: x ? x.owner : null, error: x ? x.error : '', localUrl: x ? x.localUrl : '', publicUrl: x ? x.publicUrl : '', tunnel: x ? x.tunnel : { mode: 'off', state: 'off' },
+    cloudflared: !!require('./core/tunnel').findCloudflared() };
+}
+const hookUrls = (h, info = hooksInfo()) => ({ local: `http://127.0.0.1:${info.port}/hooks/${h.name}`, public: info.publicUrl ? `${info.publicUrl}/hooks/${h.name}` : '' });
+// what the agent's tools see (schedule group): create / list / delete webhooks, change the heartbeat
+const hooksTools = {
+  list: () => hooks.list().map((h) => ({ ...h, urls: hookUrls(h) })),
+  save: (o) => { const h = hooks.save(o); if (!getSettings().hooksEnabled) { saveSettings({ hooksEnabled: true }); hookService.sync().catch(() => {}); } return { ...h, urls: hookUrls(h, { ...hooksInfo(), port: Number(getSettings().hooksPort) || 8790 }) }; },
+  remove: (id) => hooks.remove(id), info: () => hooksInfo()
+};
+const heartbeatTools = {
+  list: () => heartbeat.status(),
+  save: (o) => { const hb = heartbeat.save(o); toWinSafe('automation:changed', {}); return heartbeat.status().find((x) => x.id === hb.id); },
+  remove: (id) => { heartbeat.remove(id); toWinSafe('automation:changed', {}); }
+};
+
 // ---------- built-in terminal ----------
 const { createTerminals } = require('./terminal');
 const termLast = new Map(); // session id -> time of last output
@@ -1696,6 +1771,7 @@ let bgOwner = null, schedWatch = 0;
 /** Moves scheduled tasks, Telegram and the gateway to wherever they should run now. */
 function roleTick() {
   const owner = headlessActive() ? 'headless' : 'desktop';
+  if (owner === 'desktop' && bgOwner === 'desktop') hookService.sync().catch(() => {}); // follows the settings (port, tunnel)
   try { const m = fs.statSync(dataFile('schedules')).mtimeMs; if (schedWatch && m !== schedWatch) toWinSafe('schedule:changed', {}); schedWatch = m; } catch {}
   if (owner === bgOwner) return;
   const first = bgOwner === null;
@@ -1703,12 +1779,16 @@ function roleTick() {
   if (owner === 'headless') {
     logger.info('app', 'The headless gateway is running on this data folder: scheduled tasks, Telegram and the gateway API run there now');
     try { scheduler.stop(); } catch {}
+    try { heartbeat.stop(); } catch {}
+    hookService.stop().catch(() => {});
   } else {
     if (!first) logger.info('app', 'The headless gateway stopped: scheduled tasks, Telegram and the gateway API run in the app again');
     try { scheduler.start(); } catch {}
+    try { heartbeat.start(); } catch {}
   }
   if (!first || owner === 'headless') { try { remote && remote.reconfigure().catch(() => {}); } catch {} }
   syncGateway().catch(() => {});
+  if (owner === 'desktop') setTimeout(() => hookService.sync().catch(() => {}), first ? 0 : 3000); // give the headless one time to let go of the port
   toWinSafe('app:changed', {});
 }
 // usage written by the headless gateway (its own file, so neither side overwrites the other)
@@ -1860,15 +1940,16 @@ ipcMain.handle('workspace:open', async (_e, rel) => {
   return err ? { ok: false, error: err } : { ok: true };
 });
 // SOUL.md / USER.md / MEMORY.md edited inside the app (Settings → Long-term memory)
-const WS_EDITABLE = ['SOUL.md', 'USER.md', 'MEMORY.md'];
+const WS_EDITABLE = ['SOUL.md', 'USER.md', 'MEMORY.md', 'HEARTBEAT.md'];
+function writeWorkspaceFile(rel, text) { const c = initCore(); const file = c.ws.abs(rel); const tmp = file + '.tmp'; fs.writeFileSync(tmp, text.endsWith('\n') ? text : text + '\n'); fs.renameSync(tmp, file); }
 ipcMain.handle('workspace:read', (_e, rel) => {
   const c = initCore(); if (!c.ws) return { ok: false, error: 'The memory workspace is off.' };
-  if (!WS_EDITABLE.includes(rel)) return { ok: false, error: 'Only SOUL.md, USER.md and MEMORY.md can be edited here.' };
+  if (!WS_EDITABLE.includes(rel)) return { ok: false, error: 'Only SOUL.md, USER.md, MEMORY.md and HEARTBEAT.md can be edited here.' };
   return { ok: true, text: c.ws.readText(rel) || '' };
 });
 ipcMain.handle('workspace:write', (_e, rel, text) => {
   const c = initCore(); if (!c.ws) return { ok: false, error: 'The memory workspace is off.' };
-  if (!WS_EDITABLE.includes(rel)) return { ok: false, error: 'Only SOUL.md, USER.md and MEMORY.md can be edited here.' };
+  if (!WS_EDITABLE.includes(rel)) return { ok: false, error: 'Only SOUL.md, USER.md, MEMORY.md and HEARTBEAT.md can be edited here.' };
   if (typeof text !== 'string' || text.length > 200000) return { ok: false, error: 'The text is too long.' };
   try {
     const file = c.ws.abs(rel); const tmp = file + '.tmp';
@@ -2030,7 +2111,7 @@ app.whenReady().then(() => {
 });
 app.on('will-quit', () => {
   // each step on its own: one that throws must not skip the rest
-  for (const f of [() => terminals.closeAll(), () => scheduler.stop(), () => unregisterShortcuts(), () => globalShortcut.unregisterAll(), () => remote?.stop(), () => wakeword.stop(), () => updater.stop(), () => { const r = mcp.close(); if (r && r.catch) r.catch(() => {}); }, () => { if (gateway) gateway.stop(); gatewayLib.removeDiscovery(gatewayFile()); }, () => releaseInstance(), () => { if (mirrorTimer) { clearTimeout(mirrorTimer); mirrorTimer = null; } }, () => { if (coreState.db) coreState.db.close(); }]) { try { f(); } catch {} }
+  for (const f of [() => terminals.closeAll(), () => scheduler.stop(), () => heartbeat.stop(), () => { hookService.stop().catch(() => {}); }, () => unregisterShortcuts(), () => globalShortcut.unregisterAll(), () => remote?.stop(), () => wakeword.stop(), () => updater.stop(), () => { const r = mcp.close(); if (r && r.catch) r.catch(() => {}); }, () => { if (gateway) gateway.stop(); gatewayLib.removeDiscovery(gatewayFile()); }, () => releaseInstance(), () => { if (mirrorTimer) { clearTimeout(mirrorTimer); mirrorTimer = null; } }, () => { if (coreState.db) coreState.db.close(); }]) { try { f(); } catch {} }
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 
@@ -2153,6 +2234,7 @@ require('./ipc/logs')({ ipcMain, shell, fs, logger });
 require('./ipc/make')({ ipcMain, MAKE_ZONES, cleanMakeZone, createMake, getSecret, getSettings, logger, make, makeReady, saveSettings, setSecret, validMakeZone });
 require('./ipc/mcp')({ ipcMain, mcp, oauthCallbackServer, oauthPending, parseImport, readMcpList, writeMcpList, shell });
 require('./ipc/schedule')({ ipcMain, scheduler });
+require('./ipc/automation')({ ipcMain, heartbeat, heartbeatTools, hooks, hooksInfo, hookUrls, hookService, getSettings, saveSettings, setSecret, getSecret, headlessActive });
 require('./ipc/notes')({ ipcMain, dialog, shell, notesStore, library, files, readJson, writeJson, getWin: () => win });
 require('./ipc/term')({ ipcMain, BrowserWindow, openTermWindow, termWindows, terminals, getWin: () => win });
 require('./ipc/mcpserver')({ ipcMain, mcpServerInfo, saveSettings, setSecret, syncMcpServer });

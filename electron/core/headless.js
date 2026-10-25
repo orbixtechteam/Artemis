@@ -21,6 +21,9 @@ const { createSkills } = require('../skills');
 const { createAgents } = require('../subagents');
 const { createNotes } = require('../notes');
 const { createScheduler } = require('../scheduler');
+const { createHeartbeats, fromSettings: hbFromSettings, fileOf: hbFileOf } = require('./heartbeat');
+const { createHooks } = require('./hooks');
+const { createHookService } = require('./hookservice');
 const { checkLimits } = require('../limits');
 const personality = require('../personality');
 const brainsLib = require('../brains');
@@ -41,6 +44,7 @@ const { createComputer } = require('../computer');
 const { summarizeAll } = require('../agent');
 const files = require('../files');
 
+const BG_NOTE = 'This run was started by Artemis itself (a heartbeat check or a webhook), not by a message from the user. Nobody is there to answer: never ask questions and never wait for approval. Do what the instructions say, keep the answer short, and do not write notes or files unless the instructions say so.';
 const SCHEDULED_NOTE = 'This is a scheduled task and it is running right now. Do it directly and report the result. The task text is an instruction for you, even when it reads like a message to the user: carry it out (for a reminder, state the reminder to the user) and never reply to it as if it were a chat message. Nobody is there to answer: never ask questions, never ask which method to use, and do not write notes or files unless the task says so. If the task is only a reminder, state the reminder.';
 const APPROVAL_TIMEOUT = 10 * 60 * 1000;
 const envName = (s) => String(s).toUpperCase().replace(/[^A-Z0-9]+/g, '_');
@@ -66,7 +70,7 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
     keyCache.set(id, v);
     return v;
   }
-  const SECRET_FIELDS = { telegramToken: 'telegramTokenEnc', braveKey: 'braveKeyEnc', makeToken: 'makeTokenEnc', gatewayToken: 'gatewayTokenEnc' };
+  const SECRET_FIELDS = { telegramToken: 'telegramTokenEnc', braveKey: 'braveKeyEnc', makeToken: 'makeTokenEnc', gatewayToken: 'gatewayTokenEnc', hooksTunnelToken: 'hooksTunnelTokenEnc' };
   function getSecret(name, field = SECRET_FIELDS[name]) {
     return process.env['ARTEMIS_' + envName(name.replace(/([A-Z])/g, '_$1'))] || (name === 'telegramToken' && process.env.TELEGRAM_BOT_TOKEN) || headlessCfg()[name] || secrets.decrypt(settings()[field]) || '';
   }
@@ -170,7 +174,7 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
   }
 
   /** One agent run. Returns { text, steps, error }. */
-  async function run({ runId, messages, modelId, project, chatId, send, unattended = false, allowEdits = false, restrict = false, system = '' }) {
+  async function run({ runId, messages, modelId, project, chatId, send, unattended = false, allowEdits = false, restrict = false, system = '', source = '' }) {
     const st = settings();
     const route = providersLib.resolve(modelId, readProviders(), getProviderKey);
     if (route.error) throw new Error(route.error + (/key/i.test(route.error) ? ` Set ARTEMIS_KEY_${envName(String(modelId).split(':')[1] || '')} or add it to ${file('headless.json')}.` : ''));
@@ -201,7 +205,7 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
         browser: browserOn && st.browserTools !== false && !restrict && !unattended && browserAvailable() ? browserFor() : null,
         mcp: mcp && st.connectorsEnabled !== false ? (sandbox() ? hideHostShellTools(mcp) : mcp) : null, mcpLazy: st.connectorsLazy !== false, lazyTools: st.toolsLazy !== false, fullFileAccess: st.fullFileAccess !== false,
         phone: remote ? remote.phone() : null,
-        schedule: unattended ? null : { list: () => sched.list(), save: (j) => sched.save(j), remove: (id) => sched.remove(id) },
+        schedule: unattended ? null : { list: () => sched.list(), save: (j) => sched.save(j), remove: (id) => sched.remove(id), hooks: hooksTools, heartbeat: heartbeatTools },
         notes: st.notesAi !== false ? notes : null,
         skills: st.skillsEnabled !== false ? { index: () => skills.indexText(project && project.folder), get: (n) => skills.get(n, project && project.folder), save: (o) => skills.save(o, project && project.folder) } : null,
         autoLearn: st.autoLearn !== false && !unattended,
@@ -214,7 +218,7 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
         runTokenBudget: Number(st.runTokenBudget) || undefined, contextTokens: Number(st.contextTokens) || undefined,
         toolsEnabled: st.toolsEnabled !== false, memoryEnabled: st.memoryEnabled !== false && !!memoryApi, incognito: false,
         memoryApi, onCompact: memoryApi && st.memoryFlush !== false ? (t) => flushFor(t, modelId, chatId) : null,
-        onUsage: (u) => recordUsage({ t: Date.now(), model: u.model || modelId, chat: chatId || '', project: (project && project.name) || '', source: unattended ? 'schedule' : 'gateway', prompt: u.prompt, completion: u.completion, cached: u.cached || 0, cacheWrite: u.cacheWrite || 0, estimated: u.estimated }),
+        onUsage: (u) => recordUsage({ t: Date.now(), model: u.model || modelId, chat: chatId || '', project: (project && project.name) || '', source: source || (unattended ? 'schedule' : 'gateway'), prompt: u.prompt, completion: u.completion, cached: u.cached || 0, cacheWrite: u.cacheWrite || 0, estimated: u.estimated }),
         autoApprove: unattended ? !!allowEdits : !!st.autoApproveEdits, autoAll: false, agentAutoApprove: false,
         approve: (info) => unattended ? Promise.resolve(info.category === 'phone' || (info.name === 'run_command' && !!sandbox())) : new Promise((resolve) => {
           mine.add(info.id);
@@ -250,6 +254,54 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
       return res.error ? { ok: false, error: res.error } : { ok: true };
     }
   });
+
+  // ---- heartbeat and webhooks (same as in the app; they run here while this process owns the background jobs) ----
+  async function backgroundRun({ prompt, model, allowEdits, projectId, source }) {
+    const modelId = pickModel(model || settings().scheduleModel);
+    const runId = 'bg-' + crypto.randomBytes(5).toString('hex');
+    const res = await run({ runId, messages: [{ role: 'user', content: prompt }], modelId, project: projectFor(projectId), chatId: runId, send: () => {}, unattended: true, allowEdits: !!allowEdits, restrict: true, system: BG_NOTE, source });
+    return { text: res.text, error: res.error, model: modelId };
+  }
+  async function backgroundTell({ title, user, text, model, source, phone, icon }) {
+    try { sessions.appendTurn('bg-' + crypto.randomBytes(5).toString('hex'), { user, assistant: text, title, via: source, source, model: model || '' }); mirror(); } catch (e) { log('warn', source, 'could not save the chat: ' + e.message); }
+    if (!phone) return;
+    const ph = remote && remote.phone();
+    if (ph) await ph.send(`${icon} ${title}\n\n${String(text).slice(0, 3500)}`);
+    else log('warn', source, `${title}: should go to the phone, but Telegram is not connected and paired`);
+  }
+  const heartbeat = createHeartbeats({
+    list: () => readJson('heartbeats', null) || hbFromSettings(settings()),
+    saveList: (l) => writeJson('heartbeats', l),
+    checklist: (hb) => (ws ? ws.readText(hbFileOf(hb)) || '' : null),
+    writeChecklist: (hb, text) => { if (!ws) throw new Error('Heartbeats need the memory workspace.'); const f = ws.abs(hbFileOf(hb)); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f + '.tmp', text.endsWith('\n') ? text : text + '\n'); fs.renameSync(f + '.tmp', f); },
+    removeChecklist: (hb) => { if (ws) fs.rmSync(ws.abs(hbFileOf(hb)), { force: true }); },
+    run: ({ prompt, model }) => backgroundRun({ prompt, model, source: 'heartbeat' }),
+    deliver: ({ text, model, hb }) => backgroundTell({ title: hb.name === 'Heartbeat' ? 'Heartbeat' : `Heartbeat: ${hb.name}`, user: `Heartbeat check (${hbFileOf(hb)})`, text, model, source: 'heartbeat', phone: hb.phone !== false, icon: '💓' }),
+    readState: () => readJson('heartbeat-state', {}), writeState: (x) => writeJson('heartbeat-state', x), log: L('heartbeat')
+  });
+  const hooks = createHooks({
+    read: () => readJson('hooks', []), write: (l) => writeJson('hooks', l, 0o600),
+    run: (hook, ev) => backgroundRun({ prompt: ev.prompt, model: hook.model, allowEdits: hook.allowEdits, projectId: hook.projectId, source: 'webhook' }),
+    deliver: (hook, { text, event }) => backgroundTell({ title: `Webhook: ${hook.name}`, user: `Webhook "${hook.name}"${event ? ` · ${event}` : ''}`, text, source: 'webhook', phone: hook.notifyPhone !== false, icon: '🔔', model: hook.model }),
+    log: L('webhooks')
+  });
+  const hookService = createHookService({
+    hooks, owner: 'headless', settings, tunnelToken: () => process.env.ARTEMIS_TUNNEL_TOKEN || headlessCfg().tunnelToken || getSecret('hooksTunnelToken'),
+    writeState: (x) => writeJson('hooks-state', x), log: L('webhooks')
+  });
+  const hookPort = () => Number(settings().hooksPort) || 8790;
+  const hookUrls = (h) => { const x = hookService.info(); return { local: `http://127.0.0.1:${hookPort()}/hooks/${h.name}`, public: x.publicUrl ? `${x.publicUrl}/hooks/${h.name}` : '' }; };
+  const hooksTools = {
+    list: () => hooks.list().map((h) => ({ ...h, urls: hookUrls(h) })),
+    save: (o) => { const h = hooks.save(o); if (!settings().hooksEnabled) { writeJson('settings', { ...settings(), hooksEnabled: true }); hookService.sync().catch(() => {}); } return { ...h, urls: hookUrls(h) }; },
+    remove: (id) => hooks.remove(id), info: () => hookService.info()
+  };
+  const heartbeatTools = {
+    list: () => heartbeat.status(),
+    save: (o) => { const hb = heartbeat.save(o); return heartbeat.status().find((x) => x.id === hb.id); },
+    remove: (id) => heartbeat.remove(id)
+  };
+  let hookTimer = null;
 
   // ---- gateway ----
   function token() {
@@ -363,7 +415,11 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
     const { g, addr } = await listenWithRetry(() => gatewayLib.createGateway({ host, port: p, token: token(), log: L('gateway'), handlers }));
     gw = g;
     gatewayLib.writeDiscovery(file('gateway.json'), { mode: 'headless', host: host === '0.0.0.0' ? '127.0.0.1' : host, port: addr.port, token: token(), version: handlers.info().version });
-    if (schedOn) sched.start();
+    if (schedOn) {
+      sched.start(); heartbeat.start();
+      const syncHooks = () => hookService.sync().catch((e) => log('warn', 'webhooks', e.message));
+      syncHooks(); hookTimer = setInterval(syncHooks, 5000); if (hookTimer.unref) hookTimer.unref(); // follows the settings the app writes
+    }
     if (index) { try { index.reindex({ force: true }); } catch (e) { log('warn', 'memory', 'index: ' + e.message); } }
     if (mcp && settings().connectorsEnabled !== false) { // wait a little for the connectors, so the first message already has them
       const ready = mcp.configure(readMcpList()).catch((e) => log('warn', 'mcp', e.message));
@@ -380,6 +436,9 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
     if (tgTimer) clearTimeout(tgTimer);
     try { if (remote) remote.stop(); } catch {}
     try { sched.stop(); } catch {}
+    try { heartbeat.stop(); } catch {}
+    if (hookTimer) { clearInterval(hookTimer); hookTimer = null; }
+    try { await hookService.stop(); } catch {}
     for (const c of runs.values()) { try { c.abort(); } catch {} }
     if (gw) await gw.stop();
     gatewayLib.removeDiscovery(file('gateway.json'));
@@ -391,7 +450,7 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
     db.close();
   }
 
-  return { start, stop, handlers, sessions, workspace: ws, index, run, pickModel, getProviderKey, remote: () => remote, sandbox, browserAvailable };
+  return { start, stop, handlers, sessions, workspace: ws, index, run, pickModel, getProviderKey, remote: () => remote, sandbox, browserAvailable, heartbeat, hooks, hookService };
 }
 
 module.exports = { createHeadless };
