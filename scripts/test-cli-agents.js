@@ -6,7 +6,7 @@ const os = require('os');
 const path = require('path');
 const { EventEmitter } = require('events');
 const { PassThrough } = require('stream');
-const { createCliAgents, createCliTeamTurn, kindOf, modelOf, argsFor, claudeReader, codexReader, claudeAsk, unwrapShell } = require('../electron/cli-agents');
+const { createCliAgents, createCliTeamTurn, kindOf, modelOf, argsFor, claudeReader, codexReader, claudeAsk, unwrapShell, cliError } = require('../electron/cli-agents');
 const { createMcpServer } = require('../electron/mcp-server');
 
 const CLAUDE = [
@@ -115,7 +115,8 @@ function fakeSpawn(lines, { code = 0, hang = false, stderr = '' } = {}) {
   fs.writeFileSync(path.join(home, '.local', 'bin', 'claude'), '#!/bin/sh\n', { mode: 0o755 });
   let fk = fakeSpawn(CLAUDE);
   const noShell = (cmd, args, opts, cb) => cb(new Error('no'), '');
-  let cli = createCliAgents({ spawn: fk.spawn, execFile: noShell, home, env: { PATH: '/usr/bin', ELECTRON_RUN_AS_NODE: '1' } });
+  const keyEnv = { ANTHROPIC_API_KEY: 'sk-ant', ANTHROPIC_AUTH_TOKEN: 'tok', ANTHROPIC_BASE_URL: 'https://gw', CLAUDE_CODE_USE_BEDROCK: '1', OPENAI_API_KEY: 'sk-oa', CODEX_API_KEY: 'sk-cx' };
+  let cli = createCliAgents({ spawn: fk.spawn, execFile: noShell, home, env: { PATH: '/usr/bin', ELECTRON_RUN_AS_NODE: '1', HOME: home, CLAUDE_CODE_OAUTH_TOKEN: 'plan', ...keyEnv } });
   assert.deepStrictEqual(await cli.available(), { claude: true, codex: false });
   steps = [];
   const out = await cli.run({ kind: 'claude', prompt: 'Read note.txt', system: 'role', folder: work, askWrites: true, mcp, onStep: (e) => steps.push(e), onUsage: () => {} });
@@ -127,14 +128,35 @@ function fakeSpawn(lines, { code = 0, hang = false, stderr = '' } = {}) {
   assert.ok(call.opts.env.PATH.startsWith(path.join(home, '.local', 'bin')));
   assert.strictEqual(call.opts.env.ELECTRON_RUN_AS_NODE, undefined, 'Electron variables do not leak into the CLI');
   assert.strictEqual(call.opts.env.ARTEMIS_TEAM_TOKEN, 'SECRET123');
+  for (const k of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'CLAUDE_CODE_USE_BEDROCK']) assert.ok(!(k in call.opts.env), `${k} is not passed on, so Claude Code runs on the plan login`);
+  assert.strictEqual(call.opts.env.CLAUDE_CODE_OAUTH_TOKEN, 'plan', 'a plan token from claude setup-token stays');
+  assert.strictEqual(call.opts.env.HOME, home);
   assert.ok(steps.some((e) => e.type === 'tool'));
   await assert.rejects(cli.run({ kind: 'codex', prompt: 'x', folder: work, mcp }), /Codex is not installed/);
   await assert.rejects(cli.run({ kind: 'claude', prompt: 'x', folder: path.join(work, 'nope'), mcp }), /folder does not exist/);
 
+  // Codex: its API-key variables are stripped too
+  fs.writeFileSync(path.join(home, '.local', 'bin', 'codex'), '#!/bin/sh\n', { mode: 0o755 });
+  fk = fakeSpawn(CODEX);
+  cli = createCliAgents({ spawn: fk.spawn, execFile: noShell, home, env: { PATH: '/usr/bin', ...keyEnv } });
+  assert.strictEqual(await cli.run({ kind: 'codex', prompt: 'x', folder: work, mcp }), 'hello from a file');
+  for (const k of ['OPENAI_API_KEY', 'CODEX_API_KEY']) assert.ok(!(k in fk.calls[0].opts.env), `${k} is not passed on to Codex`);
+  assert.ok(fk.calls[0].opts.env.PATH.includes('/usr/bin')); assert.strictEqual(fk.calls[0].opts.env.ARTEMIS_TEAM_TOKEN, 'SECRET123');
+  fs.rmSync(path.join(home, '.local', 'bin', 'codex'));
+
   // exits without an answer: the end of stderr explains it
+  fk = fakeSpawn([], { code: 1, stderr: 'Error: something broke\nat line 3\n' });
+  cli = createCliAgents({ spawn: fk.spawn, execFile: noShell, home, env: {} });
+  await assert.rejects(cli.run({ kind: 'claude', prompt: 'x', folder: work, mcp }), /without an answer.*something broke/);
+  // no login: a readable sign-in hint instead of the raw error, from stderr or from the result event
   fk = fakeSpawn([], { code: 1, stderr: 'Error: not logged in\nRun claude login\n' });
   cli = createCliAgents({ spawn: fk.spawn, execFile: noShell, home, env: {} });
-  await assert.rejects(cli.run({ kind: 'claude', prompt: 'x', folder: work, mcp }), /without an answer.*not logged in/);
+  await assert.rejects(cli.run({ kind: 'claude', prompt: 'x', folder: work, mcp }), /^Error: Claude Code is not signed in: run `claude` once/);
+  fk = fakeSpawn([{ type: 'result', subtype: 'success', is_error: true, result: 'Not logged in · Please run /login' }]);
+  cli = createCliAgents({ spawn: fk.spawn, execFile: noShell, home, env: {} });
+  await assert.rejects(cli.run({ kind: 'claude', prompt: 'x', folder: work, mcp }), /Claude Code is not signed in.*Please run \/login/);
+  assert.match(cliError('codex', 'no Codex credentials were found').message, /^Codex is not signed in: run `codex login`/);
+  assert.strictEqual(cliError('codex', 'usage limit reached').message, 'Codex: usage limit reached');
 
   // Stop: the process is killed and the run rejects as aborted
   fk = fakeSpawn([CLAUDE[0]], { hang: true });

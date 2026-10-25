@@ -1,5 +1,5 @@
 // Claude Code and Codex as team members: Artemis starts the CLI on this computer for one turn, and the CLI works with its
-// own tools and on its own login (a Claude or ChatGPT subscription, or whatever key the user set up for it).
+// own tools and on the user's own subscription login (Claude plan / ChatGPT plan): API-key variables are not passed on.
 // The team tools reach it over a local MCP server with a token for this turn only; its JSON output becomes live steps.
 const fs = require('fs');
 const crypto = require('crypto');
@@ -33,6 +33,19 @@ const claudeAsk = (name, input) => {
   if (name === 'WebFetch') return `Open ${a.url || 'a web page'}`;
   return `${name}${Object.keys(a).length ? ' ' + JSON.stringify(a).slice(0, 200) : ''}`;
 };
+// Variables that make the CLI bill an API key, a cloud provider or a gateway instead of the plan login (Claude Code's
+// auth precedence puts all of these above /login). Stripped on purpose; CLAUDE_CODE_OAUTH_TOKEN is a plan token and stays.
+const KEY_VARS = {
+  claude: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY', 'ANTHROPIC_PROFILE', 'ANTHROPIC_FEDERATION_RULE_ID'],
+  codex: ['OPENAI_API_KEY', 'CODEX_API_KEY', 'OPENAI_BASE_URL']
+};
+const SIGN_IN = {
+  claude: 'Claude Code is not signed in: run `claude` once in a terminal and sign in with your Claude plan, then try again.',
+  codex: 'Codex is not signed in: run `codex login` once in a terminal and sign in with ChatGPT, then try again.'
+};
+const NOT_SIGNED_IN = /not (logged|signed) in|run \/login|login expired|no codex credentials|codex login|refresh token|invalid (x-)?api key|authentication_error|unauthorized/i;
+/** A CLI error as the room shows it: a sign-in hint when the CLI has no login, else the CLI's own words. */
+const cliError = (kind, text) => new Error(NOT_SIGNED_IN.test(text) ? `${SIGN_IN[kind]} (${KINDS[kind].label} said: ${String(text).trim().slice(0, 200)})` : `${KINDS[kind].label}: ${text}`);
 const unwrapShell = (cmd) => { const m = /^\/bin\/(?:zsh|bash|sh) -l?c '([\s\S]*)'$/.exec(String(cmd || '')); return m ? m[1] : String(cmd || ''); };
 
 /** Reads Claude Code's stream-json, one parsed line at a time. Returns the final text when the run ends. */
@@ -155,6 +168,9 @@ function createCliAgents(deps) {
     if (kind === 'codex') args.push([o.system, o.prompt].filter(Boolean).join('\n\n'));
     const env = { ...env0, PATH: [path.dirname(bin), ...DIRS, env0.PATH || ''].join(path.delimiter), ARTEMIS_TEAM_TOKEN: o.mcp.token };
     delete env.ELECTRON_RUN_AS_NODE; delete env.ELECTRON_NO_ATTACH_CONSOLE;
+    const stripped = KEY_VARS[kind].filter((k) => k in env);
+    for (const k of stripped) delete env[k];
+    if (stripped.length) log(`${kind}: not passing ${stripped.join(', ')}, so it runs on the plan login`);
     const reader = (kind === 'claude' ? claudeReader : codexReader)(o.onStep || (() => {}), o.onUsage || (() => {}));
     return new Promise((resolve, reject) => {
       let child;
@@ -183,8 +199,9 @@ function createCliAgents(deps) {
       child.on('close', (code) => finish(() => {
         if (buf.trim()) { try { reader.line(JSON.parse(buf.trim())); } catch {} }
         const r = reader.end();
-        if (r.error) return reject(new Error(`${KINDS[kind].label}: ${r.error}`));
-        if (r.final === null) return reject(new Error(`${KINDS[kind].label} exited (${code}) without an answer.${errTail.trim() ? ' ' + errTail.trim().split('\n').slice(-2).join(' ').slice(0, 300) : ''}`));
+        const tail = errTail.trim() ? errTail.trim().split('\n').slice(-2).join(' ').slice(0, 300) : '';
+        if (r.error) return reject(cliError(kind, r.error));
+        if (r.final === null) return reject(NOT_SIGNED_IN.test(tail) ? cliError(kind, tail) : new Error(`${KINDS[kind].label} exited (${code}) without an answer.${tail ? ' ' + tail : ''}`));
         resolve(r.final);
       }));
       if (kind === 'claude') child.stdin.end([o.prompt].join('')); else child.stdin.end();
@@ -235,4 +252,4 @@ function createCliTeamTurn({ cli, createMcpServer, isLocked = () => false, log =
   return { turn, available: () => cli.available(), stop: () => (server ? server.stop() : Promise.resolve()) };
 }
 
-module.exports = { createCliAgents, createCliTeamTurn, kindOf, modelOf, argsFor, claudeReader, codexReader, claudeAsk, claudeStep, unwrapShell, KINDS, PREFIX };
+module.exports = { createCliAgents, createCliTeamTurn, kindOf, modelOf, argsFor, claudeReader, codexReader, claudeAsk, claudeStep, unwrapShell, cliError, KEY_VARS, KINDS, PREFIX };
