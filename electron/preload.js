@@ -185,6 +185,7 @@ contextBridge.exposeInMainWorld('api', {
   agentsGroups: () => ipcRenderer.invoke('agents:groups'),
   onAgentsChanged: (cb) => sub('agents:changed', cb),
   teamsList: () => ipcRenderer.invoke('teams:list'),
+  teamsClis: () => ipcRenderer.invoke('teams:clis'),
   teamsSave: (def) => ipcRenderer.invoke('teams:save', def),
   teamsDelete: (id) => ipcRenderer.invoke('teams:delete', id),
   teamsStart: (id) => ipcRenderer.invoke('teams:start', id),

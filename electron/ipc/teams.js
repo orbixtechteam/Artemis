@@ -46,6 +46,7 @@ module.exports = function registerTeamsIpc(deps) {
   const c = deps.client || createTeamsClient(deps);
   const wrap = (fn) => async (_e, ...a) => { try { return { ok: true, team: await fn(...a) }; } catch (e) { return { ok: false, error: e.message || String(e) }; } };
   ipcMain.handle('teams:list', () => c.list());
+  ipcMain.handle('teams:clis', async () => (deps.cliAgents ? deps.cliAgents.available() : { claude: false, codex: false })); // which of Claude Code / Codex are installed
   ipcMain.handle('teams:save', wrap((def) => c.save(def)));
   ipcMain.handle('teams:delete', async (_e, id) => { try { return await c.remove(id); } catch { return false; } });
   for (const what of ['start', 'pause', 'resume', 'stop']) ipcMain.handle(`teams:${what}`, wrap((id) => c.act(id, what)));

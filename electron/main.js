@@ -161,6 +161,7 @@ const titlesLib = require('./titles');
 const { createSkills } = require('./skills');
 const { createAgents, toolNames } = require('./subagents');
 const { createTeams } = require('./teams');
+const { createCliAgents, createCliTeamTurn } = require('./cli-agents');
 const { createMake, ZONES: MAKE_ZONES, cleanZone: cleanMakeZone, validZone: validMakeZone } = require('./make');
 const chatSearch = require('./chatsearch');
 const { createScheduler } = require('./scheduler');
@@ -974,6 +975,11 @@ const teams = createTeams({
   // team_hire: the lead adds a new agent (saved as one of the user's agents) when the team allows it
   hire: (a) => agents.save({ name: a.name, role: a.role, description: a.role, body: a.body, tools: a.tools, model: a.model })
 });
+// Claude Code / Codex members: the CLI runs on the user's own login; the team tools reach it over a local MCP server
+// where each turn's token sees only that turn's tools (core/teamrun.js hands those turns to cliTeam).
+const cliAgents = createCliAgents({ spawn: require('child_process').spawn, execFile: require('child_process').execFile, log: (m) => logger.warn('teams', m) });
+const cliTeam = createCliTeamTurn({ cli: cliAgents, createMcpServer: require('./mcp-server').createMcpServer, isLocked: () => lock.isLocked(), log: (lv, m) => (logger[lv] || logger.info)('teams', m) });
+
 /** One turn of one team member (or the lead): core/teamrun.js with what the app has (Make, the browser, connectors, the
  *  sandbox, the phone, memory, scheduling), each only when the member's tool groups include it. Files go to the Files folder. */
 const runTeamTurn = require('./core/teamrun').createTeamRunner({
@@ -998,6 +1004,7 @@ const runTeamTurn = require('./core/teamrun').createTeamRunner({
   release: (runId) => browser.agentDone(runId),
   phone: () => (remote && remote.phone()) || null,
   notify: (title, body) => { if (win && !win.isDestroyed() && !win.isFocused() && Notification.isSupported()) new Notification({ title, body }).show(); },
+  cli: cliTeam,
   log: (lv, m) => (logger[lv] || logger.info)('teams', m)
 });
 
@@ -2100,6 +2107,7 @@ app.on('before-quit', (e) => {
   }
   flushUsage();
   try { teams.flush(); } catch {}
+  try { cliTeam.stop(); } catch {}
   try { updater.installOnQuit(); } catch (e) { logger.warn('update', 'Install on quit failed: ' + e.message); }
   try { mcpServer.stop(); } catch {} try { sentinelWidget && sentinelWidget.destroy(); } catch {}
   // Every other window goes now: a hidden or always-on-top one must not keep the app alive.
@@ -2344,7 +2352,7 @@ require('./ipc/skills')({ ipcMain, app, dialog, shell, fs, path, skills, skillRo
 require('./ipc/themes')({ ipcMain, dialog, shell, fs, path, themes, themeDirs, listThemes, nativeThemeFor, broadcastTheme, getSettings, saveSettings, getWin: () => win });
 require('./ipc/brains')({ ipcMain, brains });
 require('./ipc/agents')({ ipcMain, agents, fs, shell, skillRoot });
-require('./ipc/teams')({ ipcMain, client: teamsClient });
+require('./ipc/teams')({ ipcMain, client: teamsClient, cliAgents });
 require('./ipc/advanced')({ ipcMain, getSettings, saveSettings, notify: () => toWinSafe('app:changed', {}) });
 require('./ipc/logs')({ ipcMain, shell, fs, logger });
 // Memory diagnostics (Logs → Memory, Settings → General → Memory, command palette "Show memory use", and every 5 minutes from the window)

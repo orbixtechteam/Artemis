@@ -12,11 +12,15 @@ const safeEqual = (a, b) => {
 };
 const hostOk = (h) => /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i.test(String(h || ''));
 
-function createMcpServer({ getToken, tools = () => [], info = { name: 'artemis', version: '1.0.0' }, log = () => {}, isLocked = () => false }) {
-  let server = null, listening = 0;
-  const toolList = () => (typeof tools === 'function' ? tools() : tools);
+/** sessions(token) -> tool list | null: instead of one token for all tools, each token sees only its own tools
+ *  (agent teams give every Claude Code / Codex turn a token for that turn's team tools). */
+const INSTRUCTIONS = 'Artemis is a desktop AI app. These tools read and change its settings, theme, providers, memory, notes and its visible terminal.';
 
-  async function handle(msg) {
+function createMcpServer({ getToken, tools = () => [], sessions = null, info = { name: 'artemis', version: '1.0.0' }, instructions = INSTRUCTIONS, log = () => {}, isLocked = () => false }) {
+  let server = null, listening = 0;
+  const allTools = () => (typeof tools === 'function' ? tools() : tools);
+
+  async function handle(msg, toolList = allTools) {
     const id = msg && msg.id;
     const reply = (result) => ({ jsonrpc: '2.0', id, result });
     const fail = (code, message) => ({ jsonrpc: '2.0', id, error: { code, message } });
@@ -26,7 +30,7 @@ function createMcpServer({ getToken, tools = () => [], info = { name: 'artemis',
       case 'initialize': {
         const want = msg.params && msg.params.protocolVersion;
         return reply({ protocolVersion: VERSIONS.includes(want) ? want : VERSIONS[0], capabilities: { tools: { listChanged: false } }, serverInfo: info,
-          instructions: 'Artemis is a desktop AI app. These tools read and change its settings, theme, providers, memory, notes and its visible terminal.' });
+          instructions });
       }
       case 'ping': return reply({});
       case 'tools/list':
@@ -61,8 +65,16 @@ function createMcpServer({ getToken, tools = () => [], info = { name: 'artemis',
     const url = String(req.url || '').split('?')[0];
     if (url !== '/mcp' && url !== '/mcp/') return send(res, 404, { error: 'Not found' });
     const auth = String(req.headers.authorization || '');
-    const token = getToken();
-    if (!token || !/^Bearer /i.test(auth) || !safeEqual(auth.slice(7).trim(), token)) return send(res, 401, { error: 'Missing or wrong token' }, { 'www-authenticate': 'Bearer' });
+    const given = /^Bearer /i.test(auth) ? auth.slice(7).trim() : '';
+    let list = allTools;
+    if (sessions) {
+      const own = given ? sessions(given) : null;
+      if (!own) return send(res, 401, { error: 'Missing or wrong token' }, { 'www-authenticate': 'Bearer' });
+      list = () => own;
+    } else {
+      const token = getToken();
+      if (!token || !given || !safeEqual(given, token)) return send(res, 401, { error: 'Missing or wrong token' }, { 'www-authenticate': 'Bearer' });
+    }
     if (req.method !== 'POST') return send(res, 405, { error: 'Use POST' }, { allow: 'POST' });
     let size = 0; const chunks = [];
     req.on('data', (c) => { size += c.length; if (size > MAX_BODY) { req.destroy(); } else chunks.push(c); });
@@ -71,10 +83,10 @@ function createMcpServer({ getToken, tools = () => [], info = { name: 'artemis',
       try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { return send(res, 400, { jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } }); }
       try {
         if (Array.isArray(body)) {
-          const out = (await Promise.all(body.map(handle))).filter(Boolean);
+          const out = (await Promise.all(body.map((m) => handle(m, list)))).filter(Boolean);
           return out.length ? send(res, 200, out) : send(res, 202);
         }
-        const out = await handle(body);
+        const out = await handle(body, list);
         return out ? send(res, 200, out) : send(res, 202);
       } catch (e) { return send(res, 500, { jsonrpc: '2.0', id: null, error: { code: -32603, message: String((e && e.message) || e) } }); }
     });
