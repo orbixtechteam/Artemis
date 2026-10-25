@@ -17,6 +17,7 @@
 //   now?(), log?(level, message)
 // }
 const crypto = require('crypto');
+const prompts = require('../prompts');
 const { meaningful, TEMPLATES } = require('./workspace');
 
 const MIN = 60000;
@@ -54,13 +55,18 @@ function parseReply(text, TOKEN = 'HEARTBEAT_OK') {
 }
 const hashOf = (t) => crypto.createHash('sha256').update(String(t).toLowerCase().replace(/\s+/g, ' ').trim()).digest('hex').slice(0, 16);
 
+const RULES = [
+  'Go through the checklist from HEARTBEAT.md below. Use tools only when an item needs them, and keep it short. Do not repeat old tasks from earlier chats and do not invent new items.',
+  "If nothing needs the user's attention right now, reply with exactly {token} and nothing else.",
+  'If something does, reply with a short message to the user instead (without {token}): what happened and what they may want to do. It is sent to them as it is.'
+].join('\n\n');
+prompts.register('heartbeat.rules', { title: 'Heartbeat checks', description: 'How a heartbeat check works. {token} is the word that means "nothing to report"; without it every check is sent to you.', text: RULES });
+
 function buildPrompt({ checklist, every, now, lastAlert, name }) {
   const when = new Date(now).toLocaleString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   return [
     `This is a heartbeat check${name && name !== 'Heartbeat' ? ` ("${name}")` : ''}. It runs by itself every ${every} minutes and nobody is waiting for an answer. Current local time: ${when}.`,
-    'Go through the checklist from HEARTBEAT.md below. Use tools only when an item needs them, and keep it short. Do not repeat old tasks from earlier chats and do not invent new items.',
-    `If nothing needs the user's attention right now, reply with exactly ${TOKEN} and nothing else.`,
-    `If something does, reply with a short message to the user instead (without ${TOKEN}): what happened and what they may want to do. It is sent to them as it is.`,
+    prompts.text('heartbeat.rules', RULES, { token: TOKEN }),
     lastAlert ? `Your last alert (${new Date(lastAlert.at).toLocaleString()}) was:\n"""${String(lastAlert.text).slice(0, 600)}"""\nDo not send it again unless something new happened.` : '',
     `<HEARTBEAT.md>\n${checklist}\n</HEARTBEAT.md>`
   ].filter(Boolean).join('\n\n');

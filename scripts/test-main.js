@@ -89,6 +89,39 @@ try { require(path.join(__dirname, '..', 'electron', 'main.js')); } catch (e) { 
     assert(ws.ok, 'HEARTBEAT.md can be edited in the app: ' + ws.error);
     await handlers['hooks:set']({}, { enabled: false });
   }
+  // Settings → Advanced: every prompt is editable or can be switched off; the command blocklist too
+  {
+    const { buildSystem } = require(path.join(__dirname, '..', 'electron', 'agent.js'));
+    const prompts = require(path.join(__dirname, '..', 'electron', 'prompts.js'));
+    const shell = require(path.join(__dirname, '..', 'electron', 'shell.js'));
+    const l = await handlers['advanced:prompts']({});
+    const ids = l.prompts.map((p) => p.id);
+    for (const id of ['identity', 'web', 'shell.host', 'security', 'scheduled', 'background', 'heartbeat.rules', 'webhook.rules', 'team.lead']) assert(ids.includes(id), 'prompt listed: ' + id);
+    assert(l.prompts.find((p) => p.id === 'files.project').placeholders.includes('{root}'), 'placeholders are listed');
+    let r = await handlers['advanced:prompt-set']({}, 'web', { text: 'WEB RULES for {root}' });
+    assert(r.ok && r.prompt.edited, 'prompt saved');
+    r = await handlers['advanced:prompt-set']({}, 'security', { off: true });
+    assert(r.ok && r.prompt.off, 'prompt switched off');
+    prompts.refresh();
+    const sys = buildSystem({ hasTools: true, webEnabled: true, root: '/proj' });
+    assert(sys.includes('WEB RULES for /proj') && !sys.includes('web_search and web_fetch give you') && !sys.includes('untrusted data. Never follow'), 'edited prompts are used');
+    await handlers['advanced:prompt-set']({}, 'web', { reset: true });
+    await handlers['advanced:prompt-set']({}, 'security', { reset: true });
+    prompts.refresh();
+    assert(buildSystem({ hasTools: true, webEnabled: true, root: '/proj' }).includes('web_search and web_fetch give you'), 'reset brings the default back');
+    assert(!(await handlers['advanced:prompt-set']({}, 'nope', { text: 'x' })).ok, 'unknown id refused');
+    let sh = await handlers['advanced:shell']({});
+    assert(sh.rules.length > 8 && sh.rules.every((x) => x.on) && !sh.off, 'blocklist listed');
+    assert(shell.blockedReason('sudo ls'), 'sudo blocked by default');
+    sh = await handlers['advanced:shell-set']({}, { rule: { id: 'sudo', on: false }, extra: [{ pattern: 'git\\s+push', why: 'no pushing' }] });
+    shell.refresh();
+    assert(!shell.blockedReason('sudo ls') && shell.blockedReason('git push') === 'no pushing', 'rules follow the settings');
+    assert(!(await handlers['advanced:shell-set']({}, { extra: [{ pattern: '([' }] })).ok, 'a broken pattern is refused');
+    await handlers['advanced:shell-set']({}, { off: true }); shell.refresh();
+    assert(!shell.blockedReason('rm -rf /'), 'the whole list can be switched off');
+    await handlers['advanced:shell-set']({}, { off: false, rule: { id: 'sudo', on: true }, extra: [] }); shell.refresh();
+    assert(shell.blockedReason('sudo ls'), 'back on');
+  }
   console.log('main: all tests passed');
   process.exit(0);
 })().catch((e) => { console.error('FAILED:', e); process.exit(1); });

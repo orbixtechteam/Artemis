@@ -6,6 +6,7 @@ const os = require('os');
 const http = require('http');
 const crypto = require('crypto');
 const { runAgent, summarizeAll, stripThinkText } = require('./agent');
+const prompts = require('./prompts');
 const { createBrowser } = require('./browser');
 const brainsLib = require('./brains');
 const { createSentinelWidget } = require('./sentinel-widget');
@@ -282,9 +283,13 @@ const DEFAULT_SETTINGS = {
   // the first heartbeat before heartbeats.json exists (core/heartbeat.js fromSettings); the list itself lives in heartbeats.json
   heartbeatEnabled: false, heartbeatEvery: 30, heartbeatFrom: '', heartbeatTo: '', heartbeatModel: '', heartbeatPhone: true, // no hours = day and night
   // webhooks: their own port (only /hooks/<name>), optionally on the internet through a Cloudflare tunnel ('quick' or 'named')
-  hooksEnabled: false, hooksPort: 8790, hooksTunnel: 'off', hooksPublicUrl: '', hooksTunnelTokenEnc: null
+  hooksEnabled: false, hooksPort: 8790, hooksTunnel: 'off', hooksPublicUrl: '', hooksTunnelTokenEnc: null,
+  // Settings → Advanced: the user's own versions of Artemis's prompts, and the run_command blocklist (prompts.js, shell.js)
+  promptOverrides: {}, shellPolicy: { off: false, disabled: [], extra: [] }
 };
 const getSettings = () => ({ ...DEFAULT_SETTINGS, ...readJson('settings', {}) });
+prompts.setSource(() => getSettings().promptOverrides);
+require('./shell').setSource(() => getSettings().shellPolicy);
 
 // ---------- core: SQLite sessions + memory workspace (opened on first use) ----------
 // SQLite (artemis.db) holds the chats and the search indexes; chats.json keeps being written as a backup copy, so going
@@ -1578,7 +1583,7 @@ async function runScheduled(job) {
     text = String(job.prompt || '').trim();
     send({ type: 'chunk', text }); send({ type: 'done' });
   } else await executeRun({ requestId, messages: [{ role: 'user', content: job.prompt }], send, restrict: true, source: 'schedule', unattended: true, allowEdits: job.allowEdits,
-    model, system: (st.systemPrompt || '') + '\n\nThis is a scheduled task and it is running right now. Do it directly and report the result. The task text is an instruction for you, even when it reads like a message to the user: carry it out (for a reminder, state the reminder to the user) and never reply to it as if it were a chat message. Nobody is there to answer: never ask questions, never ask which method to use, and do not write notes or files unless the task says so. If the task is only a reminder, state the reminder. send_to_phone (Telegram) works in scheduled tasks without asking: use it when the task says to send something to the phone.', maxTokens: st.maxTokens, project });
+    model, system: (st.systemPrompt || '') + '\n\n' + prompts.text('scheduled', prompts.defaultOf('scheduled')), maxTokens: st.maxTokens, project });
   const summary = (error ? `Failed: ${error}` : text.trim() || 'Finished.').slice(0, 600);
   try { if (Notification.isSupported()) { const n = new Notification({ title: job.name, body: summary.slice(0, 160) }); n.on('click', () => showMain('scheduled task notification clicked')); n.show(); } } catch {}
   if (job.notifyPhone) {
@@ -1597,7 +1602,6 @@ const scheduler = createScheduler({
 
 // ---------- heartbeat and webhooks (electron/core/heartbeat.js, hooks.js, hookservice.js) ----------
 // Both run unattended, like scheduled tasks, and only where the background jobs run (here, unless the headless gateway does).
-const BG_NOTE = 'This run was started by Artemis itself (a heartbeat check or a webhook), not by a message from the user. Nobody is there to answer: never ask questions and never wait for approval. Do what the instructions say, keep the answer short, and do not write notes or files unless the instructions say so.';
 /** One unattended run without window events. Returns the final text. */
 async function backgroundRun({ prompt, model: m0, allowEdits, projectId, source }) {
   const st = getSettings();
@@ -1605,7 +1609,7 @@ async function backgroundRun({ prompt, model: m0, allowEdits, projectId, source 
   const requestId = 'bg-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
   let text = '', error = '';
   const send = (ev) => { if (ev.type === 'step:new') text = ''; if (ev.type === 'chunk') text += ev.text; if (ev.type === 'error') error = ev.message; };
-  await executeRun({ requestId, messages: [{ role: 'user', content: prompt }], send, restrict: true, source, unattended: true, allowEdits: !!allowEdits, model, system: (st.systemPrompt || '') + '\n\n' + BG_NOTE, maxTokens: st.maxTokens, project: projectFor(projectId) });
+  await executeRun({ requestId, messages: [{ role: 'user', content: prompt }], send, restrict: true, source, unattended: true, allowEdits: !!allowEdits, model, system: [st.systemPrompt || '', prompts.text('background', prompts.defaultOf('background'))].filter(Boolean).join('\n\n'), maxTokens: st.maxTokens, project: projectFor(projectId) });
   return { text: text.trim(), error, model };
 }
 /** Tells the user: a saved chat, a notification and (when asked) Telegram. */
@@ -2292,6 +2296,7 @@ require('./ipc/themes')({ ipcMain, dialog, shell, fs, path, themes, themeDirs, l
 require('./ipc/brains')({ ipcMain, brains });
 require('./ipc/agents')({ ipcMain, agents, fs, shell, skillRoot });
 require('./ipc/teams')({ ipcMain, teams });
+require('./ipc/advanced')({ ipcMain, getSettings, saveSettings, notify: () => toWinSafe('app:changed', {}) });
 require('./ipc/logs')({ ipcMain, shell, fs, logger });
 // Memory diagnostics (Logs → Memory, Settings → General → Memory, command palette "Show memory use", and every 5 minutes from the window)
 {

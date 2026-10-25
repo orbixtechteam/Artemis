@@ -7,6 +7,7 @@
 // the reviewer, if the team has one, approves or sends the work back (team_review) -> the lead writes the final answer.
 // The user can post at any time; after the end a message starts a follow-up round.
 
+const prompts = require('./prompts');
 const MAX_TEAMS = 50, MAX_MSGS = 400, MAX_TASKS = 24, MAX_PARALLEL = 3, MAX_REVIEW_ROUNDS = 2, MAX_ASKS = 3, MAX_FAILS = 2;
 const MODES = ['lead', 'pipeline', 'open'];
 const MAX_STEPS = 40, MAX_LOG = 80, PLAN_NOTE = 400;
@@ -27,6 +28,7 @@ const brief = (args) => {
 };
 
 const LEAD_BODY = 'You lead a small team of AI agents. You never do the work yourself and never answer the goal from your own knowledge: you split the goal into clear tasks, give each to the member whose role fits, and at the end report what the team found. You have no web or file tools; your members do. Be brief and concrete.';
+prompts.register('team.lead', { title: 'Team lead', description: 'Instructions of the lead (Artemis) in agent teams.', text: LEAD_BODY });
 
 const TOOL_PLAN = {
   name: 'team_plan',
@@ -97,7 +99,7 @@ function createTeams(deps) {
 
   const roster = () => { try { return deps.roster() || []; } catch { return []; } };
   const agentOf = (t, name) => {
-    if (same(name, LEAD)) return { name: LEAD, role: 'Lead', body: LEAD_BODY, tools: [], model: t.leadModel || '' };
+    if (same(name, LEAD)) return { name: LEAD, role: 'Lead', body: prompts.text('team.lead', LEAD_BODY), tools: [], model: t.leadModel || '' };
     const m = t.members.find((x) => same(x.name, name));
     const a = m && roster().find((x) => same(x.name, m.name));
     return a ? { name: a.name, role: a.role || '', body: a.body || '', tools: a.tools || ['read'], model: m.model || a.model || '' } : null;

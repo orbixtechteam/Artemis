@@ -21,6 +21,7 @@ const { createSkills } = require('../skills');
 const { createAgents } = require('../subagents');
 const { createNotes } = require('../notes');
 const { createScheduler } = require('../scheduler');
+const prompts = require('../prompts');
 const { createHeartbeats, fromSettings: hbFromSettings, fileOf: hbFileOf } = require('./heartbeat');
 const { createHooks } = require('./hooks');
 const { createHookService } = require('./hookservice');
@@ -44,8 +45,6 @@ const { createComputer } = require('../computer');
 const { summarizeAll } = require('../agent');
 const files = require('../files');
 
-const BG_NOTE = 'This run was started by Artemis itself (a heartbeat check or a webhook), not by a message from the user. Nobody is there to answer: never ask questions and never wait for approval. Do what the instructions say, keep the answer short, and do not write notes or files unless the instructions say so.';
-const SCHEDULED_NOTE = 'This is a scheduled task and it is running right now. Do it directly and report the result. The task text is an instruction for you, even when it reads like a message to the user: carry it out (for a reminder, state the reminder to the user) and never reply to it as if it were a chat message. Nobody is there to answer: never ask questions, never ask which method to use, and do not write notes or files unless the task says so. If the task is only a reminder, state the reminder.';
 const APPROVAL_TIMEOUT = 10 * 60 * 1000;
 const envName = (s) => String(s).toUpperCase().replace(/[^A-Z0-9]+/g, '_');
 
@@ -58,6 +57,8 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
     fs.writeFileSync(tmp, JSON.stringify(data), mode ? { mode } : undefined); fs.renameSync(tmp, f);
   }
   const settings = () => readJson('settings', {});
+  prompts.setSource(() => settings().promptOverrides); // Settings → Advanced, written by the app
+  require('../shell').setSource(() => settings().shellPolicy);
   const headlessCfg = () => readJson('headless', {}); // { keys: { <providerId>: "..." }, braveKey, telegramToken, token }
   const lockAlive = (mode) => { try { const l = JSON.parse(fs.readFileSync(file(mode + '.lock'), 'utf8')); return l && l.pid && l.pid !== process.pid && gatewayLib.alive(l.pid) ? l : null; } catch { return null; } };
   const secrets = createSecretReader({ keychain, log: L('secrets') });
@@ -241,7 +242,7 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
       const modelId = pickModel(job.model || settings().scheduleModel);
       let res;
       if (job.reminder) res = { text: String(job.prompt || '').trim(), steps: [String(job.prompt || '').trim()], error: '' };
-      else res = await run({ runId, messages: [{ role: 'user', content: job.prompt }], modelId, project: projectFor(job.projectId), chatId: runId, send: () => {}, unattended: true, allowEdits: job.allowEdits, restrict: true, system: SCHEDULED_NOTE });
+      else res = await run({ runId, messages: [{ role: 'user', content: job.prompt }], modelId, project: projectFor(job.projectId), chatId: runId, send: () => {}, unattended: true, allowEdits: job.allowEdits, restrict: true, system: prompts.text('scheduled', prompts.defaultOf('scheduled')) });
       sessions.appendTurn(runId, { user: job.prompt, steps: res.steps.map((t) => ({ text: t, toolCalls: [] })), assistant: res.error ? `Failed: ${res.error}` : '', title: job.name, source: 'schedule', model: modelId, projectId: job.projectId || null });
       mirror();
       log('info', 'schedule', `${job.name}: ${res.error ? 'failed: ' + res.error : 'done'}`);
@@ -259,7 +260,7 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
   async function backgroundRun({ prompt, model, allowEdits, projectId, source }) {
     const modelId = pickModel(model || settings().scheduleModel);
     const runId = 'bg-' + crypto.randomBytes(5).toString('hex');
-    const res = await run({ runId, messages: [{ role: 'user', content: prompt }], modelId, project: projectFor(projectId), chatId: runId, send: () => {}, unattended: true, allowEdits: !!allowEdits, restrict: true, system: BG_NOTE, source });
+    const res = await run({ runId, messages: [{ role: 'user', content: prompt }], modelId, project: projectFor(projectId), chatId: runId, send: () => {}, unattended: true, allowEdits: !!allowEdits, restrict: true, system: prompts.text('background', prompts.defaultOf('background')), source });
     return { text: res.text, error: res.error, model: modelId };
   }
   async function backgroundTell({ title, user, text, model, source, phone, icon }) {

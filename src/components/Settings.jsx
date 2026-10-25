@@ -13,6 +13,7 @@ import { SecurityTab } from './settings/SecurityTab.jsx';
 import { VoiceTab } from './settings/VoiceTab.jsx';
 import { UpdatesGroup } from './settings/UpdatesGroup.jsx';
 import { MakeTab } from './settings/MakeTab.jsx';
+import { AdvancedTab } from './settings/AdvancedTab.jsx';
 import { AgentsTab } from './settings/AgentsTab.jsx';
 import { BrainsTab } from './settings/BrainsTab.jsx';
 import MemoryPanel from './MemoryPanel.jsx';
@@ -66,7 +67,8 @@ export const SECTIONS = [
   ['voice', 'Voice & Sentinel', 'mic', 'Dictation, reading answers aloud and Sentinel voice mode.', 'models', ['voice']],
   ['privacy', 'Privacy & safety', 'shield', 'What Artemis may do and reach, and the app lock.', 'more', ['tools', 'access', 'security']],
   ['integrations', 'Integrations', 'link', 'Make.com scenarios, and chatting from your phone.', 'more', ['make', 'phone']],
-  ['limits', 'Usage & limits', 'chart', 'What Artemis has used, and the limits that pause it.', 'more', ['limits']]
+  ['limits', 'Usage & limits', 'chart', 'What Artemis has used, and the limits that pause it.', 'more', ['limits']],
+  ['advanced', 'Advanced', 'code', 'Every prompt Artemis gives the model, and the command blocklist.', 'more', ['advanced']]
 ];
 // headings of the parts inside a section that has more than one
 const PART_TITLES = { agents: 'Agents', brains: 'Brains', tools: 'Tools & safety', access: 'Access', security: 'Security', make: 'Make', phone: 'Phone' };
@@ -86,11 +88,12 @@ const KEYWORDS = {
   limits: 'usage limit limits budget cost token tokens daily monthly usd spend spending max length answer',
   voice: 'voice speech microphone mic speakers speak wake word sentinel transcribe tts dictation kokoro chatterbox piper push to talk',
   make: 'make make.com scenarios automation token zone',
-  phone: 'phone telegram bot pair mobile send file remote'
+  phone: 'phone telegram bot pair mobile send file remote',
+  advanced: 'advanced system prompt prompts instructions rules default edit blocklist block commands sudo filter heartbeat webhook scheduled team'
 };
 
 // Settings that are not saved from here: secrets go through their own commit path, the rest is computed by main.
-const NOT_SAVED = new Set(['hasApiKey', 'hasMakeToken', 'hasTelegramToken', 'hasBraveKey', 'braveKey', 'braveKeyEnc', 'shortcutError', 'shortcutErrors', 'telegramToken', 'apiKey', 'apiKeyEnc', 'telegramTokenEnc', 'makeTokenEnc', 'mcpTokenEnc']);
+const NOT_SAVED = new Set(['promptOverrides', 'shellPolicy', 'hasApiKey', 'hasMakeToken', 'hasTelegramToken', 'hasBraveKey', 'braveKey', 'braveKeyEnc', 'shortcutError', 'shortcutErrors', 'telegramToken', 'apiKey', 'apiKeyEnc', 'telegramTokenEnc', 'makeTokenEnc', 'mcpTokenEnc']);
 // Typed or dragged values: saved 400 ms after the last change instead of at once.
 const DEBOUNCED = new Set(['systemPrompt', 'personalityCustom', 'maxTokens', 'cbUrl', 'ttsUrl', 'ttsVoice', 'ttsVoiceEn', 'ttsVoices', 'voiceLangMap', 'cbVoice', 'voiceSttModel', 'ttsModel', 'remoteFolder', 'cbExaggeration', 'cbCfg', 'cbTemperature', 'cbSpeed']);
 const normalize = (k, v) => {
@@ -495,6 +498,8 @@ export function SettingsModal({ settings, groups = [], projects = [], providers 
           {has('make') && partHead('make')}
           {has('make') && <MakeTab s={s} setS={setS} />}
           {has('phone') && partHead('phone')}
+          {has('advanced') && partHead('advanced')}
+          {has('advanced') && <AdvancedTab />}
           {has('phone') && <PhoneTab s={s} setS={setS} onSaveToken={(t) => saveSecret({ telegramToken: t })} />}
         </Page>
       </main>

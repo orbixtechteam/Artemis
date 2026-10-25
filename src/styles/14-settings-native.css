@@ -220,3 +220,16 @@
   .pref-switch, .pref-switch-knob, .pref-lang-toggle svg, .pref-row, .pref-status, :is(.prefs, .page, .page-host) .pref-card :is(input, textarea) { transition: none; }
 }
 .search-hidden { display: none !important; }
+
+/* Settings → Advanced */
+.adv-group { padding: 4px 0; }
+.adv-group + .adv-group { border-top: 1px solid var(--line); }
+.adv-group-title { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text-2); padding: 10px 14px 4px; }
+.adv-prompt { padding: 0 14px; }
+.adv-prompt-head { display: flex; align-items: center; gap: 10px; min-height: 36px; }
+.adv-prompt-title { flex: 1; display: flex; align-items: center; gap: 8px; background: transparent; border: 0; padding: 6px 0; text-align: left; color: var(--text); font: inherit; cursor: pointer; }
+.adv-prompt.off .adv-prompt-title > span:first-child { color: var(--text-2); text-decoration: line-through; }
+.adv-badge { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--fill-2); color: var(--accent); }
+.adv-badge.off { color: var(--text-2); }
+.adv-prompt-body { display: flex; flex-direction: column; gap: 8px; padding: 2px 0 12px; }
+.adv-prompt-body textarea { width: 100%; font-family: var(--font-mono, ui-monospace, monospace); font-size: 12px; line-height: 1.5; }
