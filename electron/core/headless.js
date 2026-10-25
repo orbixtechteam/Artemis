@@ -14,7 +14,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
-const { runAgent } = require('../agent');
+const { runAgent, stripThinkText } = require('../agent');
 const providersLib = require('../providers');
 const chatSearch = require('../chatsearch');
 const { createSkills } = require('../skills');
@@ -23,9 +23,12 @@ const { createNotes } = require('../notes');
 const { createScheduler } = require('../scheduler');
 const prompts = require('../prompts');
 const { createHeartbeats, fromSettings: hbFromSettings, fileOf: hbFileOf } = require('./heartbeat');
+const { createTeams } = require('../teams');
+const { createTeamRunner } = require('./teamrun');
+const { createMake } = require('../make');
 const { createHooks } = require('./hooks');
 const { createHookService } = require('./hookservice');
-const { checkLimits } = require('../limits');
+const { checkLimits, costOf } = require('../limits');
 const personality = require('../personality');
 const brainsLib = require('../brains');
 const web = require('../web');
@@ -238,6 +241,12 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
   const sched = createScheduler({
     read: () => readJson('schedules', []), write: (l) => writeJson('schedules', l), changed: () => {},
     run: async (job) => {
+      if (job.teamId) {
+        const t = teams.get(job.teamId);
+        if (!t) return { ok: false, error: 'The team no longer exists.' };
+        if (!teams.isWorking(job.teamId)) { teams.start(job.teamId); log('info', 'teams', `team "${t.name}" started by its schedule`); }
+        return { ok: true };
+      }
       const runId = 'sch-' + crypto.randomBytes(5).toString('hex');
       const modelId = pickModel(job.model || settings().scheduleModel);
       let res;
@@ -304,6 +313,38 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
   };
   let hookTimer = null;
 
+  // ---- Make, and agent teams (they run here while this process owns the background jobs) ----
+  const make = createMake({ getAuth: () => ({ token: getSecret('makeToken', 'makeTokenEnc'), zone: settings().makeZone }) });
+  const runTeamTurn = createTeamRunner({
+    runAgent, settings, userData: dataDir, stripThinkText,
+    resolveModel: (m) => providersLib.resolve(pickModel(m), readProviders(), getProviderKey), fallbackModel: () => pickModel(settings().model),
+    prices: () => providersLib.priceMap(readProviders()), costOf, recordUsage, limitBlocked: () => limitState().blocked || '', filesDir,
+    tools: ({ caps }) => {
+      const st = settings();
+      const sb = caps.has('shell') ? sandbox() : null;
+      return {
+        webEnabled: st.webEnabled !== false, searchVia: searchVia(st),
+        chats: st.chatSearchEnabled !== false ? { search: (q, n) => sessions.search(q, { limit: n, projects: readJson('projects', []) }), read: (id, last) => sessions.read(id, last) } : null,
+        make: caps.has('make') && st.makeEnabled !== false && getSecret('makeToken', 'makeTokenEnc') ? make : null,
+        browser: caps.has('browser') && browserOn && st.browserTools !== false && browserAvailable() ? browserFor() : null,
+        mcp: caps.has('connectors') && mcp && st.connectorsEnabled !== false ? (sb ? hideHostShellTools(mcp) : mcp) : null,
+        // commands: in the sandbox, or on this machine only when the gateway was started with --allow-shell
+        shellEnabled: caps.has('shell') && st.shellEnabled !== false && (!!sb || allowShell), sandbox: sb,
+        phone: caps.has('phone') && remote ? remote.phone() : null,
+        memoryEnabled: caps.has('memory') && !!memoryApi, memoryApi: caps.has('memory') ? memoryApi : null,
+        schedule: caps.has('automation') ? { list: () => sched.list(), save: (j) => sched.save(j), remove: (id) => sched.remove(id), hooks: hooksTools, heartbeat: heartbeatTools } : null
+      };
+    },
+    approvals: { add: (id, decide) => approvals.set(id, decide), drop: (id) => handlers.approve(id, false) },
+    phone: () => (remote ? remote.phone() : null),
+    log: L('teams')
+  });
+  const teams = createTeams({
+    load: () => readJson('teams', { teams: [] }), save: (d) => writeJson('teams', d), emit: () => {},
+    roster: () => agents.list(null), runTurn: (o) => runTeamTurn(o), log: (m) => log('warn', 'teams', m),
+    hire: (a) => agents.save({ name: a.name, role: a.role, description: a.role, body: a.body, tools: a.tools, model: a.model })
+  });
+
   // ---- gateway ----
   function token() {
     const t = process.env.ARTEMIS_GATEWAY_TOKEN || headlessCfg().token || secrets.decrypt(settings().gatewayTokenEnc);
@@ -329,6 +370,15 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
     abort: (id) => { const c = runs.get(id); if (!c) return false; c.abort(); return true; },
     phone: () => (remote ? remote.phone() : null),
     approve: (id, ok) => { const r = approvals.get(id); if (!r) return false; approvals.delete(id); r(!!ok); return true; },
+    teams: {
+      list: () => teams.list(), since: (ts) => teams.since(ts), save: (def) => teams.save(def || {}), remove: (id) => teams.remove(id),
+      act: async (id, what, body = {}) => {
+        if (what === 'say') { const t = teams.get(id); if (!t) throw Object.assign(new Error('That team no longer exists.'), { status: 404 }); teams.say(id, String(body.text || '')).catch((e) => log('warn', 'teams', e.message)); return teams.get(id); }
+        if (what === 'notebook-clear') return teams.clearNotebook(id);
+        if (!['start', 'pause', 'resume', 'stop'].includes(what)) throw Object.assign(new Error('Unknown action'), { status: 404 });
+        return teams[what](id);
+      }
+    },
     sessions: { recent: (n) => sessions.recent(n, readJson('projects', [])), get: (id) => sessions.get(id), search: (q, n) => sessions.search(q, { limit: n, projects: readJson('projects', []) }) },
     memory: memoryApi ? { search: (q, n) => memoryApi.search(q, n), list: () => memoryApi.list(), add: (t) => memoryApi.add(t), note: (t) => memoryApi.note(t) } : null
   };
@@ -438,6 +488,7 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
     try { if (remote) remote.stop(); } catch {}
     try { sched.stop(); } catch {}
     try { heartbeat.stop(); } catch {}
+    try { teams.flush(); } catch {}
     if (hookTimer) { clearInterval(hookTimer); hookTimer = null; }
     try { await hookService.stop(); } catch {}
     for (const c of runs.values()) { try { c.abort(); } catch {} }
@@ -451,7 +502,7 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
     db.close();
   }
 
-  return { start, stop, handlers, sessions, workspace: ws, index, run, pickModel, getProviderKey, remote: () => remote, sandbox, browserAvailable, heartbeat, hooks, hookService };
+  return { start, stop, handlers, sessions, workspace: ws, index, run, pickModel, getProviderKey, remote: () => remote, sandbox, browserAvailable, heartbeat, hooks, hookService, teams };
 }
 
 module.exports = { createHeadless };

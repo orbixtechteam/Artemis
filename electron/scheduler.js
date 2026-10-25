@@ -2,6 +2,7 @@
 // job: { id, name, prompt, projectId, model, enabled, allowEdits, notifyPhone,
 //        repeat: { type: 'once'|'interval'|'custom'|'daily'|'weekdays'|'weekly'|'monthly', at:'HH:MM', every (minutes), days:[0-6], dayOfMonth, date:'YYYY-MM-DD', from:'HH:MM', to:'HH:MM' },
 //        custom = every N minutes, only between from and to (optional, may cross midnight) and only on days (optional)
+//        teamId (starts a new run of that agent team instead of running a prompt),
 //        nextRun, lastRun, lastStatus, lastError, runs }
 const MIN = 60000;
 
@@ -153,7 +154,7 @@ function createScheduler(deps) {
       const job = {
         runs: 0, lastRun: null, lastStatus: '', lastError: '', ...(old || {}),
         id, name: String(input.name).trim().slice(0, 80), prompt: String(input.prompt).trim(), projectId: input.projectId || null, model: input.model || '',
-        enabled: input.enabled !== false, allowEdits: !!input.allowEdits, notifyPhone: !!input.notifyPhone, reminder: !!input.reminder, repeat: { ...input.repeat }
+        enabled: input.enabled !== false, allowEdits: !!input.allowEdits, notifyPhone: !!input.notifyPhone, reminder: !!input.reminder, repeat: { ...input.repeat }, ...(input.teamId || (old && old.teamId) ? { teamId: input.teamId || old.teamId } : {})
       };
       job.nextRun = job.enabled ? nextRunAfter(job, now()) : null;
       store(old ? list.map((j) => (j.id === id ? job : j)) : [...list, job]);

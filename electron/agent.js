@@ -771,12 +771,15 @@ async function runAgent(opts) {
   let exploreCalls = 0, wrote = false;
   let agentRuns = 0;
   const allow = opts.allowTools || null;
+  // a team member (isSub) may still get Make, the browser, scheduling and memory search when its team gives it those groups
+  const caps = opts.memberCaps instanceof Set ? opts.memberCaps : null;
+  const subOk = (g) => !opts.isSub || !!(caps && caps.has(g));
   const extra = new Map((Array.isArray(opts.extraTools) ? opts.extraTools : []).map((t) => [t.name, t]));
   const flags = () => ({
-    makeEnabled: !!opts.make && !opts.isSub, hasFolder: !!opts.root, memoryEnabled: !!opts.memoryEnabled,
-    webEnabled: !!opts.webEnabled, shellEnabled: !!opts.shellEnabled, computerEnabled: !!opts.computer, phoneEnabled: !!opts.phone, scheduleEnabled: !!opts.schedule && !opts.isSub, notesEnabled: !!opts.notes && !opts.isSub, termEnabled: !!opts.term && !opts.isSub, mediaEnabled: !!opts.media,
-    skillsEnabled: !!opts.skills, learnEnabled: !!opts.skills && !!opts.autoLearn && !opts.isSub, chatsEnabled: !!opts.chats, delegateEnabled: !!opts.delegateEnabled && !opts.isSub, browserEnabled: !!opts.browser && !opts.isSub,
-    memorySearchEnabled: !!opts.memoryEnabled && !!(opts.memoryApi && opts.memoryApi.search) && !opts.isSub && !opts.incognito
+    makeEnabled: !!opts.make && subOk('make'), hasFolder: !!opts.root, memoryEnabled: !!opts.memoryEnabled,
+    webEnabled: !!opts.webEnabled, shellEnabled: !!opts.shellEnabled, computerEnabled: !!opts.computer, phoneEnabled: !!opts.phone, scheduleEnabled: !!opts.schedule && subOk('automation'), notesEnabled: !!opts.notes && !opts.isSub, termEnabled: !!opts.term && !opts.isSub, mediaEnabled: !!opts.media,
+    skillsEnabled: !!opts.skills, learnEnabled: !!opts.skills && !!opts.autoLearn && !opts.isSub, chatsEnabled: !!opts.chats, delegateEnabled: !!opts.delegateEnabled && !opts.isSub, browserEnabled: !!opts.browser && subOk('browser'),
+    memorySearchEnabled: !!opts.memoryEnabled && !!(opts.memoryApi && opts.memoryApi.search) && subOk('memory') && !opts.incognito
   });
 
   // Heavy tool groups are sent only after the model asks for them (use_tools). Files, web, memory, notes, chats, skills and artifacts are always on.
@@ -823,11 +826,11 @@ async function runAgent(opts) {
   const ctx = {
     root: opts.root, autoApprove: opts.autoApprove, autoAll: !!opts.autoAll, approve: opts.approve, signal,
     memory: opts.memoryEnabled ? opts.memoryApi : null, sandbox: opts.sandbox || null, runState: {}, // runState: counters that must outlive the per-call copies of ctx
-    session: new Set(), send, media: opts.media || null, mcp: opts.mcp || null, computer: opts.computer || null, phone: opts.phone || null, schedule: opts.schedule && !opts.isSub ? opts.schedule : null, notes: opts.notes && !opts.isSub ? opts.notes : null, library: opts.library && !opts.isSub ? opts.library : null, term: opts.term && !opts.isSub ? opts.term : null, browser: opts.browser && !opts.isSub ? opts.browser : null, searchFallback: opts.searchFallback, searchVia: opts.searchVia,
+    session: new Set(), send, media: opts.media || null, mcp: opts.mcp || null, computer: opts.computer || null, phone: opts.phone || null, schedule: opts.schedule && subOk('automation') ? opts.schedule : null, notes: opts.notes && !opts.isSub ? opts.notes : null, library: opts.library && !opts.isSub ? opts.library : null, term: opts.term && !opts.isSub ? opts.term : null, browser: opts.browser && subOk('browser') ? opts.browser : null, searchFallback: opts.searchFallback, searchVia: opts.searchVia,
     allowPrivateFetch: opts.allowPrivateFetch, userData: opts.userData || '', fullAccess: opts.fullFileAccess === true && !opts.isSub, userLocation: opts.userLocation || '', activeConnectors: new Set(), activeGroups, groupsAvailable, mcpLazy: !!opts.mcp && opts.mcpLazy === true && !opts.isSub,
     lockApp: opts.lockApp && !opts.isSub ? opts.lockApp : null,
     appShot: opts.appShot && !opts.isSub ? opts.appShot : null, withArtemisVisible: opts.withArtemisVisible && !opts.isSub ? opts.withArtemisVisible : null,
-    make: opts.make && !opts.isSub ? opts.make : null, skills: opts.skills || null, chats: opts.chats || null, autoLearn: !!opts.autoLearn, autoLearnAllowed: !!opts.autoLearn && !opts.isSub,
+    make: opts.make && subOk('make') ? opts.make : null, skills: opts.skills || null, chats: opts.chats || null, autoLearn: !!opts.autoLearn, autoLearnAllowed: !!opts.autoLearn && !opts.isSub,
     delegate: opts.delegateEnabled && !opts.isSub ? async (job, context, meta = {}) => {
       if (++agentRuns > MAX_AGENT_RUNS) throw new Error(`Agent limit reached for this task (${MAX_AGENT_RUNS} runs). Continue with what you already have.`);
       const def = job.agent ? (opts.agents ? opts.agents.find(job.agent) : null) : null;
@@ -896,7 +899,7 @@ async function runAgent(opts) {
       if (kind === 'remember' && val) { const it = opts.memoryApi.add(val); send({ type: 'notice', text: `Saved to memory: ${it.text}` }); }
       else if (kind === 'forget' && val && opts.memoryApi.remove(val)) send({ type: 'notice', text: 'Removed from memory.' });
     }) : null);
-    let maxIter = opts.isSub ? 15 : MAX_ITERATIONS, stepExt = 0;
+    let maxIter = Number(opts.maxSteps) || (opts.isSub ? 15 : MAX_ITERATIONS), stepExt = 0;
     for (let iter = 0; iter < maxIter; iter++) {
       // Last step of the allowance: a run that has been changing things is summarized and given another round (up to 4 times) instead of being cut off.
       if (iter === maxIter - 1 && !opts.isSub && opts.autoCompact !== false && stepExt < 4 && (stepExt === 0 ? wrote : wroteSince)) {
@@ -920,8 +923,8 @@ async function runAgent(opts) {
         }
       }
       const system = buildSystem({
-        personality: opts.personality, custom: opts.custom, persona: opts.persona, project: opts.project, makeEnabled: toolsOn && !!opts.make && !opts.isSub, root: toolsOn ? opts.root : null, defaultRoot: !!opts.defaultRoot, incognito: !!opts.incognito,
-        memoryEnabled: opts.memoryEnabled, memory: opts.memoryApi?.list() || [], sandboxNote: opts.sandbox ? opts.sandbox.describe() : '', scheduleSummary: toolsOn && opts.schedule && !opts.isSub ? (schedSum ??= (() => { try { const l = opts.schedule.list() || []; const on = l.filter((j) => j.enabled !== false && j.nextRun); if (!l.length) return 'Scheduled tasks: none yet.'; return `Scheduled tasks (${on.length} active of ${l.length}): ` + l.slice(0, 10).map((j) => `"${j.name}" (${j.description || ''}${j.enabled === false || !j.nextRun ? ', off' : ''})`).join('; ') + '. Answer questions about them from this list; switch on the schedule tools to change them.'; } catch { return ''; } })()) : '', workspace: opts.isSub || opts.incognito || !opts.memoryApi?.context ? null : (wsCtx ??= (() => { try { return opts.memoryApi.context(); } catch { return null; } })()), memorySearch: toolsOn && f.memorySearchEnabled, hasTools: toolsOn, textMemory, noToolCalls: !!opts.noToolCalls,
+        personality: opts.personality, custom: opts.custom, persona: opts.persona, project: opts.project, makeEnabled: toolsOn && !!opts.make && subOk('make'), root: toolsOn ? opts.root : null, defaultRoot: !!opts.defaultRoot, incognito: !!opts.incognito,
+        memoryEnabled: opts.memoryEnabled, memory: opts.memoryApi?.list() || [], sandboxNote: opts.sandbox ? opts.sandbox.describe() : '', scheduleSummary: toolsOn && opts.schedule && subOk('automation') ? (schedSum ??= (() => { try { const l = opts.schedule.list() || []; const on = l.filter((j) => j.enabled !== false && j.nextRun); if (!l.length) return 'Scheduled tasks: none yet.'; return `Scheduled tasks (${on.length} active of ${l.length}): ` + l.slice(0, 10).map((j) => `"${j.name}" (${j.description || ''}${j.enabled === false || !j.nextRun ? ', off' : ''})`).join('; ') + '. Answer questions about them from this list; switch on the schedule tools to change them.'; } catch { return ''; } })()) : '', workspace: opts.isSub || opts.incognito || !opts.memoryApi?.context ? null : (wsCtx ??= (() => { try { return opts.memoryApi.context(); } catch { return null; } })()), memorySearch: toolsOn && f.memorySearchEnabled, hasTools: toolsOn, textMemory, noToolCalls: !!opts.noToolCalls,
         skillsEnabled: toolsOn && f.skillsEnabled, skillsIndex: toolsOn && opts.skills ? (skillsIdx ??= opts.skills.index()) : '', learnEnabled: toolsOn && f.learnEnabled, chatsEnabled: toolsOn && f.chatsEnabled, delegateEnabled: toolsOn && f.delegateEnabled, isSub: !!opts.isSub, role: opts.agentRole || '', userName: opts.isSub ? '' : opts.userName, userAbout: opts.isSub ? '' : opts.userAbout, userLocation: opts.isSub ? '' : opts.userLocation, agentsIndex: toolsOn && f.delegateEnabled && opts.agents ? (agentsIdx ??= opts.agents.index()) : '',
         webEnabled: toolsOn && f.webEnabled, shellEnabled: toolsOn && f.shellEnabled, computerEnabled: toolsOn && f.computerEnabled, phoneEnabled: toolsOn && f.phoneEnabled, scheduleEnabled: toolsOn && f.scheduleEnabled, notesEnabled: toolsOn && f.notesEnabled, termEnabled: toolsOn && f.termEnabled, mediaEnabled: toolsOn && f.mediaEnabled, mcpEnabled: toolsOn && !!opts.mcp && mcpList.length > 0, connectorIndex: toolsOn ? connectorIndex() : '', toolsIndex: toolsOn ? toolsIndex() : '', browserEnabled: toolsOn && f.browserEnabled
       });

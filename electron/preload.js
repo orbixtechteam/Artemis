@@ -192,6 +192,7 @@ contextBridge.exposeInMainWorld('api', {
   teamsResume: (id) => ipcRenderer.invoke('teams:resume', id),
   teamsStop: (id) => ipcRenderer.invoke('teams:stop', id),
   teamsSay: (id, text) => ipcRenderer.invoke('teams:say', id, text),
+  teamsNotebookClear: (id) => ipcRenderer.invoke('teams:notebook-clear', id),
   onTeamsChanged: (cb) => sub('teams:changed', cb),
   onChatAppend: (cb) => sub('chat:append', cb),
   remoteUnpair: () => ipcRenderer.invoke('remote:unpair'),

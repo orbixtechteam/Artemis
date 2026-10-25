@@ -196,3 +196,7 @@ button.tm-hand:hover { background: var(--fill-2); }
 
 @media (prefers-reduced-motion: reduce) { .tm-dots i { animation: none; opacity: .7; } }
 @media (max-width: 860px) { .tm-panel { display: none; } }
+.tm-time { display: inline-block; width: auto; margin-left: 6px; }
+.tm-note { margin-top: 8px; }
+.tm-note > summary { display: flex; justify-content: space-between; cursor: pointer; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text-2); padding: 6px 0; list-style: none; }
+.tm-note-body { max-height: 260px; overflow: auto; font-size: 12.5px; padding: 4px 0 8px; }

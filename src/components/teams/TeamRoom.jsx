@@ -180,7 +180,15 @@ export default function TeamRoom({ team: t, roster, you, onBack, onEdit }) {
           })}
           <div className="tm-ph"><span>Spent</span><span title={r.spent.usd || !r.spent.tokens ? undefined : 'Set prices for these models in Settings → Models & providers to see costs'}>{r.spent.usd || !r.spent.tokens ? usd(r.spent.usd) : 'Not priced'}{budget ? ` of ${usd(budget)}` : ''}</span></div>
           {budget > 0 && <div className="tm-meter" role="progressbar" aria-label="Budget used" aria-valuenow={Math.min(100, Math.round((r.spent.usd / budget) * 100))} aria-valuemin={0} aria-valuemax={100}><i style={{ width: `${Math.min(100, (r.spent.usd / budget) * 100)}%` }} /></div>}
-          <div className="tm-mrow"><span>{tokens(r.spent.tokens)} tokens</span><span>{t.minutes ? `Pauses at ${t.minutes + (r.extraMin || 0)} min` : 'No time limit'}</span></div>
+          <div className="tm-mrow"><span>{tokens(r.spent.tokens)} tokens{t.budgetTokens ? ` of ${tokens(t.budgetTokens + (r.extraTokens || 0))}` : ''}</span><span>{t.minutes ? `Pauses at ${t.minutes + (r.extraMin || 0)} min` : 'No time limit'}</span></div>
+          {t.repeat && <><div className="tm-ph"><span>Runs by itself</span></div><p className="tm-none">{t.repeat.type === 'interval' ? `Every ${Math.round((t.repeat.every || 60) / 60)} h` : `${t.repeat.type === 'weekdays' ? 'Weekdays' : 'Every day'} at ${t.repeat.at || '09:00'}`}: a new run that reads the notebook.</p></>}
+          {t.notebook && (
+            <details className="tm-note">
+              <summary><span>Notebook</span><span>{t.notebook.split('\n## ').length} run{t.notebook.split('\n## ').length === 1 ? '' : 's'}</span></summary>
+              <div className="tm-note-body"><Markdown text={t.notebook} /></div>
+              <button type="button" className="quiet" onClick={() => act(window.api.teamsNotebookClear)}>Clear notebook</button>
+            </details>
+          )}
         </aside>
       </div>
     </div>

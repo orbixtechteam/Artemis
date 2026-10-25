@@ -562,6 +562,10 @@ ipcMain.handle('tool:decision', async (_e, toolId, ok) => {
     const r = await lock.requireSensitive(approvalMeta.get(toolId));
     if (!r.ok) { logger.info('lock', 'A sensitive action was not confirmed' + (r.error ? ': ' + r.error : '')); decideTool(toolId, false); return { ok: false, denied: true, error: r.error || 'Not confirmed.' }; }
   }
+  if (!approvals.has(toolId) && String(toolId).startsWith('team-') && headlessActive()) { // a team member in the background gateway is waiting
+    try { await headlessFetch(`/v1/approvals/${encodeURIComponent(toolId)}`, { method: 'POST', body: { approve: !!ok } }); } catch (e) { logger.warn('teams', 'Could not pass the decision to the background gateway: ' + e.message); }
+    return;
+  }
   decideTool(toolId, ok);
 });
 
@@ -950,61 +954,35 @@ const teams = createTeams({
   emit: (t) => { try { win?.webContents.send('teams:changed', t); } catch {} },
   roster: () => agents.list(null),
   log: (m) => logger.warn('teams', m),
-  runTurn: runTeamTurn
+  runTurn: (o) => runTeamTurn(o),
+  // team_hire: the lead adds a new agent (saved as one of the user's agents) when the team allows it
+  hire: (a) => agents.save({ name: a.name, role: a.role, description: a.role, body: a.body, tools: a.tools, model: a.model })
 });
-/** One turn of one team member (or the lead): a sub-agent run with the member's tools plus the team's room tools.
- *  Files go to the Files folder; writes ask in the team room unless the team was set not to ask. */
-async function runTeamTurn({ agent, prompt, extraTools, signal, askWrites, onUsage, onApproval, onStep = () => {} }) {
-  const settings = getSettings();
-  const lim = limitState();
-  if (lim.blocked) throw new Error(lim.blocked);
-  const fallback = liveModel(settings.model);
-  let model = agent.model && agent.model !== 'inherit' ? agent.model : fallback;
-  let route = providersLib.resolve(model, readProviders(), getProviderKey);
-  if (route.error && model !== fallback) { logger.warn('teams', `${agent.name}: ${route.error} Using the chat model.`); model = fallback; route = providersLib.resolve(model, readProviders(), getProviderKey); }
-  if (route.error) throw new Error(route.error);
-  const prices = providersLib.priceMap(readProviders());
-  const steps = [''];
-  const mine = new Set();
-  const onAbort = () => { for (const id of mine) decideTool(id, false); };
-  signal.addEventListener('abort', onAbort, { once: true });
-  logger.info('teams', `${agent.name} started`, { model });
-  try {
-    await runAgent({
-      baseUrl: route.baseUrl, key: route.key, model: route.model, usageModel: model, noToolCalls: !!route.noTools, maxTokens: settings.maxTokens, isSub: true, toolsEnabled: true, userData: app.getPath('userData'),
-      messages: [{ role: 'user', content: prompt }], custom: '', project: null, root: defaultFilesDir(), defaultRoot: true,
-      webEnabled: settings.webEnabled, shellEnabled: false, computer: null, phone: null, media: null, mcp: null, memoryEnabled: false, memoryApi: null, skills: null,
-      chats: settings.chatSearchEnabled !== false ? chatsApi() : null, autoLearn: false, delegateEnabled: false,
-      allowTools: toolNames(agent.tools || []), agentRole: agent.body || '', extraTools,
-      autoApprove: !askWrites, searchVia: searchViaFor(settings), shouldStop: () => limitState().blocked,
-      runTokenBudget: 600000, contextTokens: Number(settings.contextTokens) || undefined,
-      onUsage: (u) => {
-        const rec = { t: Date.now(), model: u.model || model, chat: '', project: '', source: 'team', prompt: u.prompt || 0, completion: u.completion || 0, cached: u.cached || 0, cacheWrite: u.cacheWrite || 0, estimated: u.estimated };
-        recordUsage(rec);
-        onUsage({ prompt: rec.prompt, completion: rec.completion, usd: costOf(rec, prices) });
-      },
-      approve: (info) => new Promise((resolve) => {
-        const id = 'team-' + Math.random().toString(36).slice(2, 10);
-        mine.add(id);
-        approvals.set(id, (ok) => { mine.delete(id); onApproval.done(id, ok); resolve(ok); });
-        approvalMeta.set(id, { name: info.name, category: info.category });
-        onApproval.asked({ id, summary: info.summary || info.name });
-        try { if (win && !win.isDestroyed() && !win.isFocused() && Notification.isSupported()) new Notification({ title: `${agent.name} needs your OK`, body: String(info.summary || info.name).slice(0, 180) }).show(); } catch {}
-      }),
-      send: (ev) => {
-        if (ev.type === 'chunk' && !ev.agent) { steps[steps.length - 1] += ev.text; onStep({ type: 'text', text: ev.text }); }
-        else if (ev.type === 'step:new') { steps.push(''); onStep({ type: 'step' }); }
-        else if (ev.type === 'thinking') onStep({ type: 'thinking' });
-        else if (ev.type === 'tool:call') onStep({ type: 'tool', id: ev.id, name: ev.name, args: ev.args });
-        else if (ev.type === 'tool:result') onStep({ type: 'tool:done', id: ev.id, ok: !!ev.ok, denied: !!ev.denied });
-        else if (ev.type === 'notice') { logger.warn('teams', `${agent.name}: ${ev.text}`); onStep({ type: 'notice', text: ev.text }); }
-        else if (ev.type === 'error') logger.warn('teams', `${agent.name}: ${ev.message}`);
-      },
-      signal
-    });
-  } finally { signal.removeEventListener('abort', onAbort); }
-  return steps.map(stripThinkText).filter((x) => x.trim()).pop() || '';
-}
+/** One turn of one team member (or the lead): core/teamrun.js with what the app has (Make, the browser, connectors, the
+ *  sandbox, the phone, memory, scheduling), each only when the member's tool groups include it. Files go to the Files folder. */
+const runTeamTurn = require('./core/teamrun').createTeamRunner({
+  runAgent, settings: () => getSettings(), userData: app.getPath('userData'), stripThinkText,
+  resolveModel: (m) => providersLib.resolve(m, readProviders(), getProviderKey), fallbackModel: () => liveModel(getSettings().model),
+  prices: () => providersLib.priceMap(readProviders()), costOf, recordUsage, limitBlocked: () => limitState().blocked || '', filesDir: () => defaultFilesDir(),
+  tools: ({ caps, runId }) => {
+    const st = getSettings();
+    const sb = caps.has('shell') ? currentSandbox() : null;
+    return {
+      webEnabled: st.webEnabled, searchVia: searchViaFor(st), chats: st.chatSearchEnabled !== false ? chatsApi() : null,
+      make: caps.has('make') && st.makeEnabled !== false && makeReady() ? make : null,
+      browser: caps.has('browser') && st.browserTools !== false ? browser.agent(runId) : null,
+      mcp: caps.has('connectors') && st.connectorsEnabled !== false ? (sb ? sandboxedMcp() : mcp) : null,
+      shellEnabled: caps.has('shell') && st.shellEnabled !== false, sandbox: sb,
+      phone: caps.has('phone') ? phoneNow() : null,
+      memoryEnabled: caps.has('memory') && st.memoryEnabled !== false, memoryApi: caps.has('memory') ? memoryApi(() => toWinSafe('chat:event', { type: 'memory:changed' })) : null,
+      schedule: caps.has('automation') ? { list: () => scheduler.list(), save: (j) => scheduler.save(j), remove: (id) => scheduler.remove(id), hooks: hooksTools, heartbeat: heartbeatTools } : null
+    };
+  },
+  approvals: { add: (id, decide) => { approvals.set(id, (ok) => { approvalMeta.delete(id); decide(ok); }); approvalMeta.set(id, { name: 'team', category: 'team' }); }, drop: (id) => decideTool(id, false) },
+  phone: () => (remote && remote.phone()) || null,
+  notify: (title, body) => { if (win && !win.isDestroyed() && !win.isFocused() && Notification.isSupported()) new Notification({ title, body }).show(); },
+  log: (lv, m) => (logger[lv] || logger.info)('teams', m)
+});
 
 async function executeRun({ requestId, model: model0, messages, project, system, maxTokens, send: rawSend, restrict, incognito, source, unattended, allowEdits, permMode, chatId, brain, brainPick, revote, agentsMode, toolsMode, effort, mentions, shellMode }) {
   const model = liveModel(model0);
@@ -1565,6 +1543,12 @@ function defaultFilesDir() { const docs = app.getPath('documents'); const old = 
 // ---------- scheduled tasks ----------
 const toWinSafe = (ch, p) => { try { if (win && !win.isDestroyed()) win.webContents.send(ch, p); } catch {} };
 async function runScheduled(job) {
+  if (job.teamId) { // a team that starts by itself: a new run of the same team (its notebook keeps what earlier runs learned)
+    const t = teams.get(job.teamId);
+    if (!t) return { ok: false, error: 'The team no longer exists.' };
+    if (teams.isWorking(job.teamId)) return { ok: true };
+    try { teams.start(job.teamId); logger.info('teams', `Team "${t.name}" started by its schedule`); return { ok: true }; } catch (e) { return { ok: false, error: e.message }; }
+  }
   const st = getSettings();
   const requestId = 'sch-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
   const proj = job.projectId ? (readJson('projects', []).find((p) => p.id === job.projectId) || null) : null;
@@ -1818,6 +1802,15 @@ const mcpServerInfo = () => {
 const lockFile = (mode) => path.join(app.getPath('userData'), `${mode}.lock`);
 const readLock = (mode) => { try { const l = JSON.parse(fs.readFileSync(lockFile(mode), 'utf8')); return l && l.pid && gatewayLib.alive(l.pid) ? l : null; } catch { return null; } };
 const headlessActive = () => !!readLock('headless');
+/** A call to the headless gateway's API (it owns the background jobs while it runs). */
+async function headlessFetch(p, { method = 'GET', body } = {}) {
+  const d = gatewayLib.readDiscovery(gatewayFile());
+  if (!d || d.mode !== 'headless') throw new Error('The background gateway is not reachable.');
+  const r = await fetch(`http://${d.host || '127.0.0.1'}:${d.port}${p}`, { method, headers: { authorization: `Bearer ${d.token}`, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(30000) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || j.ok === false) throw new Error(j.error || `HTTP ${r.status}`);
+  return j;
+}
 /** While the headless gateway owns the Telegram bot, the app sends to the phone through it (POST /v1/phone/send). */
 function headlessPhone() {
   if (!headlessActive()) return null;
@@ -1846,6 +1839,15 @@ function pushExternal() {
 }
 let bgOwner = null, schedWatch = 0;
 /** Moves scheduled tasks, Telegram and the gateway to wherever they should run now. */
+let teamsSeen = 0, teamsPolling = false;
+/** While the background gateway runs the teams, the window follows them through its API. */
+async function followHeadlessTeams() {
+  if (teamsPolling || !win || win.isDestroyed()) return;
+  teamsPolling = true;
+  try { const j = await headlessFetch(`/v1/teams?since=${teamsSeen}`); for (const t of j.teams || []) { teamsSeen = Math.max(teamsSeen, t.updatedAt || 0); toWinSafe('teams:changed', t); } } catch {}
+  teamsPolling = false;
+}
+setInterval(() => { if (bgOwner === 'headless') followHeadlessTeams(); }, 1500).unref?.();
 function roleTick() {
   const owner = headlessActive() ? 'headless' : 'desktop';
   if (owner === 'desktop' && bgOwner === 'desktop') hookService.sync().catch(() => {}); // follows the settings (port, tunnel)
@@ -1857,9 +1859,13 @@ function roleTick() {
     logger.info('app', 'The headless gateway is running on this data folder: scheduled tasks, Telegram and the gateway API run there now');
     try { scheduler.stop(); } catch {}
     try { heartbeat.stop(); } catch {}
+    // teams that run here stop; the background gateway takes over (Resume continues them there)
+    try { for (const t of teams.list()) if (t.run && t.run.status === 'working') teams.pause(t.id); teams.flush(); } catch {}
+    teamsSeen = 0;
     hookService.stop().catch(() => {});
   } else {
     if (!first) logger.info('app', 'The headless gateway stopped: scheduled tasks, Telegram and the gateway API run in the app again');
+    try { teams.reload(); } catch {} // the background gateway may have run teams meanwhile
     try { scheduler.start(); } catch {}
     try { heartbeat.start(); } catch {}
   }
@@ -2295,7 +2301,7 @@ require('./ipc/skills')({ ipcMain, app, dialog, shell, fs, path, skills, skillRo
 require('./ipc/themes')({ ipcMain, dialog, shell, fs, path, themes, themeDirs, listThemes, nativeThemeFor, broadcastTheme, getSettings, saveSettings, getWin: () => win });
 require('./ipc/brains')({ ipcMain, brains });
 require('./ipc/agents')({ ipcMain, agents, fs, shell, skillRoot });
-require('./ipc/teams')({ ipcMain, teams });
+require('./ipc/teams')({ ipcMain, teams, scheduler, headlessActive, headlessFetch, logger });
 require('./ipc/advanced')({ ipcMain, getSettings, saveSettings, notify: () => toWinSafe('app:changed', {}) });
 require('./ipc/logs')({ ipcMain, shell, fs, logger });
 // Memory diagnostics (Logs → Memory, Settings → General → Memory, command palette "Show memory use", and every 5 minutes from the window)

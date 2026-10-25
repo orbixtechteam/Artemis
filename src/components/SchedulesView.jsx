@@ -63,7 +63,7 @@ function Editor({ job, projects, models, onSave, onClose }) {
       <div className="modal wide">
         <h2>{job.id ? 'Edit scheduled task' : 'New scheduled task'}</h2>
         <label className="field"><span>Name</span><input value={j.name} placeholder="Morning news summary" onChange={(e) => setJ({ ...j, name: e.target.value })} autoFocus /></label>
-        <label className="field"><span>What should Artemis do?</span><textarea rows={4} value={j.prompt} placeholder="Search the web for today's AI news and give me the five most important items." onChange={(e) => setJ({ ...j, prompt: e.target.value })} /></label>
+        {j.teamId ? <small className="hint">Starts a new run of an agent team. Change the team itself on the Agents page.</small> : <label className="field"><span>What should Artemis do?</span><textarea rows={4} value={j.prompt} placeholder="Search the web for today's AI news and give me the five most important items." onChange={(e) => setJ({ ...j, prompt: e.target.value })} /></label>}
         <div className="sched-grid">
           <label className="field"><span>Repeat</span>
             <Select value={r.type} onChange={(e) => setR({ type: e.target.value })}>
@@ -106,9 +106,11 @@ function Editor({ job, projects, models, onSave, onClose }) {
             </Select>
           </label>
         </div>
+        {!j.teamId && <>
         <label className="check"><input type="checkbox" checked={!!j.reminder} onChange={(e) => setJ({ ...j, reminder: e.target.checked })} /> Plain reminder: show the text above exactly as written, without running the AI</label>
         <label className="check"><input type="checkbox" checked={j.allowEdits} onChange={(e) => setJ({ ...j, allowEdits: e.target.checked })} /> Allow file changes in the project folder (otherwise the task can only read)</label>
         <label className="check"><input type="checkbox" checked={j.notifyPhone} onChange={(e) => setJ({ ...j, notifyPhone: e.target.checked })} /> Send the result to my phone (Telegram)</label>
+        </>}
         <small className="hint">Scheduled tasks run while Artemis is open (it can stay in the menu bar), or in the background gateway (Settings → Gateway → Keep running in the background). They can't use the shell, the computer tool or ask for approval. If Artemis was closed at the time, the task runs once when you open it again.</small>
         {err && <div className="error">{err}</div>}
         <div className="actions-row"><span style={{ flex: 1 }} /><button onClick={onClose}>Cancel</button><button className="primary" onClick={save}>Save</button></div>
@@ -146,7 +148,7 @@ export default function SchedulesView({ projects, models, onOpenChat }) {
           {jobs.map((j) => (
             <div key={j.id} className={`sched-row ${j.enabled ? '' : 'off'}`}>
               <div className="sched-main">
-                <div className="sched-name">{j.name}{j.running && <span className="sched-badge run">Running…</span>}{j.lastStatus === 'error' && <span className="sched-badge bad" title={j.lastError}>Failed</span>}</div>
+                <div className="sched-name">{j.name}{j.teamId && <span className="sched-badge">Team</span>}{j.running && <span className="sched-badge run">Running…</span>}{j.lastStatus === 'error' && <span className="sched-badge bad" title={j.lastError}>Failed</span>}</div>
                 <div className="sched-sub">{j.description}{pname(j.projectId) ? ` · ${pname(j.projectId)}` : ''}</div>
                 <div className="sched-sub">Next: {j.enabled ? when(j.nextRun) : 'paused'} · Last: {when(j.lastRun)}{j.runs ? ` · ${j.runs} run${j.runs === 1 ? '' : 's'}` : ''}</div>
               </div>

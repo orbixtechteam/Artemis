@@ -44,6 +44,25 @@ const TOOL_ASK = { name: 'team_ask', description: 'Asks one teammate a question 
 const TOOL_DONE = { name: 'team_done', description: 'Finishes your task. The result is what your teammates and the user see: the deliverable itself, or which files you wrote and what is in them.', parameters: { type: 'object', properties: { result: { type: 'string' } }, required: ['result'] } };
 const TOOL_REVIEW = { name: 'team_review', description: 'Gives your verdict on the work you are reviewing.', parameters: { type: 'object', properties: { verdict: { type: 'string', enum: ['approve', 'changes'] }, note: { type: 'string', description: 'What is wrong and how to fix it, or in one line why it is good' } }, required: ['verdict', 'note'] } };
 
+/** When the team starts by itself: null (only by hand), or a scheduler repeat (daily, weekdays, interval, custom). */
+function cleanRepeat(r) {
+  if (!r || typeof r !== 'object' || !['daily', 'weekdays', 'weekly', 'interval', 'custom'].includes(r.type)) return null;
+  const out = { type: r.type };
+  if (/^\d{1,2}:\d{2}$/.test(r.at || '')) out.at = r.at;
+  if (r.every) out.every = Math.max(5, Math.min(1440, Number(r.every) || 60));
+  if (Array.isArray(r.days)) out.days = r.days.map(Number).filter((x) => x >= 0 && x <= 6);
+  if (/^\d{1,2}:\d{2}$/.test(r.from || '') && /^\d{1,2}:\d{2}$/.test(r.to || '')) { out.from = r.from; out.to = r.to; }
+  return out;
+}
+const NOTEBOOK_MAX = 12000;
+const MAX_HIRES = 3;
+const TOOL_HIRE = { name: 'team_hire', description: 'Adds a new agent to the team when none of the members fits a task: give it a name, a role, instructions and the tool groups it needs. It is saved as one of the user\'s agents.', parameters: { type: 'object', properties: {
+  name: { type: 'string', description: 'Short first name, unique' }, role: { type: 'string', description: 'Job title, e.g. Copywriter' },
+  instructions: { type: 'string', description: 'How it works: what it does, how, and what it hands back' },
+  tools: { type: 'array', items: { type: 'string' }, description: 'Tool groups: read, write, web, chats, make, browser, connectors, shell, phone, memory, automation' },
+  model: { type: 'string', description: 'Model id, empty for the default' }
+}, required: ['name', 'role', 'instructions'] } };
+
 /** Checks and normalizes a team definition from the UI. Throws a readable error. */
 function cleanDef(d, roster) {
   const name = clip(d && d.name, 60);
@@ -60,7 +79,8 @@ function cleanDef(d, roster) {
   const num = (v, max) => Math.max(0, Math.min(max, Number(v) || 0));
   return {
     name, goal, members, mode: MODES.includes(d.mode) ? d.mode : 'lead', leadModel: typeof d.leadModel === 'string' ? d.leadModel.slice(0, 200) : '',
-    budgetUsd: num(d.budgetUsd, 1000), minutes: num(d.minutes, 600), askWrites: d.askWrites !== false
+    budgetUsd: num(d.budgetUsd, 1000), budgetTokens: Math.round(num(d.budgetTokens, 1e9)), minutes: num(d.minutes, 600), askWrites: d.askWrites !== false,
+    canHire: !!d.canHire, rules: clip(d.rules, 4000), repeat: cleanRepeat(d.repeat)
   };
 }
 
@@ -92,7 +112,7 @@ function createTeams(deps) {
   };
   const persist = () => { if (saveTimer) return; saveTimer = setTimeout(flush, 400); };
   const flush = () => { if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; } if (data) { try { deps.save(data); } catch (e) { log('Could not save teams: ' + e.message); } } };
-  const changed = (t) => { persist(); try { deps.emit(t); } catch {} };
+  const changed = (t) => { t.updatedAt = now(); persist(); try { deps.emit(t); } catch {} };
   const find = (id) => store().teams.find((t) => t.id === id);
   const need = (id) => { const t = find(id); if (!t) throw new Error('That team no longer exists.'); return t; };
   const L = (t) => { let l = live.get(t.id); if (!l) { l = { controller: null, driving: false, running: new Map() }; live.set(t.id, l); } return l; };
@@ -133,12 +153,17 @@ function createTeams(deps) {
   const overLimit = (t) => {
     const b = budgetOf(t), m = minutesOf(t);
     if (b && t.run.spent.usd >= b) return 'budget';
+    if (t.budgetTokens && t.run.spent.tokens >= t.budgetTokens + (t.run.extraTokens || 0)) return 'tokens';
     if (m && workMs(t) >= m * 60000) return 'time';
     return '';
   };
   const usage = (t) => (u) => {
     t.run.spent.tokens += (u.prompt || 0) + (u.completion || 0);
     t.run.spent.usd += Number(u.usd) || 0;
+    if (u.priced === false && t.budgetUsd && !t.run.noPriceWarned) { // the $ budget cannot stop a run on a model without a price
+      t.run.noPriceWarned = true;
+      post(t, { kind: 'status', text: `No price is set for one of the models, so its cost counts as $0 and the $${t.budgetUsd} budget cannot stop it. Set prices in Settings → Models & providers, or give the team a token budget.` });
+    }
     const why = t.run.status === 'working' && overLimit(t);
     if (why) halt(t, 'paused', why); else changed(t);
   };
@@ -150,9 +175,13 @@ function createTeams(deps) {
     .filter((m) => (m.kind === 'msg' || m.kind === 'review' || m.kind === 'result') && (!name || !m.to || same(m.to, name) || same(m.from, name)))
     .slice(-n).map((m) => `${m.from === 'you' ? 'User' : m.from}${m.to ? ' → ' + m.to : ''}: ${clip(m.text, 600)}`).join('\n');
 
+  const notebookFor = (t, n) => (t.notebook ? `Team notebook (what earlier runs did and learned, newest last):\n${t.notebook.length > n ? '…' + t.notebook.slice(-n) : t.notebook}` : '');
+  const rulesFor = (t) => (t.rules ? `Team rules from the user:\n${t.rules}` : '');
   const planPrompt = (t, followUp) => [
     today(),
     `Team goal:\n${t.goal}`,
+    rulesFor(t), notebookFor(t, 6000),
+    t.canHire && (t.hires || 0) < MAX_HIRES ? 'If no member fits a task, team_hire adds a new agent first (only when really needed).' : '',
     `Members (assign tasks only to these names):\n${t.members.map((m) => memberLine(t, m.name)).join('\n')}`,
     reviewerOf(t) ? `${reviewerOf(t)} reviews every finished task automatically, so do not plan review tasks.` : '',
     t.mode === 'pipeline' ? 'Working style: pipeline. The tasks run one after another, each building on the one before.' : '',
@@ -168,6 +197,7 @@ function createTeams(deps) {
     return [
       `You are ${k.assignee}, working in a team${others.length ? ' with ' + others.join(', ') : ''}. ${LEAD} leads it. ${today()}`,
       `Team goal:\n${t.goal}`,
+      rulesFor(t), notebookFor(t, 3000),
       `Your task (#${t.run.tasks.indexOf(k) + 1}): ${k.title}`,
       k.feedback ? `The reviewer sent it back. Fix this:\n${k.feedback}\n\nYour previous result:\n${clip(k.result, 3000)}` : '',
       depResults(t, k) ? `Results you build on:\n${depResults(t, k)}` : '',
@@ -216,7 +246,7 @@ function createTeams(deps) {
     };
     try {
       return String(await deps.runTurn({
-        agent, prompt, extraTools, signal: l.controller.signal, askWrites: t.askWrites, onUsage: usage(t), onStep,
+        agent, prompt, extraTools, signal: l.controller.signal, askWrites: t.askWrites, onUsage: usage(t), onStep, team: t.name,
         onApproval: {
           asked: (info) => { post(t, { from: agent.name, kind: 'approval', text: info.summary || 'Wants to use a tool', extra: { approvalId: info.id, decided: null } }); },
           done: (id, ok) => { const m = t.run.messages.find((x) => x.approvalId === id); if (m) { m.decided = !!ok; changed(t); } }
@@ -264,7 +294,17 @@ function createTeams(deps) {
       planned = addTasks(t, a.tasks, followUp && last ? last.id : '');
       return planned.length ? `Plan saved: ${planned.length} task${planned.length === 1 ? '' : 's'}.` : 'No valid tasks: give each a title and an assignee from the member list.';
     } };
-    const text = await turn(t, LEAD, planPrompt(t, followUp), [tool], 'Planning');
+    const tools = [tool];
+    if (t.canHire && deps.hire) tools.push({ ...TOOL_HIRE, run: async (a) => {
+      if ((t.hires || 0) >= MAX_HIRES) return `This team already hired ${MAX_HIRES} agents. Use the members you have.`;
+      const r = await deps.hire({ name: a.name, role: a.role, body: a.instructions, tools: Array.isArray(a.tools) ? a.tools : ['read', 'web'], model: a.model || '' });
+      if (!r || !r.ok) return 'Could not add the agent: ' + ((r && r.error) || 'unknown error');
+      if (!t.members.some((m) => same(m.name, r.name))) t.members.push({ name: r.name, model: '' });
+      t.hires = (t.hires || 0) + 1;
+      post(t, { kind: 'status', text: `${LEAD} added ${r.name} (${clip(a.role, 40)}) to the team.` });
+      return `${r.name} is now a member. Assign tasks to "${r.name}".`;
+    } });
+    const text = await turn(t, LEAD, planPrompt(t, followUp), tools, 'Planning');
     if (planned && planned.length) post(t, { kind: 'plan', text: clip(text, PLAN_NOTE) || `Split into ${planned.length} tasks.`, extra: { tasks: planned.map((k) => k.id) } });
     else if (followUp) { if (text) post(t, { text }); }
     else { // no plan: give the whole goal to the first worker so the run still does something
@@ -337,6 +377,7 @@ function createTeams(deps) {
           if (l.running.size) { await Promise.race(l.running.values()); continue; }
           const summary = await turn(t, LEAD, [today(), `Team goal:\n${t.goal}`, `Finished tasks:\n${t.run.tasks.map((k) => `${taskLine(t, k)}\n${clip(k.result, 2500)}`).join('\n\n')}`, `Team room:\n${roomFor(t, '', 20)}`, 'All tasks are done. Write the final answer for the user from the results above only (do not add facts of your own): what the team delivered, files that were written, and anything left open or uncertain. Do not describe the process.'].join('\n\n'), [], 'Writing the summary');
           post(t, { kind: 'summary', text: summary || 'The team finished.' });
+          if (summary) { const d = new Date(now()); const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; t.notebook = `${t.notebook ? t.notebook + '\n\n' : ''}## ${day}\n${clip(summary, 3000)}`.slice(-NOTEBOOK_MAX); }
           finish(t, 'done');
           break;
         }
@@ -386,8 +427,10 @@ function createTeams(deps) {
     if (status !== 'working' && l.controller && !l.controller.signal.aborted) l.controller.abort();
     for (const k of t.run.tasks) if (k.status === 'doing') k.status = 'todo';
     t.run.live = {};
-    if (status === 'paused' && (reason === 'budget' || reason === 'time')) {
-      post(t, { kind: 'status', text: reason === 'budget' ? `Budget reached ($${t.run.spent.usd.toFixed(2)} of $${budgetOf(t)}). Resume to give the team another $${t.budgetUsd}.` : `Time limit reached (${minutesOf(t)} min). Resume to give the team another ${t.minutes} min.` });
+    if (status === 'paused' && (reason === 'budget' || reason === 'time' || reason === 'tokens')) {
+      post(t, { kind: 'status', text: reason === 'budget' ? `Budget reached ($${t.run.spent.usd.toFixed(2)} of $${budgetOf(t)}). Resume to give the team another $${t.budgetUsd}.`
+        : reason === 'tokens' ? `Token budget reached (${Math.round(t.run.spent.tokens / 1000)}k tokens). Resume to give the team another ${Math.round(t.budgetTokens / 1000)}k.`
+        : `Time limit reached (${minutesOf(t)} min). Resume to give the team another ${t.minutes} min.` });
     }
     if (status === 'stopped' || status === 'failed') t.run.endedAt = now();
     changed(t);
@@ -431,11 +474,18 @@ function createTeams(deps) {
       begin(t);
       return t;
     },
+    /** Teams changed after this time (the app follows a run in the background gateway with this). */
+    since: (ts) => store().teams.filter((t) => (t.updatedAt || 0) > (Number(ts) || 0)),
+    /** Forgets what is in memory so the next call reads teams.json again (another process ran the teams meanwhile). Only when nothing runs here. */
+    reload() { if ([...live.values()].some((l) => l.driving || l.running.size)) return false; flush(); data = null; live.clear(); return true; },
+    clearNotebook(id) { const t = need(id); t.notebook = ''; changed(t); return t; },
+    isWorking: (id) => { const t = find(id); return !!(t && t.run.status === 'working'); },
     pause(id) { const t = need(id); if (t.run.status === 'working') halt(t, 'paused', 'user'); return t; },
     resume(id) {
       const t = need(id);
       if (t.run.status !== 'paused' && t.run.status !== 'failed') return t;
       if (t.run.reason === 'budget') t.run.extraUsd = (t.run.extraUsd || 0) + (t.budgetUsd || 0);
+      if (t.run.reason === 'tokens') t.run.extraTokens = (t.run.extraTokens || 0) + (t.budgetTokens || 0);
       if (t.run.reason === 'time') t.run.extraMin = (t.run.extraMin || 0) + (t.minutes || 0);
       for (const k of t.run.tasks) k.fails = 0;
       begin(t);

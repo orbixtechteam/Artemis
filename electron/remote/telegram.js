@@ -438,8 +438,15 @@ function createTelegram(deps) {
   /** Resolves once the polling loop has really ended, so a restart never overlaps with the old one. */
   function stop() { running = false; ctrl?.abort(); return loopPromise; }
 
+  /** Asks on the phone for an approval that something else is waiting for (a team member, a background run): Allow / Deny buttons decide it. */
+  async function askApproval(approvalId, text) {
+    const key = String(++btnSeq);
+    buttons.set(key, approvalId);
+    await say(String(text).slice(0, 3500), { reply_markup: { inline_keyboard: [[{ text: 'Allow', callback_data: `a:${key}` }, { text: 'Deny', callback_data: `d:${key}` }]] } });
+  }
+
   return {
-    start, stop, say, sayMd, sendFile, sendPhoto,
+    start, stop, say, sayMd, sendFile, sendPhoto, askApproval,
     status: () => ({ running, botName, error: lastError })
   };
 }
