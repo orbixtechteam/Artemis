@@ -88,7 +88,7 @@ export default function AutomationsView({ onOpenSettings }) {
   return (
     <div className="page auto">
       <div className="page-head">
-        <h1><Icon name="bolt" size={22} /> Automations</h1>
+        <h1>Automations</h1>
         <div className="head-actions">
           <button onClick={load} disabled={loading}><Icon name={loading ? 'spinner' : 'refresh'} size={14} /> Refresh</button>
           {data && <button onClick={() => window.open(`https://${data.zone}/`, '_blank')}>Open Make</button>}

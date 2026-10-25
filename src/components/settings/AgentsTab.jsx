@@ -6,7 +6,7 @@ import { Group, Row, SwitchRow, Note, Buttons } from './ui.jsx';
 
 export const AGENT_BLANK = { name: '', role: '', description: '', model: '', tools: ['read'], body: '', isNew: true };
 
-export function AgentsTab({ s, set, setS, chatGroups, showToggles = true }) {
+export function AgentsTab({ s, set, setS, chatGroups, showToggles = true, listTitle = 'Agents' }) {
   const put = (k) => (v) => (setS ? setS((x) => ({ ...x, [k]: v })) : set(k)({ target: { type: 'checkbox', checked: v } }));
   const api = window.api;
   const [list, setList] = useState([]);
@@ -60,9 +60,9 @@ export function AgentsTab({ s, set, setS, chatGroups, showToggles = true }) {
             checked={s.agentWriteApproval !== false} onChange={put('agentWriteApproval')} />
         </Group>
       )}
-      <Group title="Agents" footer={<>Agents are plain .md files (name, description, model, tools, then instructions), like skills. Per-project agents go in &lt;project&gt;/.artemis/agents/.</>}>
+      <Group title={listTitle} className="agents-mine" footer={<>Agents are plain .md files (name, description, model, tools, then instructions), like skills. Per-project agents go in &lt;project&gt;/.artemis/agents/.</>}>
         {list.map((a) => (
-          <Row key={a.slug + a.source} label={<>{a.name}{a.role ? <span className="pref-dim"> · {a.role}</span> : null} <span className="pref-tag">{a.builtin ? 'built-in' : a.overrides ? 'edited' : a.source}</span></>}
+          <Row key={a.slug + a.source} label={<><span className="agent-mono" aria-hidden="true">{a.name.slice(0, 1).toUpperCase()}</span>{a.name}{a.role ? <span className="pref-dim"> · {a.role}</span> : null} <span className="pref-tag">{a.builtin ? 'built-in' : a.overrides ? 'edited' : a.source}</span></>}
             description={<>{a.description}<span className="agent-chips"><span>{modelLabel(a.model)}</span>{a.tools.map((t) => <span key={t}>{t}</span>)}</span></>}>
             <div className="pref-inline">
               <button type="button" className="pref-btn" onClick={() => setEd({ ...a })} aria-label={'Edit ' + a.name}>Edit…</button>

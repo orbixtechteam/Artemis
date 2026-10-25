@@ -54,11 +54,11 @@ export default function FilesView({ onOpen, onUse, rev }) {
   return (
     <div className={'files-page' + (drag ? ' dropping' : '')} onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={(e) => { if (e.currentTarget === e.target) setDrag(false); }} onDrop={onDrop}>
       <div className="page-head">
-        <h1><Icon name="folder" size={22} /> Files</h1>
+        <h1>Files</h1>
         <button className="files-reveal" title={root} onClick={() => api.libReveal('')}>Show in folder</button>
         <button className="primary" onClick={upload}><Icon name="upload" size={14} /> Upload</button>
       </div>
-      <p className="muted small files-sub">Files you attach in chats are kept here. Use them again with <kbd>@</kbd> in any chat, or ask Artemis to read and edit them.</p>
+      <p className="page-sub">Files you attach in chats are kept here. Use them again with <kbd>@</kbd> in any chat, or ask Artemis to read and edit them.</p>
       <div className="files-search"><Icon name="search" size={15} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search names and contents" spellCheck={false} /></div>
       {note && <div className="files-note">{note}</div>}
       <div className="files-list">

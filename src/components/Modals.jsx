@@ -3,13 +3,13 @@ import Select from './Select.jsx';
 import { askConfirm } from '../lib/dialog.js';
 import React, { useEffect, useState, useContext } from 'react';
 import { PageContext } from '../lib/pageContext.js';
-import { Row } from './settings/ui.jsx';
+import { Row, Switch, Segmented } from './settings/ui.jsx';
 import { splitSheets } from '../lib/preview.js';
 import { Icon } from './Icons.jsx';
 import ProjectLogo from './ProjectLogo.jsx';
 import { ClaudeUsageFor } from './ClaudeUsage.jsx';
 
-export function Modal({ title, onClose, children, wide, cls, bare }) {
+export function Modal({ title, sub, onClose, children, wide, cls, bare }) {
   const page = useContext(PageContext);
   useEffect(() => {
     if (page) return undefined; // a page is closed with its tab, not with Escape
@@ -20,7 +20,8 @@ export function Modal({ title, onClose, children, wide, cls, bare }) {
   if (page) {
     return (
       <div className={`modal page ${wide ? 'wide' : ''} ${cls || ''}`}>
-        {!bare && <h2>{title}</h2>}
+        {!bare && <div className="page-head"><h1>{title}</h1></div>}
+        {sub && <p className="page-sub">{sub}</p>}
         {children}
       </div>
     );
@@ -29,6 +30,7 @@ export function Modal({ title, onClose, children, wide, cls, bare }) {
     <div className="overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className={`modal ${wide ? 'wide' : ''} ${cls || ''}`}>
         {!bare && <h2>{title}</h2>}
+        {sub && <p className="muted small">{sub}</p>}
         {children}
       </div>
     </div>
@@ -61,6 +63,7 @@ export function ImportRow() {
 }
 
 export function UsageModal({ onClose, projects = [], chats = [] }) {
+  const page = useContext(PageContext);
   const [rows, setRows] = useState(null);
   const [range, setRange] = useState('30'); // days or 'all'
   const [proj, setProj] = useState('');     // '' = all projects, '__none' = no project
@@ -81,7 +84,7 @@ export function UsageModal({ onClose, projects = [], chats = [] }) {
     return [...m.values()].sort((a, b) => b.prompt + b.completion - (a.prompt + a.completion));
   };
   const total = list.reduce((a, r) => ({ p: a.p + r.prompt, c: a.c + r.completion, e: a.e + (r.estimated ? 1 : 0) }), { p: 0, c: 0, e: 0 });
-  const byModel = group((r) => r.model);
+  const byModel = group((r) => String(r.model || '').replace(/^prov:[^:]+:/, ''));
   const byProject = group((r) => r.project || '(no project)');
   const titles = Object.fromEntries(chats.map((c) => [c.id, c.title || 'Untitled']));
   const byChat = group((r) => (r.chat ? titles[r.chat] || 'Deleted chat' : '(phone, scheduled or older)')).slice(0, 12);
@@ -116,18 +119,12 @@ export function UsageModal({ onClose, projects = [], chats = [] }) {
 
   return (
     <Modal title="Usage" onClose={onClose} wide>
-      <div className="row">
-        <Field label="Period">
-          <Select value={range} onChange={(e) => setRange(e.target.value)}>
-            <option value="1">Last 24 hours</option><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="all">All time</option>
-          </Select>
-        </Field>
-        <Field label="Project">
-          <Select value={proj} onChange={(e) => setProj(e.target.value)}>
-            <option value="">All projects</option><option value="__none">No project</option>
-            {projects.map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
-          </Select>
-        </Field>
+      <div className="usage-bar-row">
+        <Segmented label="Period" value={range} onChange={setRange} options={[['1', '24 hours'], ['7', '7 days'], ['30', '30 days'], ['all', 'All time']]} />
+        <Select value={proj} onChange={(e) => setProj(e.target.value)} aria-label="Project">
+          <option value="">All projects</option><option value="__none">No project</option>
+          {projects.map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
+        </Select>
       </div>
       {rows === null ? <div className="skeleton-rows" role="status" aria-label="Loading"><i /><i /><i /></div> : (
         <>
@@ -154,13 +151,14 @@ export function UsageModal({ onClose, projects = [], chats = [] }) {
       <div className="actions-row">
         {rows && rows.length > 0 && <button className="danger" onClick={() => askConfirm({ title: 'Reset stats', message: 'Delete all usage stats?', confirmLabel: 'Delete', danger: true }).then((ok) => ok && window.api.usageClear().then(setRows))}>Reset stats</button>}
         <span style={{ flex: 1 }} />
-        <button className="primary" onClick={onClose}>Done</button>
+        {!page && <button className="primary" onClick={onClose}>Done</button>}
       </div>
     </Modal>
   );
 }
 
 export function MemoryModal({ memory, enabled, onChange, onToggle, onClose }) {
+  const page = useContext(PageContext);
   const [text, setText] = useState('');
   const add = () => {
     if (!text.trim()) return;
@@ -168,25 +166,30 @@ export function MemoryModal({ memory, enabled, onChange, onToggle, onClose }) {
     setText('');
   };
   return (
-    <Modal title="Memory" onClose={onClose} wide>
-      <p className="muted">The assistant knows these facts in every chat. You can say “remember this” in a chat, and the assistant can save facts itself.</p>
-      <label className="check"><input type="checkbox" checked={enabled} onChange={(e) => onToggle(e.target.checked)} /> Memory on</label>
-      <div className="mem-add">
-        <input value={text} placeholder="Add a new fact…" onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
-        <button className="primary" onClick={add}>Add</button>
+    <Modal title="Memory" sub="The assistant knows these facts in every chat. You can say “remember this” in a chat, and the assistant can save facts itself." onClose={onClose} wide>
+      <div className="mem-card">
+        <div className="mem-on">
+          <span><b>Memory</b><small>{enabled ? `${memory.length} fact${memory.length === 1 ? '' : 's'} known in every chat` : 'Off: chats start without these facts'}</small></span>
+          <Switch checked={enabled} onChange={onToggle} label="Memory on" />
+        </div>
+        <div className="mem-add">
+          <input value={text} placeholder="Add a new fact…" aria-label="New fact" onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
+          <button className="primary" onClick={add} disabled={!text.trim()}>Add</button>
+        </div>
       </div>
       <div className="mem-list">
-        {memory.length === 0 && <div className="muted pad">Memory is empty.</div>}
+        {memory.length === 0 && <div className="mem-empty">Nothing remembered yet.</div>}
         {memory.map((m) => (
           <div key={m.id} className="mem-item">
-            <input value={m.text} onChange={(e) => onChange(memory.map((x) => (x.id === m.id ? { ...x, text: e.target.value } : x)))} />
+            <input value={m.text} aria-label="Fact" onChange={(e) => onChange(memory.map((x) => (x.id === m.id ? { ...x, text: e.target.value } : x)))} />
             <button title="Delete" aria-label="Delete" onClick={() => onChange(memory.filter((x) => x.id !== m.id))}><Icon name="x" size={14} /></button>
           </div>
         ))}
       </div>
       <div className="actions-row">
         {memory.length > 0 && <button onClick={() => askConfirm({ title: 'Delete memory', message: 'Delete all memory?', confirmLabel: 'Delete all', danger: true }).then((ok) => ok && onChange([]))}>Delete all</button>}
-        <button className="primary" onClick={onClose}>Done</button>
+        <span style={{ flex: 1 }} />
+        {!page && <button className="primary" onClick={onClose}>Done</button>}
       </div>
     </Modal>
   );
@@ -307,7 +310,7 @@ function ArtemisBuiltin({ settings, onApply }) {
         <div className="conn-name">Artemis <span className="muted small">built-in</span></div>
         <div className="muted small conn-sub">
           {tools.length} tool{tools.length === 1 ? '' : 's'}{show ? '' : ': ' + tools.slice(0, 6).map((t) => t.name).join(', ') + (tools.length > 6 ? '…' : '')}
-          {tools.length > 0 && <> · <a href="#" onClick={(e) => { e.preventDefault(); setShow(!show); }}>{show ? 'Hide tools' : 'Show all tools'}</a></>}
+          {tools.length > 0 && <> · <button type="button" className="text-link" onClick={() => setShow(!show)}>{show ? 'Hide tools' : 'Show all tools'}</button></>}
         </div>
         <div className="muted small conn-sub">Full access: every Artemis tool (files, terminal, computer control, web, notes, memory, connectors) is on and runs without asking. Deleting files still asks. Turn it off to go back to "ask every time".</div>
         {show && (
@@ -319,12 +322,13 @@ function ArtemisBuiltin({ settings, onApply }) {
         )}
       </div>
       <span className="muted small">Full access</span>
-      <label className="switch" title="Full access"><input type="checkbox" checked={full} onChange={toggle} /></label>
+      <Switch checked={full} onChange={toggle} label="Full access" />
     </div>
   );
 }
 
 export function ConnectorsModal({ onClose, onChanged, settings, onApply }) {
+  const page = useContext(PageContext);
   const [list, setList] = useState([]);
   const [status, setStatus] = useState([]);
   const [form, setForm] = useState(null); // editing/adding
@@ -400,8 +404,7 @@ export function ConnectorsModal({ onClose, onChanged, settings, onApply }) {
   };
 
   return (
-    <Modal title="Connectors" onClose={onClose} wide>
-      <p className="muted small">Connect MCP servers so the assistant can use their tools (databases, GitHub, Notion, browsers, files…). Each connector asks for approval once per task, unless its tool is read-only.</p>
+    <Modal title="Connectors" sub="Connect MCP servers so the assistant can use their tools (databases, GitHub, Notion, browsers, files…). Each connector asks for approval once per task, unless its tool is read-only." onClose={onClose} wide>
       <ArtemisBuiltin settings={settings} onApply={onApply} />
       {list.length === 0 && !f && <div className="empty-card small-card"><Icon name="plug" size={24} /><span>No connectors yet.</span></div>}
       {list.map((c) => {
@@ -415,7 +418,7 @@ export function ConnectorsModal({ onClose, onChanged, settings, onApply }) {
               <div className="conn-name">{c.name} <span className="muted small">{c.type === 'http' ? 'remote' : 'local'}</span></div>
               <div className="muted small conn-sub">
                 {state === 'connected' ? `${st.tools.length} tool${st.tools.length === 1 ? '' : 's'}${open[c.id] ? '' : ': ' + st.tools.slice(0, 6).join(', ') + (st.tools.length > 6 ? '…' : '')}` : state === 'error' ? st.error : state === 'off' ? 'Disabled' : 'Connecting…'}
-                {state === 'connected' && st.tools.length > 0 && <> · <a href="#" onClick={(e) => { e.preventDefault(); setOpen({ ...open, [c.id]: !open[c.id] }); }}>{open[c.id] ? 'Hide tools' : 'Show all tools'}</a></>}
+                {state === 'connected' && st.tools.length > 0 && <> · <button type="button" className="text-link" onClick={() => setOpen({ ...open, [c.id]: !open[c.id] })}>{open[c.id] ? 'Hide tools' : 'Show all tools'}</button></>}
               </div>
               {state === 'connected' && open[c.id] && (
                 <div className="conn-tools">
@@ -428,7 +431,7 @@ export function ConnectorsModal({ onClose, onChanged, settings, onApply }) {
                 </div>
               )}
             </div>
-            <label className="switch" title="Enable"><input type="checkbox" checked={c.enabled !== false} onChange={() => persist(list.map((x) => (x.id === c.id ? { ...x, enabled: !(x.enabled !== false) } : x)))} /></label>
+            <Switch checked={c.enabled !== false} label={'Enable ' + c.name} onChange={() => persist(list.map((x) => (x.id === c.id ? { ...x, enabled: !(x.enabled !== false) } : x)))} />
             <button className="icon-btn" title="Edit" aria-label="Edit" onClick={() => edit(c)}><Icon name="pencil" size={15} /></button>
             <button className="icon-btn" title="Remove" aria-label="Remove" onClick={() => askConfirm({ title: 'Remove connector', message: `Remove "${c.name}"?`, confirmLabel: 'Remove', danger: true }).then((ok) => ok && persist(list.filter((x) => x.id !== c.id)))}><Icon name="trash" size={15} /></button>
           </div>
@@ -496,7 +499,7 @@ export function ConnectorsModal({ onClose, onChanged, settings, onApply }) {
           {busy && <small className="hint">Connecting…</small>}
         </>
       )}
-      <div className="actions-row"><span style={{ flex: 1 }} /><button className="primary" onClick={onClose}>Done</button></div>
+      {!page && <div className="actions-row"><span style={{ flex: 1 }} /><button className="primary" onClick={onClose}>Done</button></div>}
     </Modal>
   );
 }

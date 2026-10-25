@@ -1,12 +1,14 @@
 /* ---------- Settings: a native macOS-style page (sidebar + inset grouped cards) ----------
    Colours come only from the theme variables, so light, dark and JSON themes all work.
    --pref-card: card surface, a step away from the page background in both schemes; --pref-line: hairlines. */
-.prefs {
+:is(.prefs, .page, .page-host) { /* pages in a tab (Agents, Memory, Connectors…) reuse the grouped cards */
   --pref-card: color-mix(in srgb, var(--text) 4%, var(--bg));
   --pref-line: var(--line);
   --pref-field: var(--field-bg);
   --pref-field-line: var(--line-2);
   --pref-pad: 14px;
+}
+.prefs {
   flex: 1; min-height: 0; min-width: 0; display: flex; background: var(--bg); color: var(--text); font-size: var(--fs-ui);
 }
 
@@ -101,27 +103,27 @@
 .pref-inline.wrap { flex-wrap: wrap; }
 .pref-inline.grow > input, .pref-inline.grow > .pref-input { flex: 1 1 auto; min-width: 0; width: auto; }
 /* :where keeps these defaults easy to override (chips, shortcut boxes, narrow fields) */
-.prefs .pref-card :where(input:not([type]):not(.mp-search), input[type=text]:not(.mp-search), input[type=password], input[type=number], input[type=search], input[type=url]),
-.prefs .pref-card :where(textarea), .prefs :where(.pref-input) {
+:is(.prefs, .page, .page-host) .pref-card :where(input:not([type]):not(.mp-search), input[type=text]:not(.mp-search), input[type=password], input[type=number], input[type=search], input[type=url]),
+:is(.prefs, .page, .page-host) .pref-card :where(textarea), :is(.prefs, .page, .page-host) :where(.pref-input) {
   height: 28px; width: 220px; max-width: 100%; padding: 0 9px; border: .5px solid var(--pref-field-line); border-radius: var(--r-sm); background: var(--pref-field); color: var(--text); box-shadow: inset 0 .5px 1px rgba(0,0,0,.05);
   font: inherit; font-size: var(--fs-ui); outline: none; transition: border-color .12s, box-shadow .12s;
 }
-.prefs .pref-card textarea { height: auto; min-height: 56px; padding: 6px 8px; line-height: 1.45; resize: vertical; display: block; }
-.prefs .pref-row-wide > :is(input, textarea), .prefs .pref-input.wide { width: 100%; }
-.prefs .pref-input.narrow { width: 90px; }
-.prefs .pref-card :is(input, textarea):not(.mp-search):focus { border-color: var(--accent); box-shadow: var(--ring); }
-.prefs .pref-card :is(input, textarea):disabled { opacity: .6; }
-.prefs .pref-card :is(input, textarea)[aria-invalid="true"] { border-color: var(--danger); }
-.prefs textarea.mono { font-family: var(--font-mono); font-size: var(--fs-sm); }
-.prefs .pref-card input::placeholder, .prefs .pref-card textarea::placeholder { color: var(--muted); opacity: .8; }
+:is(.prefs, .page, .page-host) .pref-card textarea { height: auto; min-height: 56px; padding: 6px 8px; line-height: 1.45; resize: vertical; display: block; }
+:is(.prefs, .page, .page-host) .pref-row-wide > :is(input, textarea), :is(.prefs, .page, .page-host) .pref-input.wide { width: 100%; }
+:is(.prefs, .page, .page-host) .pref-input.narrow { width: 90px; }
+:is(.prefs, .page, .page-host) .pref-card :is(input, textarea):not(.mp-search):focus { border-color: var(--accent); box-shadow: var(--ring); }
+:is(.prefs, .page, .page-host) .pref-card :is(input, textarea):disabled { opacity: .6; }
+:is(.prefs, .page, .page-host) .pref-card :is(input, textarea)[aria-invalid="true"] { border-color: var(--danger); }
+:is(.prefs, .page, .page-host) textarea.mono { font-family: var(--font-mono); font-size: var(--fs-sm); }
+:is(.prefs, .page, .page-host) .pref-card input::placeholder, :is(.prefs, .page, .page-host) .pref-card textarea::placeholder { color: var(--muted); opacity: .8; }
 
-.prefs .pref-shortcut { width: 150px !important; text-align: center; cursor: pointer; caret-color: transparent; font-variant-numeric: tabular-nums; }
-.prefs .pref-shortcut.recording { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, var(--pref-field)); color: var(--accent); }
+:is(.prefs, .page, .page-host) .pref-shortcut { width: 150px !important; text-align: center; cursor: pointer; caret-color: transparent; font-variant-numeric: tabular-nums; }
+:is(.prefs, .page, .page-host) .pref-shortcut.recording { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, var(--pref-field)); color: var(--accent); }
 
-.prefs .pref-card .sel.field-sel { width: auto; min-width: 150px; max-width: 280px; height: 26px; padding: 0 6px 0 10px; font-size: var(--fs-ui); }
-.prefs .pref-card .sel.field-sel:focus-visible { border-color: var(--accent); box-shadow: var(--ring); }
-.prefs .pref-card .model-select { display: flex; flex-direction: column; align-items: flex-end; }
-.prefs .pref-card .mp-btn { height: 26px; border-radius: var(--r-sm); padding: 0 10px; border: .5px solid var(--pref-field-line); background: var(--elev); box-shadow: var(--btn-shadow), var(--hi); font-size: var(--fs-ui); }
+:is(.prefs, .page, .page-host) .pref-card .sel.field-sel { width: auto; min-width: 150px; max-width: 280px; height: 26px; padding: 0 6px 0 10px; font-size: var(--fs-ui); }
+:is(.prefs, .page, .page-host) .pref-card .sel.field-sel:focus-visible { border-color: var(--accent); box-shadow: var(--ring); }
+:is(.prefs, .page, .page-host) .pref-card .model-select { display: flex; flex-direction: column; align-items: flex-end; }
+:is(.prefs, .page, .page-host) .pref-card .mp-btn { height: 26px; border-radius: var(--r-sm); padding: 0 10px; border: .5px solid var(--pref-field-line); background: var(--elev); box-shadow: var(--btn-shadow), var(--hi); font-size: var(--fs-ui); }
 
 .pref-btn { display: inline-flex; align-items: center; justify-content: center; gap: 5px; height: 26px; padding: 0 12px; border: .5px solid var(--pref-field-line); border-radius: var(--r-sm); background: var(--elev); color: var(--text); font-size: var(--fs-ui); line-height: 1; white-space: nowrap; box-shadow: var(--btn-shadow), var(--hi); cursor: pointer; }
 .pref-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--text) 4%, var(--elev)); }
@@ -141,7 +143,7 @@
 .pref-lang-row .pref-row-desc { display: flex; flex-direction: column; gap: 1px; }
 .pref-lang-sum { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .pref-lang-status { color: var(--text); opacity: .8; }
-.prefs .pref-card .pref-lang-row .sel.field-sel { min-width: 132px; }
+:is(.prefs, .page, .page-host) .pref-card .pref-lang-row .sel.field-sel { min-width: 132px; }
 .pref-lang-toggle { padding: 0 8px; gap: 3px; color: var(--muted); background: transparent; border-color: transparent; box-shadow: none; }
 .pref-lang-toggle:hover:not(:disabled) { color: var(--text); background: color-mix(in srgb, var(--text) 6%, transparent); }
 .pref-lang-toggle svg { transition: transform .15s; }
@@ -151,10 +153,10 @@
 .pref-lang-hint { margin-top: 6px; font-size: var(--fs-xs); line-height: 1.4; color: var(--muted); }
 .pref-lang-empty { align-items: flex-start; }
 .pref-lang-add { display: flex; align-items: center; min-height: 40px; padding: 4px calc(var(--pref-pad) - 6px); }
-.prefs .pref-card .pref-lang-add .sel.field-sel { min-width: 0; width: auto; height: 30px; padding: 0 6px; border: 0; border-radius: 6px; background: transparent; box-shadow: none; color: var(--accent); font-weight: 500; }
-.prefs .pref-card .pref-lang-add .sel.field-sel:hover:not(:disabled), .prefs .pref-card .pref-lang-add .sel.open.field-sel { background: color-mix(in srgb, var(--accent) 10%, transparent); }
-.prefs .pref-card .pref-lang-add .sel.field-sel:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
-.prefs .pref-card .pref-lang-add .sel svg { display: none; }
+:is(.prefs, .page, .page-host) .pref-card .pref-lang-add .sel.field-sel { min-width: 0; width: auto; height: 30px; padding: 0 6px; border: 0; border-radius: 6px; background: transparent; box-shadow: none; color: var(--accent); font-weight: 500; }
+:is(.prefs, .page, .page-host) .pref-card .pref-lang-add .sel.field-sel:hover:not(:disabled), :is(.prefs, .page, .page-host) .pref-card .pref-lang-add .sel.open.field-sel { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+:is(.prefs, .page, .page-host) .pref-card .pref-lang-add .sel.field-sel:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+:is(.prefs, .page, .page-host) .pref-card .pref-lang-add .sel svg { display: none; }
 @container (max-width: 520px) { .pref-lang-row .pref-inline { flex-wrap: wrap; } }
 
 /* switch: 36x20, accent when on */
@@ -175,7 +177,7 @@
 .pref-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .pref-chips button { height: 24px; padding: 0 10px; border-radius: var(--r-full); border: .5px solid var(--pref-field-line); background: var(--elev); box-shadow: var(--btn-shadow); font-size: var(--fs-sm); }
 .pref-chips button.active { background: var(--accent); border-color: transparent; color: var(--accent-text); }
-.prefs .pref-chips input { width: 150px; height: 26px; border-radius: var(--r-full); padding: 0 10px; }
+:is(.prefs, .page, .page-host) .pref-chips input { width: 150px; height: 26px; border-radius: var(--r-full); padding: 0 10px; }
 /* Usage & limits (settings/LimitsTab.jsx): period switch, four figures, tokens per day, by model, limits */
 .lim-period { display: flex; justify-content: flex-end; margin: -52px 0 22px; }
 .lim-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
@@ -208,13 +210,13 @@
 @container (max-width: 520px) {
   .pref-row-main { flex-direction: column; align-items: stretch; gap: 8px; }
   .pref-row-control { max-width: none; justify-content: flex-start; margin-left: 0; }
-  .prefs .pref-card .model-select { align-items: flex-start; }
+  :is(.prefs, .page, .page-host) .pref-card .model-select { align-items: flex-start; }
 }
 @media (max-width: 760px) {
   .prefs-side { width: 176px; }
   .prefs-content { padding: 20px 18px 40px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .pref-switch, .pref-switch-knob, .pref-lang-toggle svg, .pref-row, .pref-status, .prefs .pref-card :is(input, textarea) { transition: none; }
+  .pref-switch, .pref-switch-knob, .pref-lang-toggle svg, .pref-row, .pref-status, :is(.prefs, .page, .page-host) .pref-card :is(input, textarea) { transition: none; }
 }
 .search-hidden { display: none !important; }
