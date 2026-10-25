@@ -529,7 +529,7 @@ function compactHistory(history, limitTokens = DEFAULT_CONTEXT_TOKENS) {
 
 // ---------- automatic summarising (compact) ----------
 const summaryCache = []; // {n, hash, summary}: so later turns of the same chat do not rebuild the summary
-const hashMsgs = (arr) => require('crypto').createHash('sha1').update(JSON.stringify(arr)).digest('hex');
+const hashMsgs = (arr) => require('crypto').createHash('sha256').update(JSON.stringify(arr)).digest('hex');
 const textOf = (m) => (typeof m.content === 'string' ? m.content : Array.isArray(m.content) ? m.content.map((p) => p.text || '').join(' ') : '') || '';
 const SHOT_TEXT = '[screenshot from the computer tool]';
 const isRealUser = (m) => m.role === 'user' && !isShotMsg(m);

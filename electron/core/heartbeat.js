@@ -52,7 +52,7 @@ function parseReply(text, TOKEN = 'HEARTBEAT_OK') {
   }
   return { ok: false, alert: t };
 }
-const hashOf = (t) => crypto.createHash('sha1').update(String(t).toLowerCase().replace(/\s+/g, ' ').trim()).digest('hex').slice(0, 16);
+const hashOf = (t) => crypto.createHash('sha256').update(String(t).toLowerCase().replace(/\s+/g, ' ').trim()).digest('hex').slice(0, 16);
 
 function buildPrompt({ checklist, every, now, lastAlert, name }) {
   const when = new Date(now).toLocaleString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
