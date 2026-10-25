@@ -112,10 +112,26 @@ function writeJson(name, data) {
   if (name === 'chats') { // rolling backup, at most one copy per 10 minutes
     try { const bak = file + '.bak'; let age = Infinity; try { age = Date.now() - fs.statSync(bak).mtimeMs; } catch {} if (age > BAK_EVERY && fs.existsSync(file)) fs.copyFileSync(file, bak); } catch (e) { logger.warn('store', 'chats backup failed: ' + e.message); }
   }
+  if (name === 'settings' && data && typeof data === 'object') data = keepSecrets(file, data);
   const tmp = file + '.tmp';
   const fd = fs.openSync(tmp, 'w');
   try { fs.writeSync(fd, JSON.stringify(data)); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
   fs.renameSync(tmp, file);
+}
+/** A settings write that does not mention a saved secret (or has it as undefined, which JSON drops) keeps the saved one.
+ *  Only an explicit null (setSecret with an empty value: "Remove token") deletes it. Logs where such a write came from. */
+function keepSecrets(file, data) {
+  const KEYS = ['apiKeyEnc', 'telegramTokenEnc', 'makeTokenEnc', 'mcpTokenEnc', 'braveKeyEnc', 'gatewayTokenEnc', 'hooksTunnelTokenEnc'];
+  let old = null;
+  try { old = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return data; }
+  let out = data;
+  for (const k of KEYS) {
+    if (old && old[k] && out[k] === undefined) {
+      out = { ...out, [k]: old[k] };
+      try { logger.warn('secrets', `A settings write would have dropped ${k}; the saved value was kept`, { from: String(new Error().stack || '').split('\n').slice(3, 7).map((l) => l.trim()).join(' | ') }); } catch {}
+    }
+  }
+  return out;
 }
 const STORES = { chats: [], projects: [], memory: [] };
 

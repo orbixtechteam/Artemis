@@ -6,6 +6,7 @@ module.exports = function registerMakeIpc(deps) {
     if (!validMakeZone(z)) return { ok: false, error: 'The zone looks wrong. Use something like eu1.make.com (the address you see when you are logged in to Make).' };
     saveSettings({ makeZone: z });
     if (typeof token === 'string' && token.trim()) setSecret('makeToken', token.trim().replace(/^Token\s+/i, ''));
+    if (typeof token === 'string' && token.trim()) logger.info('make', getSecret('makeToken') ? 'Make token saved' : 'Make token was saved but cannot be read back (Keychain / safeStorage)');
     return { ok: true, zone: z, hasToken: !!getSecret('makeToken') };
   });
   ipcMain.handle('make:clear', () => { setSecret('makeToken', ''); return { ok: true }; });

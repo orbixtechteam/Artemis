@@ -5,7 +5,12 @@ on:
   pull_request:
 jobs:
   test:
-    runs-on: ubuntu-24.04
+    # macOS too: the release is built there, so a test that only fails on a Mac shows up here, before a tag is pushed
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
