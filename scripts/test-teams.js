@@ -319,6 +319,35 @@ const def = (extra) => ({ name: 'Launch', goal: 'Ship the notes', members: [{ na
     assert.ok(got.autoAll && got.autoApprove, '"ask me first" off: the member acts on its own');
     console.log('teams: member tools and approvals ok');
   }
+  // chat tools: agents and teams from a chat (agent_save, team_save, team_list, team_start)
+  {
+    const tools = require('../electron/tools');
+    const roster = ROSTER.map((a) => ({ ...a })); const saved = []; let started = null; const approvals = [];
+    const store = [];
+    const ctx = { approve: async (i) => { approvals.push(i.summary); return true; }, session: new Set(), teams: {
+      agents: () => roster, saveAgent: (a) => { saved.push(a); roster.push({ name: a.name, role: a.role, tools: a.tools }); return { ok: true, name: a.name }; },
+      list: async () => store, get: async (id) => store.find((t) => t.id === id || t.name.toLowerCase() === String(id).toLowerCase()) || null,
+      save: async (d) => { const t = { ...cleanDef(d, roster), id: d.id || 't1' }; const i = store.findIndex((x) => x.id === t.id); if (i >= 0) store[i] = t; else store.push(t); return t; },
+      start: async (id) => { started = id; }, remove: async () => true } };
+    const defs = tools.definitions({ teamsEnabled: true }).map((d) => d.function.name);
+    assert.ok(['agent_save', 'agent_list', 'team_save', 'team_list', 'team_start', 'team_delete'].every((n) => defs.includes(n)));
+    let r = await tools.run('agent_save', { name: 'Pip', role: 'Publisher', instructions: 'Post notes on Substack.', tools: ['browser', 'read'] }, ctx);
+    assert.ok(r.ok && /Pip/.test(r.text), r.text);
+    assert.deepStrictEqual(saved[0].tools, ['browser', 'read']);
+    r = await tools.run('team_save', { name: 'Notes', goal: 'Post notes', members: [{ name: 'Pip' }, { name: 'Nobody' }] }, ctx);
+    assert.ok(!r.ok && /Nobody/.test(r.text), 'a missing member is named');
+    r = await tools.run('team_save', { name: 'Notes', goal: 'Post notes', members: [{ name: 'Pip' }, { name: 'Athena' }], rules: 'No em dashes', budget_tokens: 300000, ask_first: false, repeat: { type: 'interval', every: 360 } }, ctx);
+    assert.ok(r.ok && /every 6 h/.test(r.text), r.text);
+    assert.strictEqual(store[0].askWrites, false); assert.strictEqual(store[0].budgetTokens, 300000); assert.deepStrictEqual(store[0].repeat, { type: 'interval', every: 360 });
+    r = await tools.run('team_save', { id: 't1', name: 'Notes', goal: 'Post better notes', members: [{ name: 'Pip' }] }, ctx);
+    assert.ok(r.ok && store[0].goal === 'Post better notes' && store[0].budgetTokens === 300000, 'changing keeps what was not given');
+    r = await tools.run('team_start', { id: 'notes' }, ctx);
+    assert.ok(r.ok && started === 't1');
+    assert.ok(approvals.length >= 4 && approvals.some((x) => /Create team "Notes"/.test(x)), 'every change asks');
+    r = await tools.run('team_list', {}, ctx);
+    assert.ok(/Notes/.test(r.text));
+    console.log('teams: chat tools ok');
+  }
   console.log('teams: all tests passed');
   process.exit(0);
 })().catch((e) => { console.error(e); process.exit(1); });

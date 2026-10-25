@@ -21,6 +21,10 @@ What a member can do is set by its tool groups (Settings → Agents & brains →
 
 Make, browser, connectors, shell, phone, memory and automation work in teams only; a `delegate` helper in a chat keeps read, write, web and chats.
 
+## From a chat
+
+Describe the agents and the team in a chat (or paste a description) and Artemis creates them: `agent_save` for each agent (name, role, instructions, tool groups, model), `team_save` for the team (goal, members, rules, budgets, repeat), `team_start` to run it. Every change asks for approval. `agent_list` and `team_list` show what exists.
+
 ## Settings of a team
 
 - **Ask me before acting**: writing files, commands, Make, posting and sending ask first, in the room and on Telegram (Allow / Deny buttons) when it is paired. Off: the team acts on its own.
@@ -36,3 +40,5 @@ At the end of every run the lead's summary is added to the team's notebook (with
 ## Where it runs
 
 In the app, or in the background gateway while that runs: the window then follows the team through the gateway's API (`/v1/teams`) and approvals you give in the room go there. Runs that were going in the app pause when the gateway takes over; Resume continues them there.
+
+The gateway's browser has the same sign-ins as the app's: the app keeps an encrypted copy of its browser cookies (`browser-cookies.enc`, refreshed a few seconds after they change) and the gateway adds them to its own browser before it uses it. Sign in once in the app's browser (Substack, dashboards …). The gateway's browser needs Chromium for Playwright (`npx playwright install chromium`) or an installed Chrome (`"headlessBrowserChannel": "chrome"` in settings.json).

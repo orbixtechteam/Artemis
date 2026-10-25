@@ -12,7 +12,7 @@ const INFO = {
   computer: ['Computer control', 'tools'], browser: ['Browser', 'tools'], schedule: ['Scheduled tasks, webhooks and heartbeats', 'tools'], phone: ['Phone (Telegram)', 'tools'],
   artifacts: ['Artifacts', 'tools'], media: ['Images and videos', 'tools'], 'tools.lazy': ['Tools switched on when needed', 'tools'], 'connectors.lazy': ['Connectors switched on when needed', 'tools'],
   skills: ['Skills and learning', 'tools'], notes: ['Notes and Files library', 'tools'], terminal: ['Terminal', 'tools'], chats: ['Past chats', 'tools'],
-  delegate: ['Helper agents (plain)', 'agents'], 'delegate.agents': ['Helper agents (roles)', 'agents'], helper: ['Running as a helper agent', 'agents'],
+  teams: ['Agents and teams from chat', 'agents'], delegate: ['Helper agents (plain)', 'agents'], 'delegate.agents': ['Helper agents (roles)', 'agents'], helper: ['Running as a helper agent', 'agents'],
   incognito: ['Incognito chats', 'core'], 'notools.project': ['Model without tool calls: project', 'core'], notools: ['Model without tool calls', 'core'],
   'memory.tools': ['Saving memory', 'memory'], 'memory.text': ['Saving memory without tools', 'memory'], 'memory.search': ['Searching memory', 'memory'], tasknote: ['Task notes', 'memory'],
   security: ['Untrusted content', 'safety'], 'connectors.untrusted': ['Connector output', 'safety']

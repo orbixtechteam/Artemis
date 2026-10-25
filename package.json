@@ -1,7 +1,7 @@
 {
   "name": "artemis",
   "productName": "Artemis",
-  "version": "1.4.3",
+  "version": "1.4.4",
   "description": "Artemis is an open-source desktop AI agent that lives on your laptop. It reads your files, runs commands, browses the web, and remembers what you tell it. You pick the model, you keep the data, you approve every action.",
   "keywords": [
     "ai",

@@ -1116,6 +1116,7 @@ async function executeRun({ requestId, model: model0, messages, project, system,
       searchVia: searchViaFor(settings),
       computer: settings.computerEnabled && !restrict && process.platform === 'darwin' ? computer : null,
       schedule: unattended || restrict ? null : { list: () => scheduler.list(), save: (j) => scheduler.save({ ...j, projectId: j.projectId !== undefined ? j.projectId : (project?.id || null) }), remove: (id) => scheduler.remove(id), hooks: hooksTools, heartbeat: heartbeatTools },
+      teams: unattended || restrict ? null : teamsTools,
       lockApp: unattended || restrict ? null : () => lock.lock('ai'),
       appShot: unattended || restrict ? null : appScreenshot, withArtemisVisible: unattended || restrict ? null : withArtemisVisible,
       notes: settings.notesAi !== false ? notesAi : null,
@@ -1664,6 +1665,14 @@ const hooksTools = {
   save: (o) => { const h = hooks.save(o); if (!getSettings().hooksEnabled) { saveSettings({ hooksEnabled: true }); hookService.sync().catch(() => {}); } return { ...h, urls: hookUrls(h, { ...hooksInfo(), port: Number(getSettings().hooksPort) || 8790 }) }; },
   remove: (id) => hooks.remove(id), info: () => hooksInfo()
 };
+// agent teams for the IPC and for the chat tools (team_save, team_start …): here, or through the background gateway's API
+const teamsClient = require('./ipc/teams').createTeamsClient({ teams, scheduler, headlessActive: () => headlessActive(), headlessFetch: (...a) => headlessFetch(...a), logger });
+/** What the chat tools see: your agents and teams (create, change, start). */
+const teamsTools = {
+  agents: () => agents.list(null).map(({ file, ...a }) => a),
+  saveAgent: (a) => agents.save(a),
+  list: () => teamsClient.list(), get: (id) => teamsClient.get(id), save: (d) => teamsClient.save(d), start: (id) => teamsClient.act(id, 'start'), remove: (id) => teamsClient.remove(id)
+};
 const heartbeatTools = {
   list: () => heartbeat.status(),
   save: (o) => { const hb = heartbeat.save(o); toWinSafe('automation:changed', {}); return heartbeat.status().find((x) => x.id === hb.id); },
@@ -2098,6 +2107,23 @@ app.on('before-quit', (e) => {
   if (!quitWatchdog) { quitWatchdog = setTimeout(() => { try { app.exit(0); } catch { process.exit(0); } }, 4000); }
 });
 
+// The background gateway's browser (Playwright) gets the same sign-ins as this one: the app keeps an encrypted copy of
+// the integrated browser's cookies in <data>/browser-cookies.enc (safeStorage, readable only by this user), refreshed
+// a few seconds after they change. The gateway decrypts it with core/secrets.js and adds the cookies to its own profile.
+let cookieTimer = null;
+async function exportBrowserCookies() {
+  try {
+    const list = await session.fromPartition('persist:artemis-browser').cookies.get({});
+    const json = JSON.stringify(list.map((c) => ({ name: c.name, value: c.value, domain: c.domain, path: c.path, expirationDate: c.expirationDate, httpOnly: !!c.httpOnly, secure: !!c.secure, sameSite: c.sameSite, hostOnly: !!c.hostOnly })));
+    const enc = safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(json).toString('base64') : 'plain:' + json;
+    const f = path.join(app.getPath('userData'), 'browser-cookies.enc');
+    fs.writeFileSync(f + '.tmp', enc, { mode: 0o600 }); fs.renameSync(f + '.tmp', f);
+  } catch (e) { logger.warn('browser', 'Could not share the browser sign-ins with the background gateway: ' + e.message); }
+}
+app.whenReady().then(() => {
+  try { session.fromPartition('persist:artemis-browser').cookies.on('changed', () => { clearTimeout(cookieTimer); cookieTimer = setTimeout(exportBrowserCookies, 5000); }); } catch {}
+  setTimeout(exportBrowserCookies, 3000);
+});
 app.whenReady().then(() => {
   if (!gotLock) return;
   if (!claimInstance()) return;
@@ -2317,7 +2343,7 @@ require('./ipc/skills')({ ipcMain, app, dialog, shell, fs, path, skills, skillRo
 require('./ipc/themes')({ ipcMain, dialog, shell, fs, path, themes, themeDirs, listThemes, nativeThemeFor, broadcastTheme, getSettings, saveSettings, getWin: () => win });
 require('./ipc/brains')({ ipcMain, brains });
 require('./ipc/agents')({ ipcMain, agents, fs, shell, skillRoot });
-require('./ipc/teams')({ ipcMain, teams, scheduler, headlessActive, headlessFetch, logger });
+require('./ipc/teams')({ ipcMain, client: teamsClient });
 require('./ipc/advanced')({ ipcMain, getSettings, saveSettings, notify: () => toWinSafe('app:changed', {}) });
 require('./ipc/logs')({ ipcMain, shell, fs, logger });
 // Memory diagnostics (Logs → Memory, Settings → General → Memory, command palette "Show memory use", and every 5 minutes from the window)
