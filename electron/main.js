@@ -5,7 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const http = require('http');
 const crypto = require('crypto');
-const { runAgent, summarizeAll } = require('./agent');
+const { runAgent, summarizeAll, stripThinkText } = require('./agent');
 const { createBrowser } = require('./browser');
 const brainsLib = require('./brains');
 const { createSentinelWidget } = require('./sentinel-widget');
@@ -138,11 +138,12 @@ function recordUsage(entry) {
     if (!usageTimer) usageTimer = setTimeout(flushUsage, 2000);
   } catch {}
 }
-const { checkLimits } = require('./limits');
+const { checkLimits, costOf } = require('./limits');
 const providersLib = require('./providers');
 const titlesLib = require('./titles');
 const { createSkills } = require('./skills');
-const { createAgents } = require('./subagents');
+const { createAgents, toolNames } = require('./subagents');
+const { createTeams } = require('./teams');
 const { createMake, ZONES: MAKE_ZONES, cleanZone: cleanMakeZone, validZone: validMakeZone } = require('./make');
 const chatSearch = require('./chatsearch');
 const { createScheduler } = require('./scheduler');
@@ -928,6 +929,74 @@ function stashImages(messages) {
     return { ...m, content: flat ? parts.map((c) => c.text).join('\n\n') : parts };
   });
 }
+/** How web_search searches: Brave with its key, an AI search model, or the built-in fallback (null). */
+function searchViaFor(settings) {
+  if (settings.searchEngine === 'brave') { const k = getSecret('braveKey'); return k ? (q, sig) => require('./web').braveSearch({ key: k, query: q, signal: sig }) : async () => { throw new Error('Brave Search is selected but no key is saved. Open Settings → Tools → Search engine and paste the Brave key'); }; }
+  if (!settings.searchProvider) return null;
+  const r = providersLib.resolve(`prov:${settings.searchProvider}:x`, readProviders(), getProviderKey);
+  if (r.error) return null;
+  return (q, sig) => require('./web').endpointSearch({ baseUrl: r.baseUrl, key: r.key, query: q, signal: sig, model: settings.searchModel || 'perplexity/sonar' });
+}
+
+// ---------- agent teams (electron/teams.js): one goal, several agents that plan, talk to each other and review ----------
+const teams = createTeams({
+  load: () => readJson('teams', { teams: [] }),
+  save: (d) => writeJson('teams', d),
+  emit: (t) => { try { win?.webContents.send('teams:changed', t); } catch {} },
+  roster: () => agents.list(null),
+  log: (m) => logger.warn('teams', m),
+  runTurn: runTeamTurn
+});
+/** One turn of one team member (or the lead): a sub-agent run with the member's tools plus the team's room tools.
+ *  Files go to the Files folder; writes ask in the team room unless the team was set not to ask. */
+async function runTeamTurn({ agent, prompt, extraTools, signal, askWrites, onUsage, onApproval }) {
+  const settings = getSettings();
+  const lim = limitState();
+  if (lim.blocked) throw new Error(lim.blocked);
+  const fallback = liveModel(settings.model);
+  let model = agent.model && agent.model !== 'inherit' ? agent.model : fallback;
+  let route = providersLib.resolve(model, readProviders(), getProviderKey);
+  if (route.error && model !== fallback) { logger.warn('teams', `${agent.name}: ${route.error} Using the chat model.`); model = fallback; route = providersLib.resolve(model, readProviders(), getProviderKey); }
+  if (route.error) throw new Error(route.error);
+  const prices = providersLib.priceMap(readProviders());
+  const steps = [''];
+  const mine = new Set();
+  const onAbort = () => { for (const id of mine) decideTool(id, false); };
+  signal.addEventListener('abort', onAbort, { once: true });
+  logger.info('teams', `${agent.name} started`, { model });
+  try {
+    await runAgent({
+      baseUrl: route.baseUrl, key: route.key, model: route.model, usageModel: model, noToolCalls: !!route.noTools, maxTokens: settings.maxTokens, isSub: true, toolsEnabled: true, userData: app.getPath('userData'),
+      messages: [{ role: 'user', content: prompt }], custom: '', project: null, root: defaultFilesDir(), defaultRoot: true,
+      webEnabled: settings.webEnabled, shellEnabled: false, computer: null, phone: null, media: null, mcp: null, memoryEnabled: false, memoryApi: null, skills: null,
+      chats: settings.chatSearchEnabled !== false ? chatsApi() : null, autoLearn: false, delegateEnabled: false,
+      allowTools: toolNames(agent.tools || []), agentRole: agent.body || '', extraTools,
+      autoApprove: !askWrites, searchVia: searchViaFor(settings), shouldStop: () => limitState().blocked,
+      runTokenBudget: 600000, contextTokens: Number(settings.contextTokens) || undefined,
+      onUsage: (u) => {
+        const rec = { t: Date.now(), model: u.model || model, chat: '', project: '', source: 'team', prompt: u.prompt || 0, completion: u.completion || 0, cached: u.cached || 0, cacheWrite: u.cacheWrite || 0, estimated: u.estimated };
+        recordUsage(rec);
+        onUsage({ prompt: rec.prompt, completion: rec.completion, usd: costOf(rec, prices) });
+      },
+      approve: (info) => new Promise((resolve) => {
+        const id = 'team-' + Math.random().toString(36).slice(2, 10);
+        mine.add(id);
+        approvals.set(id, (ok) => { mine.delete(id); onApproval.done(id, ok); resolve(ok); });
+        approvalMeta.set(id, { name: info.name, category: info.category });
+        onApproval.asked({ id, summary: info.summary || info.name });
+        try { if (win && !win.isDestroyed() && !win.isFocused() && Notification.isSupported()) new Notification({ title: `${agent.name} needs your OK`, body: String(info.summary || info.name).slice(0, 180) }).show(); } catch {}
+      }),
+      send: (ev) => {
+        if (ev.type === 'chunk' && !ev.agent) steps[steps.length - 1] += ev.text;
+        else if (ev.type === 'step:new') steps.push('');
+        else if (ev.type === 'error') logger.warn('teams', `${agent.name}: ${ev.message}`);
+      },
+      signal
+    });
+  } finally { signal.removeEventListener('abort', onAbort); }
+  return steps.map(stripThinkText).filter((x) => x.trim()).pop() || '';
+}
+
 async function executeRun({ requestId, model: model0, messages, project, system, maxTokens, send: rawSend, restrict, incognito, source, unattended, allowEdits, permMode, chatId, brain, brainPick, revote, agentsMode, toolsMode, effort, mentions, shellMode }) {
   const model = liveModel(model0);
   // where run_command goes in this run: the sandbox from Settings, unless the chat picked "this Mac" (only a chat in the window can)
@@ -1041,7 +1110,7 @@ async function executeRun({ requestId, model: model0, messages, project, system,
       custom: system, personality: require('./personality').text(settings), userName: settings.profileName || '', userAbout: settings.profileAbout || '', userLocation: settings.profileLocation || '', project, root: fileRoot, defaultRoot: !root,
       // with a sandbox, run_command never touches this computer, so it is also allowed in phone/gateway (restricted) and scheduled tasks
       sandbox: sb, webEnabled: settings.webEnabled, shellEnabled: settings.shellEnabled && (!restrict || !!sb),
-      searchVia: (() => { if (settings.searchEngine === 'brave') { const k = getSecret('braveKey'); return k ? (q, sig) => require('./web').braveSearch({ key: k, query: q, signal: sig }) : async () => { throw new Error('Brave Search is selected but no key is saved. Open Settings → Tools → Search engine and paste the Brave key'); }; } if (!settings.searchProvider) return null; const r = providersLib.resolve(`prov:${settings.searchProvider}:x`, readProviders(), getProviderKey); if (r.error) return null; return (q, sig) => require('./web').endpointSearch({ baseUrl: r.baseUrl, key: r.key, query: q, signal: sig, model: settings.searchModel || 'perplexity/sonar' }); })(),
+      searchVia: searchViaFor(settings),
       computer: settings.computerEnabled && !restrict && process.platform === 'darwin' ? computer : null,
       schedule: unattended || restrict ? null : { list: () => scheduler.list(), save: (j) => scheduler.save({ ...j, projectId: j.projectId !== undefined ? j.projectId : (project?.id || null) }), remove: (id) => scheduler.remove(id), hooks: hooksTools, heartbeat: heartbeatTools },
       lockApp: unattended || restrict ? null : () => lock.lock('ai'),
@@ -1990,6 +2059,7 @@ app.on('before-quit', (e) => {
     return;
   }
   flushUsage();
+  try { teams.flush(); } catch {}
   try { updater.installOnQuit(); } catch (e) { logger.warn('update', 'Install on quit failed: ' + e.message); }
   try { mcpServer.stop(); } catch {} try { sentinelWidget && sentinelWidget.destroy(); } catch {}
   // Every other window goes now: a hidden or always-on-top one must not keep the app alive.
@@ -2217,6 +2287,7 @@ require('./ipc/skills')({ ipcMain, app, dialog, shell, fs, path, skills, skillRo
 require('./ipc/themes')({ ipcMain, dialog, shell, fs, path, themes, themeDirs, listThemes, nativeThemeFor, broadcastTheme, getSettings, saveSettings, getWin: () => win });
 require('./ipc/brains')({ ipcMain, brains });
 require('./ipc/agents')({ ipcMain, agents, fs, shell, skillRoot });
+require('./ipc/teams')({ ipcMain, teams });
 require('./ipc/logs')({ ipcMain, shell, fs, logger });
 // Memory diagnostics (Logs → Memory, Settings → General → Memory, command palette "Show memory use", and every 5 minutes from the window)
 {

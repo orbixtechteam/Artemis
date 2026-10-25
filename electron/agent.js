@@ -721,7 +721,8 @@ function pruneImages(history, keep = KEEP_IMAGES, keepUser = KEEP_USER_IMAGES) {
 /**
  * opts: { baseUrl, key, model, messages, maxTokens, custom, project, root, toolsEnabled, memoryEnabled,
  *         webEnabled, shellEnabled, computer, computerHooks:{onStart,onEnd}, searchFallback,
- *         autoApprove, memoryApi, approve(info)->Promise<boolean>, send(ev), signal }
+ *         autoApprove, memoryApi, approve(info)->Promise<boolean>, send(ev), signal,
+ *         extraTools: [{ name, description, parameters, run(args) -> string }] (tools of the caller, e.g. a team's room tools; never ask) }
  */
 async function runAgent(opts) {
   const { baseUrl, key, model, maxTokens, send, signal } = opts;
@@ -753,6 +754,7 @@ async function runAgent(opts) {
   let exploreCalls = 0, wrote = false;
   let agentRuns = 0;
   const allow = opts.allowTools || null;
+  const extra = new Map((Array.isArray(opts.extraTools) ? opts.extraTools : []).map((t) => [t.name, t]));
   const flags = () => ({
     makeEnabled: !!opts.make && !opts.isSub, hasFolder: !!opts.root, memoryEnabled: !!opts.memoryEnabled,
     webEnabled: !!opts.webEnabled, shellEnabled: !!opts.shellEnabled, computerEnabled: !!opts.computer, phoneEnabled: !!opts.phone, scheduleEnabled: !!opts.schedule && !opts.isSub, notesEnabled: !!opts.notes && !opts.isSub, termEnabled: !!opts.term && !opts.isSub, mediaEnabled: !!opts.media,
@@ -891,6 +893,7 @@ async function runAgent(opts) {
       const mcpList = toolsOn ? mcpDefs() : [];
       let defs = toolsOn ? [...tools.definitions(f), ...useToolsDef(), ...mcpList] : [];
       if (allow) defs = defs.filter((d) => allow.has(d.function.name));
+      if (toolsOn) for (const t of extra.values()) defs.push({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } });
       if (schemaFix) defs = simplifySchemas(defs);
       {
         const cap = toolCap || (/(^|\/\/)api\.groq\.com\//.test(String(url)) ? 128 : 0);
@@ -1112,6 +1115,8 @@ async function runAgent(opts) {
       });
       const exec = async ({ tc, args, parseErr }) => {
         if (parseErr) return { ok: false, text: `Error: tool arguments are not valid JSON (${parseErr}).` + (result.finish === 'length' ? ' The reply was cut off at the output limit.' : '') + ' Send a shorter call: put long text in several smaller calls (write_file or create_artifact with append=true for each next part, notes_append, or edit_file with a small change) and escape quotes and newlines.' };
+        const xt = extra.get(tc.name);
+        if (xt) { try { return { ok: true, text: String(await xt.run(args)) }; } catch (e) { return { ok: false, text: `Error: ${e.message}` }; } }
         if (allow && !allow.has(tc.name)) return { ok: false, text: `Error: ${tc.name} is not available to this agent.` };
         if (tc.name === 'task_note') {
           const t = String(args.text || '').trim().slice(0, 2000);

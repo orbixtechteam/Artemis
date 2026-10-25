@@ -10,46 +10,16 @@ export function AgentsTab({ s, set, setS, chatGroups, showToggles = true, listTi
   const put = (k) => (v) => (setS ? setS((x) => ({ ...x, [k]: v })) : set(k)({ target: { type: 'checkbox', checked: v } }));
   const api = window.api;
   const [list, setList] = useState([]);
-  const [groups, setGroups] = useState([]);
   const [ed, setEd] = useState(null);
-  const [err, setErr] = useState('');
   const load = async () => { try { setList(await api.agentsList()); } catch {} };
-  useEffect(() => { load(); api.agentsGroups().then(setGroups).catch(() => {}); const off = api.onAgentsChanged && api.onAgentsChanged(load); return () => off && off(); }, []);
+  useEffect(() => { load(); const off = api.onAgentsChanged && api.onAgentsChanged(load); return () => off && off(); }, []);
   const modelLabel = (id) => { if (!id) return 'Same as chat'; for (const g of chatGroups) for (const [mid, n] of g.items) if (mid === id) return n; return id; };
-  const save = async () => {
-    setErr('');
-    const r = await api.agentsSave({ name: ed.name, role: ed.role, description: ed.description, model: ed.model, tools: ed.tools, body: ed.body });
-    if (!r.ok) return setErr(r.error);
-    setEd(null); load();
-  };
   const remove = async (a) => {
     const reset = !!a.overrides;
     if (!(await askConfirm({ title: reset ? 'Reset agent' : 'Delete agent', message: reset ? `Reset "${a.name}" to its default?` : `Delete the agent "${a.name}"?`, confirmLabel: reset ? 'Reset' : 'Delete', danger: true }))) return;
     await api.agentsDelete(a.name); load();
   };
-  if (ed) {
-    const toggle = (g) => setEd({ ...ed, tools: ed.tools.includes(g) ? ed.tools.filter((x) => x !== g) : [...ed.tools, g] });
-    return (
-      <>
-        <Group title={ed.isNew ? 'New agent' : ed.name}>
-          <Row label="Name"><input value={ed.name} disabled={!ed.isNew} onChange={(e) => setEd({ ...ed, name: e.target.value })} placeholder="Athena" /></Row>
-          <Row label="Role" description="Optional title. You can ask for the agent by name or by role."><input value={ed.role || ''} onChange={(e) => setEd({ ...ed, role: e.target.value })} placeholder="Researcher" /></Row>
-          <Row stacked label="What is it for?" description="One line. Artemis reads this to decide when to hand work to this agent."><input value={ed.description} onChange={(e) => setEd({ ...ed, description: e.target.value })} placeholder="Finds and checks facts on the web" /></Row>
-          <Row label="Model" description="Put cheap jobs (search, summaries) on a cheap model and hard jobs on a strong one. This is what cuts the cost.">
-            <ModelPicker value={ed.model} groups={chatGroups} onChange={(m) => setEd({ ...ed, model: m })} emptyLabel="Same as chat" up={false} align="right" />
-          </Row>
-        </Group>
-        <Group title="Tools">
-          {groups.map((g) => <SwitchRow key={g.id} label={g.label} checked={ed.tools.includes(g.id)} onChange={() => toggle(g.id)} />)}
-        </Group>
-        <Group title="Instructions">
-          <Row stacked><textarea rows={9} className="mono" aria-label="Instructions" value={ed.body} onChange={(e) => setEd({ ...ed, body: e.target.value })} spellCheck={false} /></Row>
-        </Group>
-        {err && <Note tone="err">{err}</Note>}
-        <Buttons end><button type="button" className="pref-btn" onClick={() => setEd(null)}>Cancel</button><button type="button" className="pref-btn primary" onClick={save}>Save agent</button></Buttons>
-      </>
-    );
-  }
+  if (ed) return <AgentEditor agent={ed} chatGroups={chatGroups} onDone={(saved) => { setEd(null); if (saved) load(); }} />;
   return (
     <>
       {showToggles && (
@@ -77,6 +47,48 @@ export function AgentsTab({ s, set, setS, chatGroups, showToggles = true, listTi
           </div>
         </Row>
       </Group>
+    </>
+  );
+}
+
+/** The form for one agent (new or existing). onDone(saved) closes it. */
+export function AgentEditor({ agent, chatGroups, onDone }) {
+  const api = window.api;
+  const [ed, setEd] = useState(agent);
+  const [groups, setGroups] = useState([]);
+  const [err, setErr] = useState('');
+  useEffect(() => { api.agentsGroups().then(setGroups).catch(() => {}); }, []);
+  const save = async () => {
+    setErr('');
+    const r = await api.agentsSave({ name: ed.name, role: ed.role, description: ed.description, model: ed.model, tools: ed.tools, body: ed.body });
+    if (!r.ok) return setErr(r.error);
+    onDone(true);
+  };
+  const remove = async () => {
+    const reset = !!agent.overrides;
+    if (!(await askConfirm({ title: reset ? 'Reset agent' : 'Delete agent', message: reset ? `Reset "${agent.name}" to its default?` : `Delete the agent "${agent.name}"?`, confirmLabel: reset ? 'Reset' : 'Delete', danger: true }))) return;
+    await api.agentsDelete(agent.name);
+    onDone(true);
+  };
+  const toggle = (g) => setEd({ ...ed, tools: ed.tools.includes(g) ? ed.tools.filter((x) => x !== g) : [...ed.tools, g] });
+  return (
+    <>
+      <Group title={ed.isNew ? 'New agent' : ed.name}>
+        <Row label="Name"><input value={ed.name} disabled={!ed.isNew} onChange={(e) => setEd({ ...ed, name: e.target.value })} placeholder="Athena" /></Row>
+        <Row label="Role" description="Optional title. You can ask for the agent by name or by role."><input value={ed.role || ''} onChange={(e) => setEd({ ...ed, role: e.target.value })} placeholder="Researcher" /></Row>
+        <Row stacked label="What is it for?" description="One line. Artemis reads this to decide when to hand work to this agent."><input value={ed.description} onChange={(e) => setEd({ ...ed, description: e.target.value })} placeholder="Finds and checks facts on the web" /></Row>
+        <Row label="Model" description="Put cheap jobs (search, summaries) on a cheap model and hard jobs on a strong one. This is what cuts the cost.">
+          <ModelPicker value={ed.model} groups={chatGroups} onChange={(m) => setEd({ ...ed, model: m })} emptyLabel="Same as chat" up={false} align="right" />
+        </Row>
+      </Group>
+      <Group title="Tools">
+        {groups.map((g) => <SwitchRow key={g.id} label={g.label} checked={ed.tools.includes(g.id)} onChange={() => toggle(g.id)} />)}
+      </Group>
+      <Group title="Instructions">
+        <Row stacked><textarea rows={9} className="mono" aria-label="Instructions" value={ed.body} onChange={(e) => setEd({ ...ed, body: e.target.value })} spellCheck={false} /></Row>
+      </Group>
+      {err && <Note tone="err">{err}</Note>}
+      <Buttons end>{!agent.isNew && (!agent.builtin || agent.overrides) && <button type="button" className="pref-btn" style={{ marginRight: 'auto' }} onClick={remove}>{agent.overrides ? 'Reset to default' : 'Delete agent'}</button>}<button type="button" className="pref-btn" onClick={() => onDone(false)}>Cancel</button><button type="button" className="pref-btn primary" onClick={save}>Save agent</button></Buttons>
     </>
   );
 }
