@@ -15,8 +15,34 @@ function loadPlaywright() {
   throw new Error('The browser needs Playwright in headless mode. In the Artemis folder run: pnpm add -O playwright-core && npx playwright install chromium (or set "headlessBrowserChannel": "chrome" in settings.json to use an installed Chrome).');
 }
 
-/** opts: { profileDir, channel?, headless? (default true), loader?(), log? } */
-function createPwBrowser({ profileDir, channel = '', headless = true, loader = loadPlaywright, log = () => {} }) {
+/** Electron cookies (session.cookies.get) as Playwright cookies. */
+function toPwCookies(list) {
+  const SAME = { strict: 'Strict', lax: 'Lax', no_restriction: 'None' };
+  const out = [];
+  for (const c of Array.isArray(list) ? list : []) {
+    if (!c || !c.name || !c.domain) continue;
+    const x = { name: String(c.name), value: String(c.value == null ? '' : c.value), domain: String(c.domain), path: c.path || '/', httpOnly: !!c.httpOnly, secure: !!c.secure };
+    if (c.expirationDate) x.expires = Math.floor(Number(c.expirationDate)); else x.expires = -1;
+    if (SAME[c.sameSite]) x.sameSite = SAME[c.sameSite];
+    if (x.sameSite === 'None' && !x.secure) delete x.sameSite; // Chromium refuses SameSite=None without Secure
+    out.push(x);
+  }
+  return out;
+}
+// what a normal desktop Chrome sends: "HeadlessChrome" in the user agent makes many sites refuse or sign out
+const DESKTOP_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36';
+
+/** opts: { profileDir, channel?, headless? (default true), loader?(), log?, cookies?() -> { version, list } | null (sign-ins shared by the app) } */
+function createPwBrowser({ profileDir, channel = '', headless = true, loader = loadPlaywright, log = () => {}, cookies = null }) {
+  let cookieVersion = null;
+  /** Adds the app browser's cookies when they changed since the last time (so a sign-in made in the app works here too). */
+  async function syncCookies(c) {
+    if (!cookies) return;
+    let r = null; try { r = cookies(); } catch {}
+    if (!r || r.version === cookieVersion) return;
+    try { const list = toPwCookies(r.list); if (list.length) await c.addCookies(list); cookieVersion = r.version; log('info', `browser: ${list.length} sign-in cookies from the app`); }
+    catch (e) { log('warn', 'browser: could not add the app\'s cookies: ' + e.message); cookieVersion = r.version; }
+  }
   let ctx = null, starting = null, nextId = 1, activeId = null;
   const tabs = [];
   const known = new WeakSet();
@@ -39,7 +65,7 @@ function createPwBrowser({ profileDir, channel = '', headless = true, loader = l
     if (ctx) return ctx;
     if (!starting) starting = (async () => {
       const pw = loader();
-      const c = await pw.chromium.launchPersistentContext(profileDir, { headless, ...(channel ? { channel } : {}), viewport: { width: 1280, height: 800 }, acceptDownloads: false });
+      const c = await pw.chromium.launchPersistentContext(profileDir, { headless, ...(channel ? { channel } : {}), viewport: { width: 1280, height: 800 }, acceptDownloads: false, ...(headless ? { userAgent: DESKTOP_UA } : {}) });
       c.on('page', (p) => addTab(p));
       for (const p of c.pages()) addTab(p);
       c.on('close', () => { ctx = null; starting = null; tabs.length = 0; activeId = null; });
@@ -96,6 +122,7 @@ function createPwBrowser({ profileDir, channel = '', headless = true, loader = l
 
   async function tool(name, args = {}) {
     args = args || {};
+    if (ctx) await syncCookies(ctx); else if (name === 'browser_navigate' || name === 'browser_tabs') { await ensure(); await syncCookies(ctx); }
     switch (name) {
       case 'browser_tabs': {
         const a = String(args.action || 'list');
@@ -217,4 +244,4 @@ function createPwBrowser({ profileDir, channel = '', headless = true, loader = l
   };
 }
 
-module.exports = { createPwBrowser, loadPlaywright };
+module.exports = { createPwBrowser, loadPlaywright, toPwCookies };

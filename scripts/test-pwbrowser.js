@@ -5,6 +5,20 @@ const os = require('os');
 const fs = require('fs');
 const path = require('path');
 const { createPwBrowser, loadPlaywright } = require('../electron/core/pwbrowser');
+// the app's sign-ins (Electron cookies) become Playwright cookies
+{
+  const { toPwCookies } = require('../electron/core/pwbrowser');
+  const out = toPwCookies([
+    { name: 'substack.sid', value: 'abc', domain: '.substack.com', path: '/', expirationDate: 1893456000.5, httpOnly: true, secure: true, sameSite: 'lax' },
+    { name: 'x', value: '1', domain: 'example.com', path: '/', secure: false, sameSite: 'no_restriction' },
+    { name: '', value: 'skip', domain: 'a.com' }
+  ]);
+  require('assert').deepStrictEqual(out, [
+    { name: 'substack.sid', value: 'abc', domain: '.substack.com', path: '/', httpOnly: true, secure: true, expires: 1893456000, sameSite: 'Lax' },
+    { name: 'x', value: '1', domain: 'example.com', path: '/', httpOnly: false, secure: false, expires: -1 }
+  ]);
+  console.log('test-pwbrowser: cookies ok');
+}
 
 (async () => {
   try { loadPlaywright(); } catch { console.log('test-pwbrowser: Playwright not installed, skipped'); return; }

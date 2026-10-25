@@ -149,7 +149,16 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
   });
   let pw = null, pwOk = null;
   const browserAvailable = () => { if (pwOk === null) { try { loadPlaywright(); pwOk = true; } catch { pwOk = false; } } return pwOk; };
-  const browserFor = () => { if (!pw) pw = createPwBrowser({ profileDir: file('headless-browser'), channel: settings().headlessBrowserChannel || '', headless: settings().headlessBrowserVisible !== true, log: L('browser') }); return pw.agent(); };
+  // the app's browser sign-ins (browser-cookies.enc, written by the app, encrypted with its safeStorage key)
+  let cookieCache = { mtime: 0, list: null };
+  const appCookies = () => {
+    try {
+      const f = file('browser-cookies.enc'); const m = fs.statSync(f).mtimeMs;
+      if (m !== cookieCache.mtime) { const json = secrets.decrypt(fs.readFileSync(f, 'utf8').trim()); cookieCache = { mtime: m, list: json ? JSON.parse(json) : null }; if (!json) log('warn', 'browser', 'the app\'s browser sign-ins could not be decrypted (Keychain)'); }
+      return cookieCache.list ? { version: cookieCache.mtime, list: cookieCache.list } : null;
+    } catch { return null; }
+  };
+  const browserFor = () => { if (!pw) pw = createPwBrowser({ profileDir: file('headless-browser'), channel: settings().headlessBrowserChannel || '', headless: settings().headlessBrowserVisible !== true, log: L('browser'), cookies: appCookies }); return pw.agent(); };
   const computer = process.platform === 'darwin' && computerOn ? createComputer({}) : null;
   let remote = null;
 
@@ -210,6 +219,11 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
         mcp: mcp && st.connectorsEnabled !== false ? (sandbox() ? hideHostShellTools(mcp) : mcp) : null, mcpLazy: st.connectorsLazy !== false, lazyTools: st.toolsLazy !== false, fullFileAccess: st.fullFileAccess !== false,
         phone: remote ? remote.phone() : null,
         schedule: unattended ? null : { list: () => sched.list(), save: (j) => sched.save(j), remove: (id) => sched.remove(id), hooks: hooksTools, heartbeat: heartbeatTools },
+        teams: unattended ? null : {
+          agents: () => agents.list(null).map(({ file, ...a }) => a), saveAgent: (a) => agents.save(a),
+          list: async () => teams.list(), get: async (id) => teams.list().find((t) => t.id === id || String(t.name).toLowerCase() === String(id).toLowerCase()) || null,
+          save: async (d) => { const t = teams.save(d); syncTeamJob(t); return t; }, start: async (id) => teams.start(id), remove: async (id) => { const j = sched.list().find((x) => x.teamId === id); if (j) sched.remove(j.id); return teams.remove(id); }
+        },
         notes: st.notesAi !== false ? notes : null,
         skills: st.skillsEnabled !== false ? { index: () => skills.indexText(project && project.folder), get: (n) => skills.get(n, project && project.folder), save: (o) => skills.save(o, project && project.folder) } : null,
         autoLearn: st.autoLearn !== false && !unattended,
@@ -313,6 +327,12 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
   };
   let hookTimer = null;
 
+  /** The scheduled task that starts a team by itself (same as the app's ipc/teams.js). */
+  function syncTeamJob(t) {
+    const job = sched.list().find((j) => j.teamId === t.id);
+    if (!t.repeat) { if (job) sched.remove(job.id); return; }
+    sched.save({ id: job ? job.id : undefined, name: `Team: ${t.name}`.slice(0, 80), prompt: `Start a new run of the team "${t.name}".`, teamId: t.id, repeat: t.repeat, enabled: true });
+  }
   // ---- Make, and agent teams (they run here while this process owns the background jobs) ----
   const make = createMake({ getAuth: () => ({ token: getSecret('makeToken', 'makeTokenEnc'), zone: settings().makeZone }) });
   const runTeamTurn = createTeamRunner({

@@ -28,7 +28,7 @@ function outlineOf(text, name) {
 const WRITE_TOOLS = new Set(['library_write', 'library_edit', 'library_delete', 'notes_write', 'notes_append', 'notes_edit', 'write_file', 'edit_file', 'write_spreadsheet', 'update_cells', 'move_file', 'delete_file']);
 const ALWAYS_ASK = new Set(['delete_file', 'library_delete']);
 // These change what Artemis does by itself later (an endpoint on the internet, a check that costs tokens): asked every time.
-const ASK_EACH_TIME = new Set(['hook_create', 'hook_delete', 'heartbeat_set', 'heartbeat_delete']);
+const ASK_EACH_TIME = new Set(['hook_create', 'hook_delete', 'heartbeat_set', 'heartbeat_delete', 'agent_save', 'team_save', 'team_start', 'team_delete']);
 // Tools that need one approval per task (per run), by category
 // A model can get stuck saving, deleting and re-saving the same memory. Memory may change a few times per task, then it is refused.
 const MEMORY_CHANGES_PER_TASK = 4;
@@ -45,7 +45,7 @@ const fn = (name, description, properties, required = []) => ({
   function: { name, description, parameters: { type: 'object', properties, required } }
 });
 
-function definitions({ makeEnabled, hasFolder, memoryEnabled, memorySearchEnabled, webEnabled, shellEnabled, computerEnabled, phoneEnabled, scheduleEnabled, notesEnabled, termEnabled, mediaEnabled, skillsEnabled, learnEnabled, chatsEnabled, delegateEnabled, browserEnabled }) {
+function definitions({ teamsEnabled, makeEnabled, hasFolder, memoryEnabled, memorySearchEnabled, webEnabled, shellEnabled, computerEnabled, phoneEnabled, scheduleEnabled, notesEnabled, termEnabled, mediaEnabled, skillsEnabled, learnEnabled, chatsEnabled, delegateEnabled, browserEnabled }) {
   const defs = [];
   if (hasFolder) defs.push(fn('task_note', 'Keeps a short note about the current task (plan, what is done, what is left, key facts). Old tool output is cleared as a long run goes on, but this note is shown to you at every step. Replaces the note, or adds to it with append=true. Empty text clears it.', { text: { type: 'string' }, append: { type: 'boolean' } }, ['text']));
   defs.push(fn('create_artifact', 'Creates (or updates) an artifact: a standalone piece of content shown in a side panel next to the chat, e.g. a web page/app/game (html), a diagram or graphic (svg), a long document (markdown), a substantial code file (code) or an Excel/CSV table (spreadsheet). For any Excel/xlsx/xls/CSV request use type spreadsheet, never an html page with a fake download button. To change an existing artifact, call again with the same id and the full new content.', {
@@ -351,6 +351,30 @@ function definitions({ makeEnabled, hasFolder, memoryEnabled, memorySearchEnable
       fn('heartbeat_delete', 'Deletes a heartbeat by id (from heartbeat_get). Requires approval.', { id: { type: 'string' } }, ['id'])
     );
   }
+  if (teamsEnabled) {
+    const GROUPS_DESC = 'Tool groups: read, write, web, chats, make, browser, connectors, shell, phone, memory, automation';
+    defs.push(
+      fn('agent_list', 'Lists the user\'s agents (name, role, tools, model) that can be helper agents or team members.', {}),
+      fn('agent_save', 'Creates or changes one of the user\'s agents (saved as a file; the same name changes it). Requires approval.', {
+        name: { type: 'string', description: 'Short first name, e.g. "Pip"' }, role: { type: 'string', description: 'Job title, e.g. "Publisher"' },
+        description: { type: 'string', description: 'One line: when to use this agent' }, instructions: { type: 'string', description: 'The agent\'s instructions, complete' },
+        tools: { type: 'array', items: { type: 'string' }, description: GROUPS_DESC }, model: { type: 'string', description: 'Model id (prov:<provider>:<model>), empty for the default' }
+      }, ['name', 'instructions']),
+      fn('team_list', 'Lists the agent teams with their goal, members, status, schedule and budget.', {}),
+      fn('team_save', 'Creates (no id) or changes (with id) an agent team: a goal, members from the user\'s agents, and how it runs. Members must exist: create them with agent_save first. Requires approval.', {
+        id: { type: 'string', description: 'Only to change an existing team (from team_list)' },
+        name: { type: 'string' }, goal: { type: 'string', description: 'What the team delivers, specific' },
+        members: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, model: { type: 'string', description: 'Optional model for this member' } }, required: ['name'] } },
+        mode: { type: 'string', enum: ['lead', 'pipeline', 'open'], description: 'lead: Artemis plans and hands out tasks; pipeline: tasks one after another; open: everyone at once' },
+        lead_model: { type: 'string' }, rules: { type: 'string', description: 'Team rules added to every prompt (voice, audience, format)' },
+        budget_usd: { type: 'number' }, budget_tokens: { type: 'integer' }, minutes: { type: 'integer', description: 'Time limit per run' },
+        ask_first: { type: 'boolean', description: 'Ask the user before acting (default true)' }, can_hire: { type: 'boolean', description: 'The lead may add agents' },
+        repeat: { type: 'object', description: 'Start a new run by itself: {type:"daily"|"weekdays", at:"HH:MM"} or {type:"interval", every: minutes}. Omit or null for only by hand.', properties: { type: { type: 'string', enum: ['daily', 'weekdays', 'interval'] }, at: { type: 'string' }, every: { type: 'integer' } } }
+      }, ['name', 'goal', 'members']),
+      fn('team_start', 'Starts a new run of a team now (by id or name). Requires approval.', { id: { type: 'string' } }, ['id']),
+      fn('team_delete', 'Deletes a team and its room (by id). Requires approval.', { id: { type: 'string' } }, ['id'])
+    );
+  }
   if (phoneEnabled) {
     defs.push(fn('send_to_phone', "Sends something to the user's phone (Telegram): a text message, a file from the project folder, and/or a screenshot of the computer screen. Requires approval once per task.", {
       text: { type: 'string', description: 'Message text, or the caption when sending a file/screenshot' },
@@ -596,6 +620,10 @@ function summarize(name, args) {
     case 'delete_schedule': return `Delete scheduled task ${args.id} (permanent)`;
     case 'hook_create': return `${args.id ? 'Change' : 'Create'} webhook "${args.name}" (${args.verify || 'token'}${Array.isArray(args.events) && args.events.length ? ', events: ' + args.events.join(', ') : ''}): an outside service can then start runs that do: ${String(args.instructions || '').slice(0, 160)}`;
     case 'hook_delete': return `Delete webhook ${args.id}`;
+    case 'agent_save': return `Save agent "${args.name}"${args.role ? ` (${args.role})` : ''}${Array.isArray(args.tools) && args.tools.length ? ' · tools: ' + args.tools.join(', ') : ''}`;
+    case 'team_save': return `${args.id ? 'Change' : 'Create'} team "${args.name}" · ${(args.members || []).map((m) => m.name).join(', ')}${args.repeat && args.repeat.type ? ` · runs ${args.repeat.type === 'interval' ? `every ${Math.round((args.repeat.every || 60) / 60)} h` : `${args.repeat.type} at ${args.repeat.at || '09:00'}`}` : ''}${args.ask_first === false ? ' · acts without asking' : ''}`;
+    case 'team_start': return `Start a run of team ${args.id}`;
+    case 'team_delete': return `Delete team ${args.id}`;
     case 'heartbeat_set': { const p = []; if (args.enabled !== undefined) p.push(args.enabled ? 'switch on' : 'switch off'); if (args.every_minutes) p.push(`every ${args.every_minutes} min`); if (args.active_from || args.active_to) p.push(`${args.active_from || '…'}-${args.active_to || '…'}`); if (typeof args.checklist === 'string') p.push(`checklist with ${args.checklist.split('\n').filter((l) => /^\s*-/.test(l)).length} items`); return `${args.id ? 'Change heartbeat ' + (args.name ? `"${args.name}"` : args.id) : `New heartbeat "${args.name || ''}"`}: ` + (p.join(', ') || 'no change'); }
     case 'heartbeat_delete': return `Delete heartbeat ${args.id}`;
     case 'write_file': return `Write ${args.path} (${(args.content || '').length} characters)`;
@@ -1307,6 +1335,49 @@ async function runTool(name, args, ctx) {
           : `Callers send the secret as "Authorization: Bearer ${h.secret}" (or add ?token=${h.secret} to the URL).`;
         const reach = h.urls.public ? `Public URL: ${h.urls.public}` : `Local URL: ${h.urls.local}. It only works on this computer: for a service on the internet, the user switches on the tunnel in Scheduled → Webhooks (needs cloudflared) and uses the public URL shown there.`;
         return { ok: true, text: `Webhook "${h.name}" ${old ? 'updated' : 'created'} (id ${h.id}). ${reach}\n${how}\nVerify: ${h.verify}. Events: ${h.events.length ? h.events.join(', ') : 'all'}. At most ${h.perHour} per hour.${info && info.running === false && info.error ? ' Warning: ' + info.error : ''} Tell the user the URL and the secret and where to paste them.` };
+      }
+      case 'agent_list': {
+        if (!ctx.teams) throw new Error('Agents and teams are not available here.');
+        const l = ctx.teams.agents();
+        return { ok: true, text: l.map((a) => `${a.name}${a.role ? ` (${a.role})` : ''} · tools: ${(a.tools || []).join(', ') || 'none'}${a.model ? ' · model ' + a.model : ''}${a.builtin ? ' · built-in' : ''}\n  ${a.description || ''}`).join('\n') || 'No agents.' };
+      }
+      case 'agent_save': {
+        if (!ctx.teams) throw new Error('Agents and teams are not available here.');
+        const r = ctx.teams.saveAgent({ name: args.name, role: args.role || '', description: args.description || args.role || '', body: args.instructions, tools: Array.isArray(args.tools) ? args.tools : ['read', 'web'], model: args.model || '' });
+        if (!r || !r.ok) throw new Error((r && r.error) || 'Could not save the agent.');
+        return { ok: true, text: `Agent "${r.name}" saved.` };
+      }
+      case 'team_list': {
+        if (!ctx.teams) throw new Error('Agents and teams are not available here.');
+        const l = await ctx.teams.list();
+        return { ok: true, text: l.map((t) => `${t.id} · "${t.name}" · ${t.run ? t.run.status : 'idle'} · members: ${t.members.map((m) => m.name).join(', ')}${t.repeat ? ` · runs ${t.repeat.type}${t.repeat.at ? ' ' + t.repeat.at : ''}` : ''}\n  goal: ${String(t.goal).slice(0, 200)}`).join('\n') || 'No teams.' };
+      }
+      case 'team_save': {
+        if (!ctx.teams) throw new Error('Agents and teams are not available here.');
+        const old = args.id ? await ctx.teams.get(String(args.id)) : null;
+        if (args.id && !old) throw new Error('No team with that id. Use team_list.');
+        const def = { ...(old || {}), id: old ? old.id : undefined, name: args.name, goal: args.goal, members: (args.members || []).map((m) => ({ name: m.name, model: m.model || '' })),
+          mode: args.mode || (old && old.mode) || 'lead', leadModel: args.lead_model !== undefined ? args.lead_model : old ? old.leadModel : '',
+          rules: args.rules !== undefined ? args.rules : old ? old.rules : '', budgetUsd: args.budget_usd !== undefined ? args.budget_usd : old ? old.budgetUsd : 3,
+          budgetTokens: args.budget_tokens !== undefined ? args.budget_tokens : old ? old.budgetTokens : 0, minutes: args.minutes !== undefined ? args.minutes : old ? old.minutes : 30,
+          askWrites: args.ask_first !== undefined ? !!args.ask_first : old ? old.askWrites : true, canHire: args.can_hire !== undefined ? !!args.can_hire : old ? old.canHire : false,
+          repeat: args.repeat !== undefined ? args.repeat : old ? old.repeat : null };
+        const missing = def.members.filter((m) => !ctx.teams.agents().some((a) => a.name.toLowerCase() === String(m.name).toLowerCase())).map((m) => m.name);
+        if (missing.length) throw new Error(`These agents do not exist yet: ${missing.join(', ')}. Create them with agent_save first.`);
+        const t = await ctx.teams.save(def);
+        return { ok: true, text: `Team "${t.name}" ${old ? 'changed' : 'created'} (id ${t.id}) with ${t.members.map((m) => m.name).join(', ')}.${t.repeat ? ' It starts by itself: ' + (t.repeat.type === 'interval' ? `every ${Math.round((t.repeat.every || 60) / 60)} h` : `${t.repeat.type} at ${t.repeat.at || '09:00'}`) + '.' : ''} The user finds it on the Agents page.` };
+      }
+      case 'team_start': {
+        if (!ctx.teams) throw new Error('Agents and teams are not available here.');
+        const t = await ctx.teams.get(String(args.id));
+        if (!t) throw new Error('No team with that id or name. Use team_list.');
+        await ctx.teams.start(t.id);
+        return { ok: true, text: `Team "${t.name}" started. Its room is on the Agents page.` };
+      }
+      case 'team_delete': {
+        if (!ctx.teams) throw new Error('Agents and teams are not available here.');
+        await ctx.teams.remove(String(args.id));
+        return { ok: true, text: 'Team deleted.' };
       }
       case 'hook_list': {
         if (!ctx.schedule || !ctx.schedule.hooks) throw new Error('Webhooks are not available here.');
