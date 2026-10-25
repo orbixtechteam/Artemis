@@ -14,7 +14,8 @@
 // }
 const fs = require('fs');
 const { toolNames } = require('../subagents');
-const { kindOf: cliKind, KINDS: CLI_KINDS } = require('../cli-agents');
+const { kindOf: cliKind, modelOf: cliModelOf, transcript: cliTranscript, KINDS: CLI_KINDS } = require('../cli-agents');
+const { modelId } = require('../tools');
 
 function createTeamRunner(deps) {
   const log = deps.log || (() => {});
@@ -36,7 +37,10 @@ function createTeamRunner(deps) {
       try { if (deps.notify) deps.notify(`${agent.name} needs your OK`, String(summary).slice(0, 180)); } catch {}
       try { const ph = st.teamPhoneApprovals !== false && deps.phone && deps.phone(); if (ph && ph.askApproval) ph.askApproval(id, `${team ? `Team "${team}" · ` : ''}${agent.name} wants to:\n${summary}`).catch(() => {}); } catch {}
     });
+    if (agent.model) agent = { ...agent, model: modelId(agent.model) }; // "Claude Code" written in a prompt is cli:claude
     const cli = cliKind(agent.model);
+    // Claude Code / Codex with Artemis's tools for the member's groups (the browser, Make, connectors …), like a chat on that CLI
+    if (cli && deps.cliChat) return runMember({ cli });
     if (cli) { // Claude Code / Codex on the user's own login: no provider route, no per-token price
       if (!deps.cli) throw new Error(`${CLI_KINDS[cli].label} members run in the Artemis app, not in the background gateway.`);
       signal.addEventListener('abort', onAbort, { once: true });
@@ -51,9 +55,11 @@ function createTeamRunner(deps) {
         });
       } finally { signal.removeEventListener('abort', onAbort); }
     }
+    return runMember({});
+    async function runMember({ cli: cliK }) {
     const fallback = deps.fallbackModel();
     let model = agent.model && agent.model !== 'inherit' ? agent.model : fallback;
-    let route = deps.resolveModel(model);
+    let route = cliK ? { cli: cliK, baseUrl: '', key: '', model } : deps.resolveModel(model);
     if (route.error && model !== fallback) { log('warn', `${agent.name}: ${route.error} Using the chat model.`); model = fallback; route = deps.resolveModel(model); }
     if (route.error) throw new Error(route.error);
     const prices = deps.prices();
@@ -62,15 +68,16 @@ function createTeamRunner(deps) {
     const t = deps.tools({ caps, agent, team, runId }) || {};
     const steps = [''];
     signal.addEventListener('abort', onAbort, { once: true });
-    log('info', `${agent.name} started (${model})`);
+    log('info', `${agent.name} started (${cliK ? CLI_KINDS[cliK].label : model})`);
     try {
       await deps.runAgent({
+        cli: cliK ? { kind: cliK, model: cliModelOf(model), turn: deps.cliChat.turn, transcript: cliTranscript } : null,
         baseUrl: route.baseUrl, key: route.key, model: route.model, usageModel: model, noToolCalls: !!route.noTools, maxTokens: st.maxTokens, isSub: true, toolsEnabled: true, userData: deps.userData,
         memberCaps: caps, maxSteps: 40,
         messages: [{ role: 'user', content: prompt }], custom: '', project: null, root, defaultRoot: root === deps.filesDir(),
         webEnabled: t.webEnabled !== false && st.webEnabled !== false, searchVia: t.searchVia || null,
         shellEnabled: !!t.shellEnabled, sandbox: t.sandbox || null, computer: null, media: null,
-        phone: t.phone || null, make: t.make || null, browser: t.browser || null, mcp: t.mcp || null, mcpLazy: st.connectorsLazy !== false, // all connector tools in every turn cost ~10k tokens a step
+        phone: t.phone || null, make: t.make || null, browser: t.browser || null, mcp: t.mcp || null, mcpLazy: st.connectorsLazy !== false && !cliK, // all connector tools in every turn cost ~10k tokens a step
         memoryEnabled: !!t.memoryEnabled, memoryApi: t.memoryApi || null, schedule: t.schedule || null,
         skills: null, chats: t.chats || null, autoLearn: false, delegateEnabled: false,
         allowTools: toolNames(agent.tools || []), agentRole: agent.body || '', extraTools,
@@ -100,6 +107,7 @@ function createTeamRunner(deps) {
     }
     const strip = deps.stripThinkText || ((x) => x);
     return steps.map(strip).filter((x) => x.trim()).pop() || '';
+    }
   };
 }
 

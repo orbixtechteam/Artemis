@@ -145,6 +145,8 @@ function artemisLib() {
       if (!n) { const l = el.closest('label'); if (l) n = l.innerText || l.textContent; }
     }
     if (!n) n = el.getAttribute('placeholder') || el.getAttribute('alt') || '';
+    // rich editors (ProseMirror, Tiptap, Lexical) show their hint through a data attribute, not a placeholder
+    if (!n && el.isContentEditable) { const ph = el.getAttribute('aria-placeholder') || el.getAttribute('data-placeholder') || ((el.querySelector('[data-placeholder]') || { getAttribute: () => '' }).getAttribute('data-placeholder')); if (ph) n = 'editor: ' + ph; }
     if (!n && el.tagName === 'INPUT' && /^(submit|button|reset)$/i.test(el.type)) n = el.value;
     if (!n && !FORM.test(el.tagName) && el.tagName !== 'IFRAME') n = el.innerText || el.textContent || '';
     if (!n) n = el.getAttribute('title') || (el.tagName === 'IFRAME' ? el.getAttribute('src') || '' : '');
@@ -228,7 +230,10 @@ function readPageScript(L, o) {
     return null;
   };
   fn.frame = (el, depth) => add(depth, 'iframe (other site, not readable: ' + L.cut(String(el.src || ''), 100) + ')');
-  L.walk(document.body || document.documentElement, fn);
+  // a dialog that is open (a composer, a sign-in box) is what the user sees: it comes first, marked
+  const dlg = [...document.querySelectorAll('[role="dialog"], [aria-modal="true"], dialog[open]')].filter((d) => L.visible(d)).pop();
+  if (dlg) { add(0, 'Open dialog (on top of the page; work in it first):'); L.walk(dlg, (el, d, c) => fn(el, d + 1, c)); add(0, '--- the page behind it ---'); }
+  L.walk(document.body || document.documentElement, dlg ? (el, d, c) => (el === dlg ? false : fn(el, d, c)) : fn);
   const de = document.scrollingElement || document.documentElement;
   const head = `Page: ${document.title}\nURL: ${location.href}\nViewport ${innerWidth}x${innerHeight}, scrolled to ${Math.round(scrollX)},${Math.round(scrollY)} of ${de.scrollWidth}x${de.scrollHeight}\n`;
   return head + (lines.join('\n') || '(no ' + (o.all ? 'visible' : 'interactive') + ' elements found' + (o.all ? '' : '; try filter "all"') + ')') + (cutoff ? `\n[truncated at ${max} characters: use browser_find to locate an element, or filter "interactive"]` : '');
@@ -325,8 +330,18 @@ function formScript(L, o) {
     fire();
     return { ok: 'Set ' + L.describe(el, L.role(el)) };
   }
-  if (el.isContentEditable) { el.focus(); el.textContent = String(v == null ? '' : v); el.dispatchEvent(new InputEvent('input', { bubbles: true })); return { ok: 'Set ' + L.describe(el, L.role(el)) }; }
-  return { error: 'browser_form_input works on select, checkbox, radio, input and textarea elements. Use browser_click or browser_type for others.' };
+  if (el.isContentEditable) {
+    // a rich editor (ProseMirror, Lexical …) keeps its own document: replace the text the way typing does, so the editor sees it
+    const text = String(v == null ? '' : v);
+    const doc = el.ownerDocument; const sel = doc.getSelection();
+    el.focus();
+    try { const r = doc.createRange(); r.selectNodeContents(el); sel.removeAllRanges(); sel.addRange(r); } catch {}
+    let ok = false;
+    try { ok = doc.execCommand('insertText', false, text); } catch {}
+    if (!ok || !L.norm(el.innerText).includes(L.norm(text).slice(0, 40))) { el.textContent = text; el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text })); }
+    return { ok: 'Set ' + L.describe(el, L.role(el)) };
+  }
+  return { error: 'browser_form_input works on select, checkbox, radio, input, textarea and editable text (editors). Use browser_click or browser_type for others.' };
 }
 
 function scrollScript(L, o) {

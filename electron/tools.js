@@ -28,6 +28,14 @@ function outlineOf(text, name) {
 const WRITE_TOOLS = new Set(['library_write', 'library_edit', 'library_delete', 'notes_write', 'notes_append', 'notes_edit', 'write_file', 'edit_file', 'write_spreadsheet', 'update_cells', 'move_file', 'delete_file']);
 const ALWAYS_ASK = new Set(['delete_file', 'library_delete']);
 // These change what Artemis does by itself later (an endpoint on the internet, a check that costs tokens): asked every time.
+/** A model as people write it in a prompt ("Claude Code", "codex") as the id Artemis uses; ids pass through. */
+const modelId = (m) => {
+  const v = String(m || '').trim();
+  if (!v || /^(prov|cli):/.test(v) || v === 'inherit') return v;
+  if (/claude[\s_-]*code|^claude$/i.test(v)) return 'cli:claude';
+  if (/codex/i.test(v)) return 'cli:codex';
+  return v;
+};
 const ASK_EACH_TIME = new Set(['hook_create', 'hook_delete', 'heartbeat_set', 'heartbeat_delete', 'agent_save', 'team_save', 'team_start', 'team_delete']);
 // Tools that need one approval per task (per run), by category
 // A model can get stuck saving, deleting and re-saving the same memory. Memory may change a few times per task, then it is refused.
@@ -223,7 +231,7 @@ function definitions({ teamsEnabled, makeEnabled, hasFolder, memoryEnabled, memo
       fn('browser_type', 'Types text like a keyboard. With ref the element is clicked first to focus it; without ref it types into the focused element. clear empties the field first; submit presses Enter afterwards.', {
         text: { type: 'string' }, ref: { type: 'string' }, clear: { type: 'boolean' }, submit: { type: 'boolean' }, ...tab
       }, ['text']),
-      fn('browser_form_input', 'Sets the value of a form field directly: an option of a select (by value or visible text), a checkbox or radio (true/false), or the text of an input/textarea. Fires input and change events.', {
+      fn('browser_form_input', 'Sets the value of a form field directly: an option of a select (by value or visible text), a checkbox or radio (true/false), the text of an input/textarea, or the whole text of a rich editor (a post or note composer, shown as textbox "editor: …"). Fires input and change events. Prefer it over browser_type for long text.', {
         ref: { type: 'string' }, value: { description: 'Text, option, or true/false' }, ...tab
       }, ['ref', 'value']),
       fn('browser_key', 'Presses keys in the page: one or several separated by spaces, e.g. "Enter", "Tab Tab", "Escape", "ArrowDown", "cmd+a", "shift+Tab".', { keys: { type: 'string' }, ...tab }, ['keys']),
@@ -358,7 +366,7 @@ function definitions({ teamsEnabled, makeEnabled, hasFolder, memoryEnabled, memo
       fn('agent_save', 'Creates or changes one of the user\'s agents (saved as a file; the same name changes it). Requires approval.', {
         name: { type: 'string', description: 'Short first name, e.g. "Pip"' }, role: { type: 'string', description: 'Job title, e.g. "Publisher"' },
         description: { type: 'string', description: 'One line: when to use this agent' }, instructions: { type: 'string', description: 'The agent\'s instructions, complete' },
-        tools: { type: 'array', items: { type: 'string' }, description: GROUPS_DESC }, model: { type: 'string', description: 'Model id (prov:<provider>:<model>), empty for the default' }
+        tools: { type: 'array', items: { type: 'string' }, description: GROUPS_DESC }, model: { type: 'string', description: 'Model id (prov:<provider>:<model>), "cli:claude" for Claude Code or "cli:codex" for Codex on the user\'s own login, empty for the default' }
       }, ['name', 'instructions']),
       fn('team_list', 'Lists the agent teams with their goal, members, status, schedule and budget.', {}),
       fn('team_save', 'Creates (no id) or changes (with id) an agent team: a goal, members from the user\'s agents, and how it runs. Members must exist: create them with agent_save first. Requires approval.', {
@@ -1345,7 +1353,7 @@ async function runTool(name, args, ctx) {
       }
       case 'agent_save': {
         if (!ctx.teams) throw new Error('Agents and teams are not available here.');
-        const r = ctx.teams.saveAgent({ name: args.name, role: args.role || '', description: args.description || args.role || '', body: args.instructions, tools: Array.isArray(args.tools) ? args.tools : ['read', 'web'], model: args.model || '' });
+        const r = ctx.teams.saveAgent({ name: args.name, role: args.role || '', description: args.description || args.role || '', body: args.instructions, tools: Array.isArray(args.tools) ? args.tools : ['read', 'web'], model: modelId(args.model) });
         if (!r || !r.ok) throw new Error((r && r.error) || 'Could not save the agent.');
         return { ok: true, text: `Agent "${r.name}" saved.` };
       }
@@ -1358,7 +1366,7 @@ async function runTool(name, args, ctx) {
         if (!ctx.teams) throw new Error('Agents and teams are not available here.');
         const old = args.id ? await ctx.teams.get(String(args.id)) : null;
         if (args.id && !old) throw new Error('No team with that id. Use team_list.');
-        const def = { ...(old || {}), id: old ? old.id : undefined, name: args.name, goal: args.goal, members: (args.members || []).map((m) => ({ name: m.name, model: m.model || '' })),
+        const def = { ...(old || {}), id: old ? old.id : undefined, name: args.name, goal: args.goal, members: (args.members || []).map((m) => ({ name: m.name, model: modelId(m.model) })),
           mode: args.mode || (old && old.mode) || 'lead', leadModel: args.lead_model !== undefined ? args.lead_model : old ? old.leadModel : '',
           rules: args.rules !== undefined ? args.rules : old ? old.rules : '', budgetUsd: args.budget_usd !== undefined ? args.budget_usd : old ? old.budgetUsd : 3,
           budgetTokens: args.budget_tokens !== undefined ? args.budget_tokens : old ? old.budgetTokens : 0, minutes: args.minutes !== undefined ? args.minutes : old ? old.minutes : 30,
@@ -1470,4 +1478,4 @@ async function runTool(name, args, ctx) {
   }
 }
 
-module.exports = { definitions, run, clip, resolveSafe, WRITE_TOOLS, SESSION_TOOLS, jobsOf, withLocks, lockKey, walk, browserApproval, summarize };
+module.exports = { definitions, run, clip, modelId, resolveSafe, WRITE_TOOLS, SESSION_TOOLS, jobsOf, withLocks, lockKey, walk, browserApproval, summarize };
