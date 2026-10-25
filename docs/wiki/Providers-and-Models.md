@@ -60,6 +60,24 @@ Several features can use a smaller, cheaper model than your chat model:
 
 Image and video models are picked from the same providers. **Off** disables generation.
 
+## Claude Code and Codex (your subscription, no API key)
+
+If Claude Code or Codex is installed on this computer, the model menu of a chat shows a group **Your subscription (no API key)** with:
+
+- **Claude Code · your Claude plan**: runs the `claude` CLI with the Claude Pro/Max login you made in it.
+- **Codex · your ChatGPT plan**: runs the `codex` CLI with the ChatGPT login you made in it.
+
+Sign in once in a terminal first: run `claude` and sign in, or run `codex login`. Artemis never passes your API-key variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY` …) to the CLI, so it always uses the plan login.
+
+How it works:
+
+- Each message starts the CLI once in the chat's folder (the project folder, or the Files folder). Earlier messages go along as text.
+- The CLI works with its own tools for files, commands and the web. Artemis's own tools (the browser, Make, your connectors, memory, notes, scheduled tasks, the phone …) reach it over a private local MCP server, with a key that only lives for that message.
+- Approvals follow the chat's permission setting. "Ask" asks before Claude Code runs a command or changes a file and before Artemis tools that need an OK. Codex cannot ask in the middle of a run, so with "Ask" it only reads.
+- Usage is counted in tokens with no price, since it comes out of your plan.
+
+Background helpers (chat titles, memory, the council) keep using a provider model.
+
 ## Settings
 
 | Setting | Where | What it does |

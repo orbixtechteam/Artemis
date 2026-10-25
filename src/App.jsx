@@ -91,6 +91,8 @@ export default function App() {
   const [currentId, setCurrentId] = useState(null);
   const [view, setView] = useState('chat'); // 'chat' | 'projects' | { project: id }
   const [providers, setProviders] = useState([]);
+  const [clis, setClis] = useState({}); // Claude Code / Codex installed on this computer (plan-login chat models)
+  useEffect(() => { window.api.teamsClis?.().then((c) => c && setClis(c)).catch(() => {}); }, []);
   const applyProviders = (r) => { setProviders(r.providers || []); setExtraPrices(r.prices || {}); };
   const [runningIds, setRunningIds] = useState([]); // chats with a run in progress
   const [connectorCount, setConnectorCount] = useState(0);
@@ -1723,7 +1725,7 @@ export default function App() {
 
   if (!loaded || !settings || !chat) return <div className="boot" role="status" aria-label="Loading Artemis"><Logo size={56} className="boot-logo" /><span className="boot-spinner" /></div>;
 
-  const groups = modelGroups(chat.model, providers);
+  const groups = modelGroups(chat.model, providers, clis);
   const editingProject = modal && modal.project && modal.project !== 'new' ? projects.find((p) => p.id === modal.project) : null;
   const mac = api.platform === 'darwin';
   const viewProject = view && view.project ? projects.find((p) => p.id === view.project) : null;
@@ -1988,7 +1990,7 @@ export default function App() {
           </div>}
           {showSplit && (
             <ErrorBoundary name="the split view" resetKey={chat2.id}>
-            <SplitPane chat={chat2} msgH={msgH} busy={isRunning(chat2.id)} settings={settings} projects={projects} brains={brains} brain={brainOf(chat2)} groups={modelGroups(chat2.model, providers)}
+            <SplitPane chat={chat2} msgH={msgH} busy={isRunning(chat2.id)} settings={settings} projects={projects} brains={brains} brain={brainOf(chat2)} groups={modelGroups(chat2.model, providers, clis)}
               h={{
                 update: (patch) => updateChat(chat2.id, patch), onClose: () => setSplitTab(null),
                 onSend: (text, atts, extra) => sendTo(chat2, text, atts, extra), onStop: () => stop(chat2), ...queueFor(chat2), onRegenerate: (m) => regenerate(m, chat2), onDecide: decide,

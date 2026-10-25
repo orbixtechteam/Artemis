@@ -37,7 +37,7 @@ const mediaGen = require('./media');
 const { createComputer } = require('./computer');
 const { createFloat } = require('./float');
 const { createRemote } = require('./remote');
-const { createMcpManager, parseImport } = require('./mcp');
+const { createMcpManager, parseImport, hideServers, isSelfConnector } = require('./mcp');
 const tools = require('./tools');
 // core: SQLite sessions, the memory workspace and the gateway API (electron/core/)
 const { openDb } = require('./core/db');
@@ -161,7 +161,7 @@ const titlesLib = require('./titles');
 const { createSkills } = require('./skills');
 const { createAgents, toolNames } = require('./subagents');
 const { createTeams } = require('./teams');
-const { createCliAgents, createCliTeamTurn } = require('./cli-agents');
+const { createCliAgents, createCliTeamTurn, createCliChat, kindOf: cliKindOf, modelOf: cliModelOf, transcript: cliTranscript, KINDS: CLI_KINDS } = require('./cli-agents');
 const { createMake, ZONES: MAKE_ZONES, cleanZone: cleanMakeZone, validZone: validMakeZone } = require('./make');
 const chatSearch = require('./chatsearch');
 const { createScheduler } = require('./scheduler');
@@ -978,6 +978,8 @@ const teams = createTeams({
 // Claude Code / Codex members: the CLI runs on the user's own login; the team tools reach it over a local MCP server
 // where each turn's token sees only that turn's tools (core/teamrun.js hands those turns to cliTeam).
 const cliAgents = createCliAgents({ spawn: require('child_process').spawn, execFile: require('child_process').execFile, log: (m) => logger.warn('teams', m) });
+// the same CLIs as the model of a normal chat ("Claude Code · your login" / "Codex · your login" in the model picker)
+const cliChat = createCliChat({ cli: cliAgents, createMcpServer: require('./mcp-server').createMcpServer, isLocked: () => lock.isLocked(), log: (lv, m) => (logger[lv] || logger.info)('chat', m) });
 const cliTeam = createCliTeamTurn({ cli: cliAgents, createMcpServer: require('./mcp-server').createMcpServer, isLocked: () => lock.isLocked(), log: (lv, m) => (logger[lv] || logger.info)('teams', m) });
 
 /** One turn of one team member (or the lead): core/teamrun.js with what the app has (Make, the browser, connectors, the
@@ -993,7 +995,7 @@ const runTeamTurn = require('./core/teamrun').createTeamRunner({
       webEnabled: st.webEnabled, searchVia: searchViaFor(st), chats: st.chatSearchEnabled !== false ? chatsApi() : null,
       make: caps.has('make') && st.makeEnabled !== false && makeReady() ? make : null,
       browser: caps.has('browser') && st.browserTools !== false ? browser.agent(runId, { who: agent.name, team }) : null,
-      mcp: caps.has('connectors') && st.connectorsEnabled !== false ? (sb ? sandboxedMcp() : mcp) : null,
+      mcp: caps.has('connectors') && st.connectorsEnabled !== false ? (sb ? sandboxedMcp() : agentMcp()) : null,
       shellEnabled: caps.has('shell') && st.shellEnabled !== false, sandbox: sb,
       phone: caps.has('phone') ? phoneNow() : null,
       memoryEnabled: caps.has('memory') && st.memoryEnabled !== false, memoryApi: caps.has('memory') ? memoryApi(() => toWinSafe('chat:event', { type: 'memory:changed' })) : null,
@@ -1009,7 +1011,7 @@ const runTeamTurn = require('./core/teamrun').createTeamRunner({
 });
 
 async function executeRun({ requestId, model: model0, messages, project, system, maxTokens, send: rawSend, restrict, incognito, source, unattended, allowEdits, permMode, chatId, brain, brainPick, revote, agentsMode, toolsMode, effort, mentions, shellMode }) {
-  const model = liveModel(model0);
+  const model = cliKindOf(model0) ? String(model0) : liveModel(model0); // Claude Code / Codex models are not a provider's
   // where run_command goes in this run: the sandbox from Settings, unless the chat picked "this Mac" (only a chat in the window can)
   const sb = shellMode === 'host' && !unattended && !restrict ? null : currentSandbox();
   let usesFloat = false;
@@ -1056,7 +1058,8 @@ async function executeRun({ requestId, model: model0, messages, project, system,
   logger.info('chat', `Run started · ${model}${brain ? ' · brain: ' + brain : ''}${source ? ' · ' + source : ''}`, { chat: chatId, messages: Array.isArray(messages) ? messages.length : 0, incognito: !!incognito });
   const settings = getSettings();
   logger.info('chat', `Web search engine: ${settings.searchEngine === 'brave' ? (getSecret('braveKey') ? 'Brave (key saved)' : 'Brave (NO KEY saved)') : settings.searchProvider ? 'AI search model' : 'none'}`);
-  const route = providersLib.resolve(model, readProviders(), getProviderKey);
+  const cliKind = cliKindOf(model);
+  const route = cliKind ? { cli: cliKind, baseUrl: '', key: '', model } : providersLib.resolve(model, readProviders(), getProviderKey);
   if (route.error) { send({ type: 'error', message: route.error }); send({ type: 'done' }); return; }
   const key = route.key;
   const controller = new AbortController();
@@ -1079,7 +1082,7 @@ async function executeRun({ requestId, model: model0, messages, project, system,
     const sel = brain !== undefined && brain !== null ? String(brain) : String(settings.defaultBrain || '');
     const wanted = unattended && sel === 'council' ? '' : sel;
     if (wanted) {
-      const resolveFor = (id) => providersLib.resolve(id || model, readProviders(), getProviderKey);
+      const resolveFor = (id) => providersLib.resolve(id || (cliKind ? liveModel('') : model), readProviders(), getProviderKey); // the council votes on a provider model
       const brainUsage = (u) => { if (!incognito) recordUsage({ t: Date.now(), model: u.model, chat: chatId || '', project: project?.name || '', source: 'council', prompt: u.prompt, completion: u.completion, cached: 0, estimated: u.estimated }); };
       let chosen = null; let hint = '';
       const lastUser = [...messages].reverse().find((m) => m.role === 'user');
@@ -1117,7 +1120,8 @@ async function executeRun({ requestId, model: model0, messages, project, system,
     }
     await runAgent({
       persona, sessionId: chatId || undefined, userData: app.getPath('userData'), mentions: Array.isArray(mentions) ? mentions.slice(0, 20) : [],
-      baseUrl: runRoute.baseUrl, key: runRoute.key, model: runRoute.model, noToolCalls: !!runRoute.noTools, messages: runRoute.noTools ? stashImages(messages) : messages, maxTokens: maxTokens || settings.maxTokens, reasoningEffort: effort === 'auto' ? '' : (effort || settings.reasoningEffort || ''),
+      baseUrl: runRoute.baseUrl, key: runRoute.key, model: runRoute.model, noToolCalls: !!runRoute.noTools, messages: runRoute.noTools || runRoute.cli ? stashImages(messages) : messages,
+      cli: runRoute.cli ? { kind: runRoute.cli, model: cliModelOf(runRoute.model), turn: cliChat.turn, transcript: cliTranscript } : null, maxTokens: maxTokens || settings.maxTokens, reasoningEffort: effort === 'auto' ? '' : (effort || settings.reasoningEffort || ''),
       custom: system, personality: require('./personality').text(settings), userName: settings.profileName || '', userAbout: settings.profileAbout || '', userLocation: settings.profileLocation || '', project, root: fileRoot, defaultRoot: !root,
       // with a sandbox, run_command never touches this computer, so it is also allowed in phone/gateway (restricted) and scheduled tasks
       sandbox: sb, webEnabled: settings.webEnabled, shellEnabled: settings.shellEnabled && (!restrict || !!sb),
@@ -1131,7 +1135,7 @@ async function executeRun({ requestId, model: model0, messages, project, system,
       library: settings.notesAi !== false ? library : null,
       term: settings.shellEnabled && !restrict && !unattended && !sb && process.platform !== 'win32' ? termApi : null, // the terminal panel is this computer's shell: off while the sandbox is on
       browser: settings.browserTools !== false && !restrict && !unattended ? browser.agent(requestId) : null,
-      phone: phoneNow(), media: mediaApi(settings, controller.signal), mcp: settings.connectorsEnabled === false ? null : sb ? sandboxedMcp() : mcp, mcpLazy: settings.connectorsLazy !== false, fullFileAccess: settings.fullFileAccess !== false, lazyTools: settings.toolsLazy !== false,
+      phone: phoneNow(), media: mediaApi(settings, controller.signal), mcp: settings.connectorsEnabled === false ? null : sb ? sandboxedMcp() : agentMcp(), mcpLazy: settings.connectorsLazy !== false && !runRoute.cli, fullFileAccess: settings.fullFileAccess !== false, lazyTools: settings.toolsLazy !== false && !runRoute.cli, // the CLI loads tools on demand itself
       skills: settings.skillsEnabled !== false ? { index: () => skills.indexText(root), get: (n) => skills.get(n, root), save: (o) => skills.save(o, root) } : null,
       autoLearn: settings.autoLearn !== false && !incognito && !unattended,
       chats: settings.chatSearchEnabled !== false && !incognito ? chatsApi() : null,
@@ -1188,7 +1192,7 @@ async function executeRun({ requestId, model: model0, messages, project, system,
     try {
       const work = toolLog.filter((t) => !/^(use_skill|create_skill|update_skill|memory_|search_chats|notes_search)/.test(t.name));
       const toolsOn = toolsMode === 'on' ? true : toolsMode === 'off' ? false : settings.toolsEnabled;
-      if (settings.skillsEnabled !== false && settings.autoLearn !== false && toolsOn && !incognito && !unattended && !restrict && !source && !hadError && !controller.signal.aborted
+      if (!route.cli && settings.skillsEnabled !== false && settings.autoLearn !== false && toolsOn && !incognito && !unattended && !restrict && !source && !hadError && !controller.signal.aborted
         && work.length >= 3 && !toolLog.some((t) => /^(create|update)_skill$/.test(t.name)) && Date.now() - (learnLast.get(chatId || '') || 0) > 10 * 60 * 1000) {
         learnLast.set(chatId || '', Date.now());
         await learnFromRun({ settings, root, userText, toolLog, finalText: lastText, signal: controller.signal, send, myApprovals, chatId, model, route });
@@ -1913,7 +1917,9 @@ const headlessUsage = () => { try { const m = fs.statSync(dataFile('usage-headle
 const allUsage = () => { const h = headlessUsage(); return h.length ? [...getUsage(), ...h].sort((a, b) => (a.t || 0) - (b.t || 0)) : getUsage(); };
 
 // ---------- sandbox for run_command (electron/core/sandbox.js) ----------
-const sandboxedMcp = () => hideHostShellTools(mcp);
+// connectors as the agents see them: without one that is Artemis itself (its MCP server or gateway on this computer)
+const agentMcp = () => hideServers(mcp, () => mcp.slugsWhere((c) => isSelfConnector(c, [Number(getSettings().mcpServerPort) || 8788, gatewayPort()])));
+const sandboxedMcp = () => hideHostShellTools(agentMcp());
 let sbCache = { key: null, sb: null };
 function currentSandbox() {
   const st = getSettings();
@@ -2001,7 +2007,16 @@ const gatewayHandlers = {
     note: (text) => { const c = initCore(); if (!c.ws) throw new Error('Daily notes need the memory workspace (Settings → Tools → Memory)'); return c.ws.note(text); }
   }
 };
-async function syncGateway() {
+// one sync at a time: two calls racing at startup both saw no gateway and the second hit "port already in use"
+let gatewaySyncing = null, gatewaySyncAgain = false;
+function syncGateway() {
+  if (gatewaySyncing) { gatewaySyncAgain = true; return gatewaySyncing; }
+  gatewaySyncing = (async () => {
+    do { gatewaySyncAgain = false; await syncGatewayOnce(); } while (gatewaySyncAgain);
+  })().finally(() => { gatewaySyncing = null; });
+  return gatewaySyncing;
+}
+async function syncGatewayOnce() {
   const st = getSettings();
   try {
     const want = !!st.gatewayEnabled && !headlessActive(); // the headless gateway serves the API while it runs
@@ -2108,6 +2123,7 @@ app.on('before-quit', (e) => {
   flushUsage();
   try { teams.flush(); } catch {}
   try { cliTeam.stop(); } catch {}
+  try { cliChat.stop(); } catch {}
   try { updater.installOnQuit(); } catch (e) { logger.warn('update', 'Install on quit failed: ' + e.message); }
   try { mcpServer.stop(); } catch {} try { sentinelWidget && sentinelWidget.destroy(); } catch {}
   // Every other window goes now: a hidden or always-on-top one must not keep the app alive.

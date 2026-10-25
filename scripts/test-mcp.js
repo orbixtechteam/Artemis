@@ -135,6 +135,29 @@ const tools = require('../electron/tools');
   assert(imp.length === 2 && imp[0].type === 'stdio' && imp[1].type === 'http' && imp[1].headers.Authorization === 'Bearer t');
   assert.throws(() => parseImport('{"mcpServers":{}}'), /No servers/);
 
+  {
+    // a connector that is Artemis itself is hidden from Artemis's own agents
+    const { hideServers, isSelfConnector } = require('../electron/mcp');
+    assert.ok(isSelfConnector({ url: 'http://127.0.0.1:8788/mcp' }, [8788, 8789]));
+    assert.ok(isSelfConnector({ url: 'http://localhost:8789/mcp' }, [8788, 8789]));
+    assert.ok(!isSelfConnector({ url: 'http://127.0.0.1:9000/mcp' }, [8788, 8789]));
+    assert.ok(!isSelfConnector({ url: 'https://mcp.notion.com/mcp' }, [443]));
+    assert.ok(!isSelfConnector({ command: 'npx' }, [8788]));
+    const fake = {
+      index: () => [{ slug: 'artemis', name: 'Artemis', tools: ['artemis_fs_read_file'] }, { slug: 'notion', name: 'Notion', tools: ['search'] }],
+      definitions: (slugs) => (slugs || ['artemis', 'notion']).map((x) => ({ function: { name: `mcp__${x}__t` } })),
+      resolveSlug: (q) => q, info: (n) => ({ server: n.split('__')[1] }), call: async () => 'ran'
+    };
+    const v = hideServers(fake, () => ['artemis']);
+    assert.deepStrictEqual(v.index().map((x) => x.slug), ['notion']);
+    assert.deepStrictEqual(v.definitions().map((d) => d.function.name), ['mcp__notion__t']);
+    assert.deepStrictEqual(v.definitions(['artemis', 'notion']).map((d) => d.function.name), ['mcp__notion__t']);
+    assert.strictEqual(v.resolveSlug('artemis'), '');
+    await assert.rejects(v.call('mcp__artemis__artemis_fs_read_file', {}), /not available/);
+    assert.strictEqual(await v.call('mcp__notion__search', {}), 'ran');
+    console.log('mcp: self connector hidden ok');
+  }
+
   mgr.close(); srv.close();
   console.log('mcp: all tests passed');
 })().catch((e) => { console.error('FAILED:', e); process.exit(1); });

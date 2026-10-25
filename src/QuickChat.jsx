@@ -49,6 +49,8 @@ export default function QuickChat({ embedded = false, onClose, onKeepOpen, focus
   const [nonce, setNonce] = useState(0);
   const [brains, setBrains] = useState([]);
   const [providers, setProviders] = useState([]);
+  const [clis, setClis] = useState({}); // Claude Code / Codex installed on this computer (plan-login chat models)
+  useEffect(() => { window.api.teamsClis?.().then((c) => c && setClis(c)).catch(() => {}); }, []);
   const lsGet = (k) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } };
   const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
   const [picked, setPicked] = useState(() => { const v = lsGet('quick-brain'); return v ? (v === 'none' ? '' : v) : null; }); // null = not chosen here: the default brain from Settings
@@ -119,7 +121,7 @@ export default function QuickChat({ embedded = false, onClose, onKeepOpen, focus
     return () => window.removeEventListener('keydown', h);
   }, []);
 
-  const groups = modelGroups(modelPick || (settings && settings.model), providers);
+  const groups = modelGroups(modelPick || (settings && settings.model), providers, clis);
   const activeModel = modelPick || (settings ? defaultModel(settings, providers) : '');
   const send = () => {
     const t = text.trim();

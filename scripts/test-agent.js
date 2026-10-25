@@ -578,4 +578,41 @@ const delta = (d, finish = null) => ({ choices: [{ delta: d, finish_reason: fini
   fs.rmSync(root, { recursive: true, force: true });
   srv.closeAllConnections?.(); srv.close();
   console.log('agent: tools with reasoning off ok');
+
+  {
+    // Claude Code / Codex as the chat model: no endpoint request; Artemis's tools are handed to the CLI (minus the ones
+    // the CLI has itself), run here with Artemis's approvals, and the CLI's steps become chat events
+    const root2 = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-cli-'));
+    const evs = []; let got = null;
+    const make = { list: async () => [{ id: 1, name: 'Daily' }] };
+    await runAgent({
+      baseUrl: '', key: '', model: 'cli:claude', toolsEnabled: true, root: root2, webEnabled: true, make, messages: [{ role: 'user', content: 'list my scenarios' }],
+      send: (e) => evs.push(e), approve: async () => true,
+      cli: { kind: 'claude', model: '', transcript: (h) => h.map((m) => m.content).join('|'), turn: async (o) => {
+        got = o;
+        o.onStep({ type: 'step' });
+        o.onStep({ type: 'tool', id: 'r1', name: 'read_file', args: { path: 'a' } });
+        o.onStep({ type: 'tool:done', id: 'r1', ok: true, text: 'file text' });
+        o.onStep({ type: 'step' });
+        o.onStep({ type: 'tool', id: 'm1', name: 'make_list_scenarios', args: {}, bridged: true });
+        const t = o.tools.find((x) => x.name === 'make_list_scenarios');
+        if (t) await t.run({}).catch(() => {});
+        o.onStep({ type: 'tool:done', id: 'm1', ok: true });
+        o.onStep({ type: 'step' }); o.onStep({ type: 'text', text: 'Here they are.' });
+        o.onUsage({ prompt: 10, completion: 5 });
+        return 'Here they are.';
+      } }
+    });
+    const names = got.tools.map((t) => t.name);
+    assert.ok(!names.includes('read_file') && !names.includes('run_command') && !names.includes('web_search'), 'tools the CLI has itself are not handed over');
+    assert.ok(names.some((n) => /^make_/.test(n)), 'Artemis-only tools are: ' + names.join(','));
+    assert.strictEqual(got.prompt, 'list my scenarios'); assert.strictEqual(got.perm, 'ask'); assert.strictEqual(got.folder, root2);
+    assert.ok(/Artemis/.test(got.system), 'the Artemis system prompt goes to the CLI');
+    assert.strictEqual(evs.filter((e) => e.type === 'tool:result' && e.id === 'r1').length, 1, 'the CLI\'s own step is shown');
+    assert.strictEqual(evs.filter((e) => e.type === 'step:new').length, 2);
+    assert.strictEqual(evs.filter((e) => e.type === 'chunk').map((e) => e.text).join(''), 'Here they are.');
+    if (names.includes('make_list_scenarios')) assert.strictEqual(evs.filter((e) => e.type === 'tool:result' && e.id === 'm1').length, 1, 'a bridged tool is shown once, with Artemis\'s own result');
+    fs.rmSync(root2, { recursive: true, force: true });
+    console.log('agent: Claude Code / Codex chat ok');
+  }
 })().catch((e) => { console.error('FAILED:', e); process.exit(1); });
