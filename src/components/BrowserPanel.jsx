@@ -100,8 +100,8 @@ export default function BrowserPanel({ url, onUrl, onClose, full = false, agent 
       {agent && (
         <div className="bp-agent" role="status">
           <span className="bp-agent-dot" />
-          <span className="bp-agent-text">Artemis is using the browser{agent.tool ? <span className="muted"> · {agent.tool.replace(/^browser_/, '').replace(/_/g, ' ')}</span> : null}</span>
-          <button className="bp-agent-stop" onClick={onStopAgent}><Icon name="stop" size={12} /> Stop</button>
+          <span className="bp-agent-text">{agent.who || 'Artemis'}{agent.team ? <span className="muted"> ({agent.team})</span> : null} is using the browser{agent.tool ? <span className="muted"> · {agent.tool.replace(/^browser_/, '').replace(/_/g, ' ')}</span> : null}</span>
+          {!agent.team && <button className="bp-agent-stop" onClick={onStopAgent}><Icon name="stop" size={12} /> Stop</button>}
         </div>
       )}
       <div className="bp-body" ref={body}>

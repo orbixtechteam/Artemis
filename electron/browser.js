@@ -640,11 +640,11 @@ function createBrowser(deps) {
     return { x: Math.round(p.x * z), y: Math.round(p.y * z), desc: p.desc, covered: p.covered };
   }
 
-  async function tool(name, args, { signal, requestId } = {}) {
+  async function tool(name, args, { signal, requestId, who } = {}) {
     args = args || {};
     if (signal && signal.aborted) throw abortErr();
     agentRuns.add(requestId || '');
-    emit('browser:agent', { active: true, requestId, tool: name, show: !shown });
+    emit('browser:agent', { active: true, requestId, tool: name, show: !shown, ...who });
     switch (name) {
       case 'browser_tabs': {
         const a = String(args.action || 'list');
@@ -806,12 +806,13 @@ function createBrowser(deps) {
       default: throw new Error('Unknown browser tool: ' + name);
     }
   }
-  /** The handle one agent run gets: its browser use is reported to the renderer under its requestId. */
-  function agent(requestId) {
+  /** The handle one agent run gets: its browser use is reported to the renderer under its requestId.
+   *  who: { who, team } for a team member, so the browser says which agent is driving it. */
+  function agent(requestId, who) {
     return {
       host: (tabId) => host(tabId),
       run: async (name, args, opts = {}) => {
-        try { return await tool(name, args, { ...opts, requestId }); } catch (e) {
+        try { return await tool(name, args, { ...opts, requestId, who }); } catch (e) {
           if (e && e.name === 'AbortError') return { ok: false, text: 'Stopped.' };
           return { ok: false, text: 'Error: ' + String((e && e.message) || e).replace(/^Error:\s*/, '') };
         }

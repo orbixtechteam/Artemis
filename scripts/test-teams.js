@@ -291,17 +291,81 @@ const def = (extra) => ({ name: 'Launch', goal: 'Ship the notes', members: [{ na
     assert.ok(teams.reload()); assert.strictEqual(teams.get(t.id).notebook, '');
     console.log('teams: rules, notebook, hiring, token budget ok');
   }
+  // found with a real team (Sticky Notes): a turn cut off by a pause is not finished work, a reviewer cut off mid-check
+  // approves nothing, a member that stops without a result fails the task, and team tools written as text still count
+  {
+    const { teams } = make((o) => new Promise((resolve) => {
+      if (o.agent.name === 'Artemis') { tool(o, 'team_plan').run({ tasks: [{ title: 'Post the note', assignee: 'Athena' }] }); return resolve('plan'); }
+      o.signal.addEventListener('abort', () => resolve('I will open the page first')); // runAgent returns, it does not throw
+    }));
+    const t = teams.save(def({ members: [{ name: 'Athena' }] }));
+    teams.start(t.id);
+    await wait(20);
+    teams.pause(t.id);
+    const p = await teams.idle(t.id);
+    assert.strictEqual(p.run.tasks[0].status, 'todo', 'the cut-off task goes back to the queue');
+    assert.ok(!p.run.messages.some((m) => m.kind === 'result'), 'no result is posted for it');
+    teams.stop(t.id);
+
+    let reviews = 0;
+    const { teams: rv } = make((o) => new Promise((resolve) => {
+      if (o.agent.name === 'Artemis' && /Call team_plan/.test(o.prompt)) { tool(o, 'team_plan').run({ tasks: [{ title: 'Write', assignee: 'Calliope' }] }); return resolve('plan'); }
+      if (o.agent.name === 'Calliope') { tool(o, 'team_done').run({ result: 'the note' }); return resolve(''); }
+      if (o.agent.name === 'Themis') { reviews++; o.signal.addEventListener('abort', () => resolve('I will verify the files it claims to have written.')); return; }
+      resolve('summary');
+    }));
+    const t2 = rv.save(def({ members: [{ name: 'Calliope' }, { name: 'Themis' }] }));
+    rv.start(t2.id);
+    await wait(20);
+    assert.strictEqual(reviews, 1);
+    rv.pause(t2.id);
+    const p2 = await rv.idle(t2.id);
+    assert.strictEqual(p2.run.tasks[0].status, 'review', 'the review runs again after Resume');
+    assert.strictEqual(p2.run.tasks[0].result, 'the note', 'work handed in with team_done before the pause is kept');
+    assert.ok(!p2.run.messages.some((m) => m.kind === 'review'), 'nothing was approved');
+    rv.stop(t2.id);
+
+    const { teams: lost } = make(async (o) => {
+      if (o.agent.name === 'Artemis') { tool(o, 'team_plan').run({ tasks: [{ title: 'Post it', assignee: 'Athena' }] }); return 'plan'; }
+      o.onStep({ type: 'notice', text: 'Stopped: the model kept repeating the same browser_read_page call.' });
+      return '';
+    });
+    const t3 = lost.save(def({ members: [{ name: 'Athena' }] }));
+    lost.start(t3.id);
+    const p3 = await lost.idle(t3.id);
+    assert.strictEqual(p3.run.status, 'failed');
+    assert.ok(p3.run.messages.some((m) => m.kind === 'error' && /Athena stopped without a result \(Stopped: the model kept repeating the same browser_read_page call\)/.test(m.text)), JSON.stringify(p3.run.messages.map((m) => m.text)));
+    assert.ok(!p3.run.messages.some((m) => m.kind === 'result'));
+
+    let round = 0;
+    const { teams: txt } = make(async (o) => {
+      if (o.agent.name === 'Artemis' && /Call team_plan/.test(o.prompt)) { tool(o, 'team_plan').run({ tasks: [{ title: 'Write', assignee: 'Calliope' }] }); return 'plan'; }
+      if (o.agent.name === 'Calliope') return `Note v${++round}: we are the AI team.\n\nteam_post(text="Draft is in Files/sticky (v${round})")\n\nteam_done(result="Wrote the note")`;
+      if (o.agent.name === 'Themis') return round === 1 ? 'team_review(verdict="changes", note="Add a hook")' : 'team_review(verdict="approve", note="Good")';
+      return 'summary';
+    });
+    const t4 = txt.save(def({ members: [{ name: 'Calliope' }, { name: 'Themis' }] }));
+    txt.start(t4.id);
+    const p4 = await txt.idle(t4.id);
+    assert.strictEqual(p4.run.status, 'done');
+    const res = p4.run.messages.filter((m) => m.kind === 'result').map((m) => m.text);
+    assert.deepStrictEqual(res, ['Note v1: we are the AI team.', 'Note v2: we are the AI team.'], 'the text calls are taken out of the result');
+    assert.deepStrictEqual(p4.run.messages.filter((m) => m.kind === 'review').map((m) => m.verdict), ['changes', 'approve']);
+    assert.strictEqual(p4.run.messages.find((m) => m.kind === 'review').text, 'Add a hook');
+    assert.ok(p4.run.messages.some((m) => m.kind === 'msg' && m.from === 'Calliope' && m.text === 'Draft is in Files/sticky (v1)'), 'a team_post written as text is posted');
+    console.log('teams: cut-off turns, empty results and text tool calls ok');
+  }
   // core/teamrun.js: a member gets the tools of its groups, approvals go to the room and to Telegram
   {
     const { createTeamRunner } = require('../electron/core/teamrun');
-    let got = null; const asked = []; const reg = new Map(); const phoneAsks = [];
+    let got = null; const asked = []; const reg = new Map(); const phoneAsks = []; const released = [];
     const run = createTeamRunner({
       runAgent: async (o) => { got = o; const ok = o.autoAll ? true : await o.approve({ name: 'make_run', summary: 'Run scenario 7' }); o.send({ type: 'chunk', text: ok ? 'ran it' : 'denied' }); },
       settings: () => ({ maxTokens: 1000 }), userData: '/tmp', resolveModel: (m) => (m === 'bad' ? { error: 'no key' } : { baseUrl: 'u', key: 'k', model: m }), fallbackModel: () => 'chat',
       prices: () => ({}), costOf: () => 0, recordUsage: () => {}, limitBlocked: () => '', filesDir: () => '/files',
       tools: ({ caps }) => ({ make: caps.has('make') ? { m: 1 } : null, browser: caps.has('browser') ? { b: 1 } : null, shellEnabled: caps.has('shell') }),
       approvals: { add: (id, decide) => reg.set(id, decide), drop: (id) => { const d = reg.get(id); reg.delete(id); if (d) d(false); } },
-      phone: () => ({ askApproval: async (id, text) => phoneAsks.push([id, text]) })
+      phone: () => ({ askApproval: async (id, text) => phoneAsks.push([id, text]) }), release: (id) => released.push(id)
     });
     const ctrl = new AbortController();
     const p = run({ agent: { name: 'Mira', tools: ['make', 'web'], model: 'bad', body: 'posts' }, prompt: 'go', extraTools: [], signal: ctrl.signal, askWrites: true, team: 'Biz',
@@ -315,6 +379,7 @@ const def = (extra) => ({ name: 'Launch', goal: 'Ship the notes', members: [{ na
     assert.ok(got.make && !got.browser && !got.shellEnabled && got.isSub && got.memberCaps.has('make'));
     assert.ok(got.allowTools.has('make_run') && got.allowTools.has('web_search') && !got.allowTools.has('browser_click'));
     assert.ok(!got.autoAll);
+    assert.strictEqual(released.length, 1, 'the turn frees its browser handle when it ends');
     await run({ agent: { name: 'Mira', tools: [] }, prompt: 'go', extraTools: [], signal: new AbortController().signal, askWrites: false, onUsage: () => {}, onApproval: { asked: () => {}, done: () => {} } }).catch(() => {});
     assert.ok(got.autoAll && got.autoApprove, '"ask me first" off: the member acts on its own');
     console.log('teams: member tools and approvals ok');

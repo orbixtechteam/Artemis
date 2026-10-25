@@ -7,13 +7,17 @@ import TeamRoom from './teams/TeamRoom.jsx';
 import DeploySheet from './teams/DeploySheet.jsx';
 import { Avatar, Stack, LEAD, teamState, pendingAsks, usd, elapsed } from './teams/parts.jsx';
 
+// The team room you had open: the page unmounts when you switch tabs or pages, and comes back to the same room.
+let lastRoom = null;
+
 /** Agents: teams you deploy on a goal, the roster of agents, and helpers working inside chats right now. */
 export default function AgentsView({ settings, chats, runningIds, groups, onOpenChat }) {
   const api = window.api;
   const chatGroups = groups.filter((g) => !/^(Image|Video)/.test(g.label));
   const [teams, setTeams] = useState([]);
   const [roster, setRoster] = useState([]);
-  const [open, setOpen] = useState(null);       // id of the team whose room is shown
+  const [open, setOpenRaw] = useState(() => lastRoom); // id of the team whose room is shown
+  const setOpen = (id) => { lastRoom = id; setOpenRaw(id); };
   const [sheet, setSheet] = useState(null);     // team being created ({}) or edited
   const [editing, setEditing] = useState(null); // agent in the editor
   const [, tick] = useState(0);

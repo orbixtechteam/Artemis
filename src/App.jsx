@@ -116,7 +116,7 @@ export default function App() {
   const dragPanel = (e) => { setWide(false); startDrag(e, (x) => setSpW(clamp(window.innerWidth - x, 320, Math.round(window.innerWidth * 0.85))), () => setSpW((w) => { saveWidth('zero.spW', w); return w; })); };
   const dragSidebar = (e) => startDrag(e, (x) => setSbW(clamp(x, 200, 520)), () => setSbW((w) => { saveWidth('zero.sbW', w); return w; }));
   const [browser, setBrowser] = useState({ open: false, url: 'https://www.google.com' });
-  const [browserAgent, setBrowserAgent] = useState(null); // { requestId, tool } while a chat run drives the browser
+  const [browserAgent, setBrowserAgent] = useState(null); // { requestId, tool, who?, team? } while a chat run (or a team member) drives the browser
   const [term, setTerm] = useState({ open: false, tabs: [], active: null, height: 280 });
   const [palette, setPalette] = useState(false);
   // changes made from the phone (Telegram): switches, providers, compact
@@ -449,7 +449,8 @@ export default function App() {
   const showBrowserRef = useRef(null);
   showBrowserRef.current = () => {
     if (browserOn.current) return;
-    if ((viewRef.current === 'chat' || viewRef.current === 'note') && !TAB_MODALS.includes(modalRef.current)) {
+    // next to a chat, a note or the Agents page (a team member at work), so what you were watching stays in view
+    if ((viewRef.current === 'chat' || viewRef.current === 'note' || viewRef.current === 'agents') && !TAB_MODALS.includes(modalRef.current)) {
       const ex = (tabsRef.current || []).find((t) => kindOf(t.s) === 'browser' && t.id !== activeRef.current);
       if (ex) { setSplitTab(ex.id); return; }
       const t = mkTab({ view: 'browser', chatId: currentRef.current, modal: null, settingsTab: 'general' }); setTabs((ts) => [...(ts || []), t]); setSplitTab(t.id);
@@ -459,7 +460,10 @@ export default function App() {
     if (!api.onBrowserAgent) return undefined;
     return api.onBrowserAgent((ev) => {
       if (!ev) return;
-      if (ev.active) { setBrowserAgent((a) => ({ requestId: ev.requestId, tool: ev.tool || (a && a.requestId === ev.requestId ? a.tool : '') })); showBrowserRef.current(); }
+      if (ev.active) {
+        setBrowserAgent((a) => { const same = a && a.requestId === ev.requestId; return { requestId: ev.requestId, tool: ev.tool || (same ? a.tool : ''), who: ev.who || (same ? a.who : ''), team: ev.team || (same ? a.team : '') }; });
+        showBrowserRef.current();
+      }
       else setBrowserAgent((a) => (a && a.requestId === ev.requestId ? null : a));
     });
   }, []);
