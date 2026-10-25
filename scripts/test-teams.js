@@ -177,12 +177,24 @@ const def = (extra) => ({ name: 'Launch', goal: 'Ship the notes', members: [{ na
     console.log('teams: stopped members are not done ok');
   }
 
-  // an Editor checks the others' work like a Reviewer: sent-back work is redone before the next task starts
+  // the reviewer is the team's choice, whatever the member's role is called
   {
-    const { REVIEWER_ROLE } = require('../electron/teams');
-    for (const r of ['Reviewer', 'Editor', 'QA', 'Fact-checker', 'Copy editor']) assert.ok(REVIEWER_ROLE.test(r), r);
-    for (const r of ['Writer', 'Publisher', 'Researcher']) assert.ok(!REVIEWER_ROLE.test(r), r);
-    console.log('teams: reviewer roles ok');
+    const reviewed = [];
+    const { teams } = make(async (o) => {
+      if (o.agent.name === 'Artemis' && /Call team_plan/.test(o.prompt)) { tool(o, 'team_plan').run({ tasks: [{ title: 'Write it', assignee: 'Calliope' }] }); return 'ok'; }
+      if (o.agent.name === 'Artemis') return 'Summary';
+      if (/reviewing/.test(o.prompt)) { reviewed.push(o.agent.name); tool(o, 'team_review').run({ verdict: reviewed.length === 1 ? 'changes' : 'approve', note: 'Add the intro' }); return ''; }
+      tool(o, 'team_done').run({ result: /Add the intro/.test(o.prompt) ? 'v2' : 'v1' }); return '';
+    });
+    const t = teams.save(def({ members: [{ name: 'Athena' }, { name: 'Calliope' }], reviewer: 'athena' }));
+    assert.strictEqual(t.reviewer, 'Athena', 'a member, by name');
+    teams.start(t.id);
+    const end = await teams.idle(t.id);
+    assert.deepStrictEqual(reviewed, ['Athena', 'Athena'], 'Athena (a Researcher) reviews because the team says so');
+    assert.strictEqual(end.run.tasks[0].result, 'v2', 'sent-back work is redone');
+    assert.strictEqual(teams.save({ ...t, reviewer: '' }).reviewer, '', 'nobody');
+    assert.strictEqual(teams.save({ ...t, reviewer: 'Nobody-here' }).reviewer, '', 'not a member: nobody');
+    console.log('teams: reviewer setting ok');
   }
 
   // budget: the team pauses at the cap; resume gives it the same amount again
