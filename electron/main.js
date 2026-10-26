@@ -2171,12 +2171,21 @@ app.whenReady().then(() => {
     });
   } catch {}
   if (process.platform === 'darwin' && app.dock) {
-    try {
-      const ico = nativeImage.createFromPath(path.join(__dirname, '..', 'build', 'icon.png'));
-      if (ico.isEmpty()) logger.warn('app', 'Dock icon file could not be read: build/icon.png');
-      else { app.dock.setIcon(ico); logger.info('app', 'Dock icon set from build/icon.png'); }
-      app.dock.show();
-    } catch (e) { logger.warn('app', 'Dock icon failed: ' + ((e && e.message) || e)); }
+    // Indigo icon in light mode, dark icon in dark mode; follows the app theme (nativeTheme.themeSource)
+    let dockIconFile = '';
+    const setDockIcon = () => {
+      const file = nativeTheme.shouldUseDarkColors ? 'icon-dark.png' : 'icon.png';
+      if (file === dockIconFile) return;
+      try {
+        const ico = nativeImage.createFromPath(path.join(__dirname, '..', 'build', file));
+        if (ico.isEmpty()) { logger.warn('app', 'Dock icon file could not be read: build/' + file); return; }
+        app.dock.setIcon(ico); dockIconFile = file;
+        logger.info('app', 'Dock icon set from build/' + file);
+      } catch (e) { logger.warn('app', 'Dock icon failed: ' + ((e && e.message) || e)); }
+    };
+    setDockIcon();
+    nativeTheme.on('updated', setDockIcon);
+    try { app.dock.show(); } catch (e) { logger.warn('app', 'Dock show failed: ' + ((e && e.message) || e)); }
   }
   floater = createFloat({ BrowserWindow, screen });
   remote = createRemote({

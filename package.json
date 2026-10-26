@@ -75,6 +75,7 @@
       "dist/renderer/**/*",
       "electron/**/*",
       "build/icon.png",
+      "build/icon-dark.png",
       "build/Artemis.icns",
       "package.json"
     ],
