@@ -1,10 +1,13 @@
-// Sandboxed run_command: commands run in a Docker container (or on another machine over SSH) instead of on this computer.
+// Sandboxed run_command: commands run in a Docker container, on another machine over SSH, or on this computer inside the OS sandbox.
 //   docker: one long-lived container per project folder, the folder mounted at /workspace, no extra capabilities,
 //           memory/CPU/process limits, network on or off. The container is reused between commands (installed packages stay).
 //   ssh:    commands run on another machine (`ssh host`), in a folder there. Files are not synced.
+//   native: commands run here, under sandbox-exec (macOS) or bwrap (Linux): writes only to the project folder, temp and caches.
 // Same result shape as shell.runCommand: { ok, text }.
 const { spawn } = require('child_process');
 const crypto = require('crypto');
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { blockedReason } = require('../shell');
 
@@ -12,25 +15,65 @@ const clip = (s, n) => (s.length > n ? s.slice(0, n) + `\n…[truncated, ${s.len
 const q = (s) => "'" + String(s).replace(/'/g, `'\\''`) + "'";
 
 /** Runs a program; resolves { code, stdout, stderr, error }. Never rejects. */
-function runProc(cmd, args, { timeoutMs = 0, signal, input, spawnImpl = spawn, onData } = {}) {
+function runProc(cmd, args, { timeoutMs = 0, signal, input, spawnImpl = spawn, onData, cwd, env, group = false } = {}) {
   return new Promise((resolve) => {
     let out = '', err = '', done = false, timer = null;
     let child;
-    try { child = spawnImpl(cmd, args, { stdio: ['pipe', 'pipe', 'pipe'] }); } catch (e) { return resolve({ code: 127, stdout: '', stderr: '', error: e.message }); }
+    // group: the program gets its own process group, so a timeout or Stop kills everything it started
+    try { child = spawnImpl(cmd, args, { stdio: ['pipe', 'pipe', 'pipe'], ...(cwd ? { cwd } : {}), ...(env ? { env } : {}), ...(group ? { detached: true } : {}) }); } catch (e) { return resolve({ code: 127, stdout: '', stderr: '', error: e.message }); }
+    const kill = () => { try { if (group && child.pid) process.kill(-child.pid, 'SIGKILL'); else child.kill('SIGKILL'); } catch { try { child.kill('SIGKILL'); } catch {} } };
     const finish = (r) => { if (done) return; done = true; clearTimeout(timer); if (signal) signal.removeEventListener('abort', onAbort); resolve(r); };
-    const onAbort = () => { try { child.kill('SIGKILL'); } catch {} finish({ code: 130, stdout: out, stderr: err, error: 'cancelled' }); };
+    const onAbort = () => { kill(); finish({ code: 130, stdout: out, stderr: err, error: 'cancelled' }); };
     child.stdout.on('data', (d) => { if (out.length < 4e6) out += d; if (onData) { try { onData(String(d), 'out'); } catch {} } });
     child.stderr.on('data', (d) => { if (err.length < 1e6) err += d; if (onData) { try { onData(String(d), 'err'); } catch {} } });
     child.on('error', (e) => finish({ code: 127, stdout: out, stderr: err, error: e.code === 'ENOENT' ? `${cmd} is not installed or not on PATH` : e.message }));
     child.on('close', (code, sig) => finish({ code: code != null ? code : sig === 'SIGKILL' ? 137 : sig === 'SIGTERM' ? 143 : 1, stdout: out, stderr: err }));
-    if (timeoutMs) timer = setTimeout(() => { try { child.kill('SIGKILL'); } catch {} finish({ code: 124, stdout: out, stderr: err, error: 'timeout' }); }, timeoutMs);
+    if (timeoutMs) timer = setTimeout(() => { kill(); finish({ code: 124, stdout: out, stderr: err, error: 'timeout' }); }, timeoutMs);
     if (signal) { if (signal.aborted) onAbort(); else signal.addEventListener('abort', onAbort, { once: true }); }
     if (input != null) child.stdin.end(input); else child.stdin.end();
   });
 }
 
+// ---- native: this computer, inside the OS sandbox (macOS Seatbelt via sandbox-exec, Linux bubblewrap) ----
+// Commands can read the disk but write only to the project folder, temp folders, package caches and the extra folders from
+// Settings. Folders with keys and logins are hidden. Network on or off.
+const SECRET_DIRS = ['.ssh', '.aws', '.gnupg', '.kube', '.docker', '.config/gh', '.config/gcloud', 'Library/Keychains'];
+const CACHE_DIRS = ['.npm', '.cache', '.pnpm-store', '.yarn', '.local/share/pnpm', 'Library/pnpm', 'Library/Caches'];
+const realOr = (p) => { try { return fs.realpathSync(p); } catch { return null; } };
+const sbStr = (s) => '"' + String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+
+/** The folders a native-sandboxed command may write to, and the ones it may not see. Only folders that exist are listed. */
+function nativePaths(root, { platform = process.platform, home = os.homedir(), writable = [] } = {}) {
+  const expand = (p) => (p === '~' ? home : p.startsWith('~/') ? path.join(home, p.slice(2)) : p);
+  const w = [root, os.tmpdir(), '/tmp', ...(platform === 'darwin' ? ['/private/var/folders'] : []), ...CACHE_DIRS.map((d) => path.join(home, d)), ...writable.map(expand)];
+  return { writable: [...new Set(w.map(realOr).filter(Boolean))], hidden: [...new Set(SECRET_DIRS.map((d) => realOr(path.join(home, d))).filter(Boolean))] };
+}
+
+/** Seatbelt profile: everything allowed except writes outside `writable`, anything inside `hidden`, and (optionally) the network. */
+function seatbeltProfile({ writable, hidden, network }) {
+  const sub = (list) => list.map((p) => `(subpath ${sbStr(p)})`).join(' ');
+  return [
+    '(version 1)',
+    '(allow default)',
+    '(deny file-write*)',
+    `(allow file-write* ${sub(writable)} (literal "/dev/null") (literal "/dev/zero") (literal "/dev/tty") (literal "/dev/dtracehelper") (regex #"^/dev/fd/") (regex #"^/dev/ttys"))`,
+    ...(hidden.length ? [`(deny file-read* file-write* ${sub(hidden)})`] : []),
+    ...(network ? [] : ['(deny network-outbound (remote ip "*:*"))', '(deny network-inbound (local ip "*:*"))'])
+  ].join('\n');
+}
+
+/** bubblewrap arguments: the whole disk read-only, `writable` mounted read-write, `hidden` covered by an empty folder. */
+function bwrapArgs({ writable, hidden, network, cwd, command }) {
+  return ['--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc',
+    ...writable.flatMap((p) => ['--bind', p, p]),
+    ...hidden.flatMap((p) => ['--tmpfs', p]),
+    '--unshare-pid', '--die-with-parent', '--new-session', ...(network ? [] : ['--unshare-net']),
+    '--chdir', cwd, '/bin/sh', '-c', command];
+}
+
 /**
- * cfg: { mode: 'docker' | 'ssh', image, network (bool), memory ('2g'), cpus ('2'), sshHost, sshDir, docker ('docker' binary), log? }
+ * cfg: { mode: 'docker' | 'ssh' | 'native', image, network (bool), memory ('2g'), cpus ('2'), sshHost, sshDir, docker ('docker' binary),
+ *        writable (extra folders, native), platform/home/sandboxExec/bwrap (native, for tests), log? }
  */
 function createSandbox(cfg, { run = runProc } = {}) {
   const mode = cfg.mode;
@@ -139,6 +182,25 @@ function createSandbox(cfg, { run = runProc } = {}) {
       const remoteDir = dir === '~' ? '.' : dir.replace(/^~\//, '');
       res = await run('ssh', ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', String(cfg.sshHost), ['sh', '-c', SSH_SCRIPT, 'sh', remoteDir, cmd].map(q).join(' ')], { timeoutMs: (timeout + 20) * 1000, signal });
       where = `${dir} (on ${cfg.sshHost})`;
+    } else if (mode === 'native') {
+      const plat = cfg.platform || process.platform;
+      if (plat !== 'darwin' && plat !== 'linux') return { ok: false, text: 'Error: the native sandbox works on macOS and Linux only. Use Docker or SSH (Settings → Tools).' };
+      if (!defaultCwd) return { ok: false, text: 'Error: no project folder for the sandbox.' };
+      const root = realOr(defaultCwd) || path.resolve(defaultCwd);
+      const { writable, hidden } = nativePaths(root, { platform: plat, home: cfg.home, writable: cfg.writable || [] });
+      where = cwd ? path.resolve(root, String(cwd)) : root;
+      if (!writable.some((p) => where === p || where.startsWith(p + path.sep))) return { ok: false, text: `Error: commands start in the project folder, temp folders or the writable folders from Settings; "${cwd}" is outside.` };
+      if (!fs.existsSync(where)) return { ok: false, text: `Error: directory not found: ${where}` };
+      const network = cfg.network !== false;
+      const opts = { cwd: where, env: { ...process.env, TERM: 'dumb', NO_COLOR: '1' }, group: true, timeoutMs: timeout * 1000, signal, onData: onLog ? (d) => { for (const l of String(d).split(/\r?\n/)) if (l.trim()) say('  ' + l); } : undefined };
+      say(`Running: ${cmd}`);
+      if (plat === 'darwin') res = await run(cfg.sandboxExec || '/usr/bin/sandbox-exec', ['-p', seatbeltProfile({ writable, hidden, network }), '/bin/sh', '-c', cmd], opts);
+      else {
+        res = await run(cfg.bwrap || 'bwrap', bwrapArgs({ writable, hidden, network, cwd: where, command: cmd }), opts);
+        if (res.code === 127 && res.error) return { ok: false, text: 'Error: bubblewrap is not installed. Install it (sudo apt install bubblewrap, or sudo dnf install bubblewrap) or pick another sandbox in Settings → Tools.' };
+      }
+      say(`Finished with exit code ${res.code}.`);
+      where += ` (sandbox: ${plat === 'darwin' ? 'macOS Seatbelt' : 'bubblewrap'}${network ? '' : ', no network'})`;
     } else return { ok: false, text: 'Error: unknown sandbox mode' };
     if (res.error === 'cancelled') return { ok: false, text: 'Error: command cancelled.' };
     if (res.error && res.code === 127) return { ok: false, text: 'Error: ' + res.error };
@@ -160,16 +222,19 @@ function createSandbox(cfg, { run = runProc } = {}) {
     return ids.length;
   }
 
-  const describe = () => (mode === 'docker' ? `Commands run in a Docker container (${image}${cfg.network === false ? ', no network' : ''}); the project folder is mounted at /workspace and is the only folder of this computer it can see. Use paths relative to the project or under /workspace.` : `Commands run on ${cfg.sshHost} over SSH, in ${cfg.sshDir || 'the home folder'} there; files of this computer are not available on that machine.`);
+  const describe = () => (mode === 'docker' ? `Commands run in a Docker container (${image}${cfg.network === false ? ', no network' : ''}); the project folder is mounted at /workspace and is the only folder of this computer it can see. Use paths relative to the project or under /workspace.`
+    : mode === 'native' ? `Commands run on this computer inside the OS sandbox (${(cfg.platform || process.platform) === 'darwin' ? 'macOS Seatbelt' : 'bubblewrap'}${cfg.network === false ? ', no network' : ''}): they can read files, but write only to the project folder, temp folders and package caches; ~/.ssh and other key folders are hidden. Use paths relative to the project.`
+    : `Commands run on ${cfg.sshHost} over SSH, in ${cfg.sshDir || 'the home folder'} there; files of this computer are not available on that machine.`);
 
   return { mode, runCommand, ensure, cleanup, describe, nameFor };
 }
 
 /** The sandbox from settings, or null when it is off. */
 function sandboxFromSettings(st, log) {
-  const mode = st.sandbox === 'docker' || st.sandbox === 'ssh' ? st.sandbox : '';
+  const mode = ['docker', 'ssh', 'native'].includes(st.sandbox) ? st.sandbox : '';
   if (!mode) return null;
-  return createSandbox({ mode, image: st.sandboxImage || 'node:22-bookworm', network: st.sandboxNetwork !== false, memory: st.sandboxMemory || '2g', cpus: st.sandboxCpus || '2', sshHost: st.sandboxSshHost || '', sshDir: st.sandboxSshDir || '', log });
+  const writable = String(st.sandboxWritable || '').split(/[\n,]/).map((x) => x.trim()).filter(Boolean);
+  return createSandbox({ mode, image: st.sandboxImage || 'node:22-bookworm', network: st.sandboxNetwork !== false, memory: st.sandboxMemory || '2g', cpus: st.sandboxCpus || '2', sshHost: st.sandboxSshHost || '', sshDir: st.sandboxSshDir || '', writable, log });
 }
 
 // With the sandbox on, connector tools that run shell commands on this computer (Artemis's own MCP server's terminal tools, a shell
@@ -186,4 +251,4 @@ function hideHostShellTools(mcp) {
   };
 }
 
-module.exports = { createSandbox, sandboxFromSettings, runProc, hideHostShellTools, hostShellTool };
+module.exports = { createSandbox, sandboxFromSettings, runProc, hideHostShellTools, hostShellTool, nativePaths, seatbeltProfile, bwrapArgs };

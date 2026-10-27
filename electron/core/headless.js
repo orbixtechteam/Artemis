@@ -134,7 +134,7 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
   let sbCache = { key: null, sb: null };
   const sandbox = () => {
     const st = settings();
-    const key = JSON.stringify([st.sandbox, st.sandboxImage, st.sandboxNetwork, st.sandboxMemory, st.sandboxCpus, st.sandboxSshHost, st.sandboxSshDir]);
+    const key = JSON.stringify([st.sandbox, st.sandboxImage, st.sandboxNetwork, st.sandboxMemory, st.sandboxCpus, st.sandboxSshHost, st.sandboxSshDir, st.sandboxWritable]);
     if (key !== sbCache.key) sbCache = { key, sb: sandboxFromSettings(st, L('sandbox')) };
     return sbCache.sb;
   };

@@ -36,7 +36,7 @@ const modelId = (m) => {
   if (/codex/i.test(v)) return 'cli:codex';
   return v;
 };
-const ASK_EACH_TIME = new Set(['hook_create', 'hook_delete', 'heartbeat_set', 'heartbeat_delete', 'agent_save', 'team_save', 'team_start', 'team_delete']);
+const ASK_EACH_TIME = new Set(['hook_create', 'hook_delete', 'heartbeat_set', 'heartbeat_delete', 'agent_save', 'agent_set_model', 'team_save', 'team_start', 'team_delete']);
 // Tools that need one approval per task (per run), by category
 // A model can get stuck saving, deleting and re-saving the same memory. Memory may change a few times per task, then it is refused.
 const MEMORY_CHANGES_PER_TASK = 4;
@@ -368,6 +368,11 @@ function definitions({ teamsEnabled, makeEnabled, hasFolder, memoryEnabled, memo
         description: { type: 'string', description: 'One line: when to use this agent' }, instructions: { type: 'string', description: 'The agent\'s instructions, complete' },
         tools: { type: 'array', items: { type: 'string' }, description: GROUPS_DESC }, model: { type: 'string', description: 'Model id (prov:<provider>:<model>), "cli:claude" for Claude Code or "cli:codex" for Codex on the user\'s own login, empty for the default' }
       }, ['name', 'instructions']),
+      fn('model_list', 'Lists the models the user has connected (Settings → Providers) with their exact ids and price per 1M tokens, plus Claude Code and Codex. Call it before choosing a model for an agent or team; never invent a model id.', {}),
+      fn('agent_set_model', 'Changes only the model of one or more of the user\'s agents, keeping their instructions and tools. Use model_list first for the ids. Requires approval.', {
+        agents: { type: 'array', items: { type: 'string' }, description: 'Agent names, e.g. ["Scout", "Themis"]' },
+        model: { type: 'string', description: 'Model id from model_list, "cli:claude", "cli:codex", or empty for the default' }
+      }, ['agents', 'model']),
       fn('team_list', 'Lists the agent teams with their goal, members, status, schedule and budget.', {}),
       fn('team_save', 'Creates (no id) or changes (with id) an agent team: a goal, members from the user\'s agents, and how it runs. Members must exist: create them with agent_save first. Requires approval.', {
         id: { type: 'string', description: 'Only to change an existing team (from team_list)' },
@@ -632,6 +637,7 @@ function summarize(name, args) {
     case 'hook_create': return `${args.id ? 'Change' : 'Create'} webhook "${args.name}" (${args.verify || 'token'}${Array.isArray(args.events) && args.events.length ? ', events: ' + args.events.join(', ') : ''}): an outside service can then start runs that do: ${String(args.instructions || '').slice(0, 160)}`;
     case 'hook_delete': return `Delete webhook ${args.id}`;
     case 'agent_save': return `Save agent "${args.name}"${args.role ? ` (${args.role})` : ''}${Array.isArray(args.tools) && args.tools.length ? ' · tools: ' + args.tools.join(', ') : ''}`;
+    case 'agent_set_model': return `Set the model of ${(args.agents || []).join(', ')} to ${args.model || 'the default'}`;
     case 'team_save': return `${args.id ? 'Change' : 'Create'} team "${args.name}" · ${(args.members || []).map((m) => m.name).join(', ')}${args.repeat && args.repeat.type ? ` · runs ${args.repeat.type === 'interval' ? `every ${Math.round((args.repeat.every || 60) / 60)} h` : `${args.repeat.type} at ${args.repeat.at || '09:00'}`}` : ''}${args.ask_first === false ? ' · acts without asking' : ''}`;
     case 'team_start': return `Start a run of team ${args.id}`;
     case 'team_delete': return `Delete team ${args.id}`;
@@ -1357,6 +1363,29 @@ async function runTool(name, args, ctx) {
         const r = ctx.teams.saveAgent({ name: args.name, role: args.role || '', description: args.description || args.role || '', body: args.instructions, tools: Array.isArray(args.tools) ? args.tools : ['read', 'web'], model: modelId(args.model) });
         if (!r || !r.ok) throw new Error((r && r.error) || 'Could not save the agent.');
         return { ok: true, text: `Agent "${r.name}" saved.` };
+      }
+      case 'model_list': {
+        if (!ctx.teams || !ctx.teams.models) throw new Error('The model list is not available here.');
+        const l = ctx.teams.models();
+        const price = (m) => (typeof m.in === 'number' || typeof m.out === 'number' ? ` · $${m.in || 0} in / $${m.out || 0} out per 1M` : m.local ? ' · free (local)' : '');
+        return { ok: true, text: (l.map((m) => `${m.id} · ${m.name} (${m.provider})${price(m)}`).join('\n') || 'No provider models connected.') + '\ncli:claude · Claude Code (user\'s own login)\ncli:codex · Codex (user\'s own login)' };
+      }
+      case 'agent_set_model': {
+        if (!ctx.teams) throw new Error('Agents and teams are not available here.');
+        const model = modelId(args.model);
+        if (model && model !== 'inherit' && !/^cli:/.test(model) && ctx.teams.models && !ctx.teams.models().some((m) => m.id === model)) throw new Error(`No connected model "${model}". Use model_list for the exact ids.`);
+        const all = ctx.teams.agents();
+        const names = Array.isArray(args.agents) ? args.agents : [args.agents];
+        const missing = names.filter((n) => !all.some((a) => a.name.toLowerCase() === String(n).toLowerCase()));
+        if (missing.length) throw new Error(`No agent named ${missing.join(', ')}. Use agent_list.`);
+        const done = [];
+        for (const n of names) {
+          const a = all.find((x) => x.name.toLowerCase() === String(n).toLowerCase());
+          const r = ctx.teams.saveAgent({ name: a.name, role: a.role || '', description: a.description || '', body: a.body, tools: a.tools || [], model });
+          if (!r || !r.ok) throw new Error(`${a.name}: ${(r && r.error) || 'could not save.'}${done.length ? ` Already changed: ${done.join(', ')}.` : ''}`);
+          done.push(a.name);
+        }
+        return { ok: true, text: `${done.join(', ')} now use${done.length === 1 ? 's' : ''} ${model || 'the default model'}. A team member model set in the team overrides this.` };
       }
       case 'team_list': {
         if (!ctx.teams) throw new Error('Agents and teams are not available here.');

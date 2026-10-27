@@ -513,6 +513,15 @@ const def = (extra) => ({ name: 'Launch', goal: 'Ship the notes', members: [{ na
     assert.ok(approvals.length >= 4 && approvals.some((x) => /Create team "Notes"/.test(x)), 'every change asks');
     r = await tools.run('team_list', {}, ctx);
     assert.ok(/Notes/.test(r.text));
+    ctx.teams.models = () => [{ id: 'prov:or:cheap', name: 'Cheap', provider: 'OpenRouter', in: 0.1, out: 0.4 }];
+    r = await tools.run('model_list', {}, ctx);
+    assert.ok(/prov:or:cheap/.test(r.text) && /cli:claude/.test(r.text), r.text);
+    r = await tools.run('agent_set_model', { agents: ['Pip'], model: 'prov:or:made-up' }, ctx);
+    assert.ok(!r.ok && /model_list/.test(r.text), 'an unknown model id is refused');
+    roster.find((a) => a.name === 'Pip').body = 'Post notes on Substack.';
+    r = await tools.run('agent_set_model', { agents: ['Pip'], model: 'prov:or:cheap' }, ctx);
+    assert.ok(r.ok, r.text);
+    assert.strictEqual(saved.at(-1).model, 'prov:or:cheap'); assert.strictEqual(saved.at(-1).body, 'Post notes on Substack.');
     console.log('teams: chat tools ok');
   }
   console.log('teams: all tests passed');
