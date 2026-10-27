@@ -289,7 +289,7 @@ const DEFAULT_SETTINGS = {
   titleModel: '', // empty = the chat's own model
   scheduleModel: '', // model for scheduled tasks that have none of their own; empty = the default model
   disabledSkills: [],
-  sandbox: '', sandboxImage: 'node:22-bookworm', sandboxNetwork: true, sandboxMemory: '2g', sandboxCpus: '2', sandboxSshHost: '', sandboxSshDir: '', // run_command in Docker or over SSH instead of this computer
+  sandbox: '', sandboxImage: 'node:22-bookworm', sandboxNetwork: true, sandboxMemory: '2g', sandboxCpus: '2', sandboxSshHost: '', sandboxSshDir: '', sandboxWritable: '', // run_command in Docker, over SSH or in the OS sandbox (native) instead of straight on this computer
   sqliteStore: true, // chats live in artemis.db (SQLite, full-text search); chats.json is still written as a backup copy
   memoryV2: true, // long-term memory as Markdown files in the workspace folder (SOUL.md, USER.md, MEMORY.md, daily notes)
   memoryFlush: true, // before old messages are summarized, save what is worth keeping to memory
@@ -1686,6 +1686,7 @@ const teamsTools = {
   agents: (root) => agents.list(root || null).map(({ file, ...a }) => a),
   projects: () => readJson('projects', []).map((p) => ({ id: p.id, name: p.name, folder: p.folder || '', instructions: p.instructions || '' })),
   saveAgent: (a) => agents.save(a),
+  models: () => readProviders().filter((p) => p.enabled !== false).flatMap((p) => (p.models || []).map((m) => ({ id: providersLib.prefixId(p.id, m.id), name: m.name || m.id, provider: p.name, in: m.in, out: m.out, local: !!p.local }))),
   list: () => teamsClient.list(), get: (id) => teamsClient.get(id), save: (d) => teamsClient.save(d), start: (id) => teamsClient.act(id, 'start'), remove: (id) => teamsClient.remove(id)
 };
 const heartbeatTools = {
@@ -1926,7 +1927,7 @@ const sandboxedMcp = () => hideHostShellTools(agentMcp());
 let sbCache = { key: null, sb: null };
 function currentSandbox() {
   const st = getSettings();
-  const key = JSON.stringify([st.sandbox, st.sandboxImage, st.sandboxNetwork, st.sandboxMemory, st.sandboxCpus, st.sandboxSshHost, st.sandboxSshDir]);
+  const key = JSON.stringify([st.sandbox, st.sandboxImage, st.sandboxNetwork, st.sandboxMemory, st.sandboxCpus, st.sandboxSshHost, st.sandboxSshDir, st.sandboxWritable]);
   if (key !== sbCache.key) sbCache = { key, sb: sandboxFromSettings(st, coreLog('sandbox')) };
   return sbCache.sb;
 }
