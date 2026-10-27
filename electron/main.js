@@ -923,11 +923,15 @@ async function learnFromRun({ settings, root, userText, toolLog, finalText, sign
 function liveModel(model) {
   const m = String(model || '');
   if (/^prov:/.test(m)) return model;
-  const usable = readProviders().filter((p) => p.enabled !== false && p.baseUrl && (p.models || []).length && (!p.needsKey || getProviderKey(p.id)));
+  // skip speech, transcription, embedding, image and moderation models: background jobs need a chat model
+  const notChat = /tts|whisper|orpheus|playai|speech|audio|transcri|embed|rerank|guard|moderation|dall-e|image|flux|stable-diffusion/i;
+  const chatModel = (p) => (p.models || []).find((x) => x && x.id && !notChat.test(x.id));
+  const usable = readProviders().filter((p) => p.enabled !== false && p.baseUrl && chatModel(p) && (!p.needsKey || getProviderKey(p.id)));
   const ok = usable.find((p) => p.needsKey && !p.local) || usable.find((p) => !p.local) || usable[0];
   if (!ok) return model;
-  if (liveModel.last !== ok.id) { liveModel.last = ok.id; logger.info('chat', `Model "${m}" has no provider: using "${ok.name}" (${ok.models[0].id})`); }
-  return `prov:${ok.id}:${ok.models[0].id}`;
+  const pick = chatModel(ok);
+  if (liveModel.last !== ok.id) { liveModel.last = ok.id; logger.info('chat', `Model "${m}" has no provider: using "${ok.name}" (${pick.id})`); }
+  return `prov:${ok.id}:${pick.id}`;
 }
 // Pictures the user attaches, saved to disk for providers that cannot take them inline (a proxy in front of the Claude CLI): the model gets the file path and opens it with artemis_view_image.
 const IMAGES_DIR = path.join(app.getPath('userData'), 'attachments');
