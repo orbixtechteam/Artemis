@@ -2,7 +2,10 @@ import React, { useEffect, useRef, useState } from 'react';
 import Select from '../Select.jsx';
 import { Group, Row, SwitchRow } from './ui.jsx';
 
-/** Settings → Tools: where run_command runs (this computer, a Docker container, or another machine over SSH). */
+const IS_MAC = window.api?.platform === 'darwin';
+const NATIVE = IS_MAC || window.api?.platform === 'linux';
+
+/** Settings → Tools: where run_command runs (this computer, this computer in the OS sandbox, a Docker container, or another machine over SSH). */
 export function SandboxGroup({ s, setS, put }) {
   const [out, setOut] = useState('');
   const [busy, setBusy] = useState(false);
@@ -21,13 +24,22 @@ export function SandboxGroup({ s, setS, put }) {
   const cleanup = async () => { const r = await window.api.sandboxCleanup(); setOut(r.ok ? `Removed ${r.removed} sandbox container(s).` : r.error); };
   return (
     <Group title="Sandbox for terminal commands" footer={mode ? <>Save the settings before you test. With the sandbox on, the terminal panel is not offered to Artemis, scheduled tasks may run commands in the sandbox without asking, and the headless gateway can run commands without <code>--allow-shell</code>.</> : null}>
-      <Row label="Where commands run" description="This computer: run_command uses your real shell (asks once per task). Docker: a container per project folder that sees only that folder (at /workspace). SSH: another machine you can reach with ssh, for example a small server.">
+      <Row label="Where commands run" description="This computer: run_command uses your real shell (asks once per task). Isolated: this computer, but the OS sandbox lets commands write only to the project folder, temp folders and package caches (macOS Seatbelt, Linux bubblewrap; no Docker needed). Docker: a container per project folder that sees only that folder (at /workspace). SSH: another machine you can reach with ssh, for example a small server.">
         <Select value={mode} onChange={val('sandbox')}>
           <option value="">This computer (no sandbox)</option>
+          {NATIVE && <option value="native">This computer, isolated ({IS_MAC ? 'macOS Seatbelt' : 'bubblewrap'})</option>}
           <option value="docker">Docker container</option>
           <option value="ssh">Another machine (SSH)</option>
         </Select>
       </Row>
+      {mode === 'native' && (
+        <>
+          <SwitchRow label="Network" description="Off: commands cannot reach the internet (no package installs)." checked={s.sandboxNetwork !== false} onChange={put('sandboxNetwork')} />
+          <Row label="Extra writable folders" description={`One per line. Commands can always write to the project folder, temp folders and package caches; ~/.ssh, ~/.aws, ~/.gnupg and similar key folders are hidden.${IS_MAC ? '' : ' Needs bubblewrap: sudo apt install bubblewrap.'}`}>
+            <textarea className="pref-input mono" rows={3} value={s.sandboxWritable || ''} onChange={val('sandboxWritable')} spellCheck={false} placeholder="~/projects/shared" />
+          </Row>
+        </>
+      )}
       {mode === 'docker' && (
         <>
           <Row label="Image" description="Any Docker image with sh. Default: node:22-bookworm (Node.js, Python 3, git, curl).">

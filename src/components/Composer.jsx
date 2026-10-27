@@ -160,8 +160,8 @@ export function ChatPills({ brains = [], brain, onBrain, councilPick, onRevote, 
           <option value="off">No agents</option>
         </Select>
       )}
-      {onShell && settings && (settings.sandbox === 'docker' || settings.sandbox === 'ssh') && settings.shellEnabled !== false && (
-        <Select className={`pill-select shell ${shell === 'host' ? 'host' : ''}`} title={`Where terminal commands run in this chat. Sandbox: ${settings.sandbox === 'ssh' ? `on ${settings.sandboxSshHost || 'the SSH host'}` : 'in a Docker container that sees only the project folder'} (Settings → Tools & safety → Sandbox). This Mac: your real shell, asks once per task.`} value={shell === 'host' ? 'host' : 'sandbox'} onChange={(e) => onShell(e.target.value)}>
+      {onShell && settings && ['docker', 'ssh', 'native'].includes(settings.sandbox) && settings.shellEnabled !== false && (
+        <Select className={`pill-select shell ${shell === 'host' ? 'host' : ''}`} title={`Where terminal commands run in this chat. Sandbox: ${settings.sandbox === 'ssh' ? `on ${settings.sandboxSshHost || 'the SSH host'}` : settings.sandbox === 'native' ? 'on this computer, but writing only to the project folder (OS sandbox)' : 'in a Docker container that sees only the project folder'} (Settings → Tools & safety → Sandbox). This Mac: your real shell, asks once per task.`} value={shell === 'host' ? 'host' : 'sandbox'} onChange={(e) => onShell(e.target.value)}>
           <option value="sandbox">Commands: sandbox</option>
           <option value="host">Commands: this Mac</option>
         </Select>

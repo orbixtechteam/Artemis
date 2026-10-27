@@ -43,6 +43,41 @@ const { createSandbox, runProc } = require('../electron/core/sandbox');
   assert.ok(line.startsWith("'sh' '-c' ") && line.includes(" 'work' ") && line.endsWith(`'echo '\\''quoted'\\'''`), line);
   assert.ok(!(await createSandbox({ mode: 'ssh' }, { run: fake }).runCommand({ command: 'ls' }, {})).ok);
 
+  // ---- native: sandbox-exec (macOS) / bwrap (Linux) arguments, with a scripted runner ----
+  {
+    const tmpN = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'artemis-nat-')));
+    const projN = path.join(tmpN, 'proj'); const home = path.join(tmpN, 'home');
+    fs.mkdirSync(path.join(projN, 'sub'), { recursive: true }); fs.mkdirSync(path.join(home, '.ssh'), { recursive: true }); fs.mkdirSync(path.join(home, '.npm'));
+    const nCalls = [];
+    const nRun = async (cmd, args, o) => { nCalls.push({ cmd, args, o }); return { code: 0, stdout: 'ok', stderr: '' }; };
+    const mac = createSandbox({ mode: 'native', platform: 'darwin', home, network: false }, { run: nRun });
+    r = await mac.runCommand({ command: 'ls', cwd: 'sub' }, { defaultCwd: projN });
+    assert.ok(r.ok && r.text.includes('macOS Seatbelt') && r.text.includes('no network'), r.text);
+    const m = nCalls.pop();
+    assert.strictEqual(m.cmd, '/usr/bin/sandbox-exec'); assert.strictEqual(m.o.cwd, path.join(projN, 'sub')); assert.ok(m.o.group);
+    const prof = m.args[1];
+    assert.ok(prof.includes('(deny file-write*)') && prof.includes(`(subpath "${projN}")`) && prof.includes(`(subpath "${path.join(home, '.npm')}")`), prof);
+    assert.ok(prof.includes(`(deny file-read* file-write* (subpath "${path.join(home, '.ssh')}"))`) && prof.includes('deny network-outbound'), prof);
+    assert.deepStrictEqual(m.args.slice(-3), ['/bin/sh', '-c', 'ls']);
+    r = await mac.runCommand({ command: 'ls', cwd: '/etc' }, { defaultCwd: projN });
+    assert.ok(!r.ok && /outside/.test(r.text));
+    r = await mac.runCommand({ command: 'ls', cwd: 'nope' }, { defaultCwd: projN });
+    assert.ok(!r.ok && /not found/.test(r.text));
+    assert.ok(!(await mac.runCommand({ command: 'ls' }, {})).ok);
+    const lin = createSandbox({ mode: 'native', platform: 'linux', home, writable: ['~/.npm'] }, { run: nRun });
+    r = await lin.runCommand({ command: 'pwd' }, { defaultCwd: projN });
+    assert.ok(r.ok && r.text.includes('bubblewrap'), r.text);
+    const b = nCalls.pop();
+    assert.strictEqual(b.cmd, 'bwrap');
+    assert.ok(b.args.join(' ').includes(`--bind ${projN} ${projN}`) && b.args.join(' ').includes(`--tmpfs ${path.join(home, '.ssh')}`) && !b.args.includes('--unshare-net'), b.args.join(' '));
+    assert.deepStrictEqual(b.args.slice(-5), ['--chdir', projN, '/bin/sh', '-c', 'pwd']);
+    const noBwrap = createSandbox({ mode: 'native', platform: 'linux', home }, { run: async () => ({ code: 127, stdout: '', stderr: '', error: 'bwrap is not installed or not on PATH' }) });
+    assert.ok(/apt install bubblewrap/.test((await noBwrap.runCommand({ command: 'ls' }, { defaultCwd: projN })).text));
+    assert.ok(!(await createSandbox({ mode: 'native', platform: 'win32' }, { run: nRun }).runCommand({ command: 'ls' }, { defaultCwd: projN })).ok);
+    assert.ok(/OS sandbox/.test(mac.describe()));
+    fs.rmSync(tmpN, { recursive: true, force: true });
+  }
+
   // ---- the real in-container script, run by a fake docker that executes it on this machine ----
   if (process.platform === 'win32') { console.log('test-sandbox: ok (script part skipped on Windows)'); return; }
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'artemis-sb-'));
