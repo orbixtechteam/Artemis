@@ -133,6 +133,8 @@
 .pref-btn.danger { color: var(--danger); }
 .pref-buttons { display: flex; align-items: center; gap: 8px; margin: -10px 0 24px; }
 .pref-buttons.end { justify-content: flex-end; }
+.pref-row-control > .pref-buttons { margin: 0; flex-wrap: wrap; } /* as a row's control it centres on the text (not offset like the bar under a card) and wraps instead of covering it */
+.pref-row-control:has(> .pref-buttons) { flex-shrink: 0; } /* the text gives way first; the buttons wrap only at the 58% cap */
 .pref-back { margin: 0 0 16px; }
 
 /* Voice → Voices per language: compact rows, an expandable edit area, a list-footer "+ Add language" */
