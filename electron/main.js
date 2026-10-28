@@ -266,6 +266,7 @@ const DEFAULT_SETTINGS = {
   mcpAlwaysAllow: false, notesAi: true, sentinelPreload: false, sentinelAuto: false, sentinelPtt: '', sentinelInterrupt: false, sentinelStopWords: false, sentinelHideInApp: false, sentinelWake: 'wake up', sentinelEngine: 'vosk', sentinelOwwModel: '', sentinelOwwThreshold: 0.5, sentinelSensitivity: 'normal',
   sentinelModel: '', // empty = the default model; a fast model makes voice answers start sooner,
   sentinelPos: null, sentinelSizes: null,
+  sentinelChatId: '', // the one chat Sentinel talks in, kept across restarts until you say "new chat"
   micDeviceId: '',
   speakerDeviceId: '',
   voiceName: '',
