@@ -117,6 +117,10 @@ function codexReader(onStep, onUsage) {
 
 /** The command line for one turn. The prompt goes on stdin (Claude Code) or as the last argument (Codex). */
 function argsFor(kind, { mcp, askWrites, system, folder, model, server = 'team', permissionMode }) {
+  if (!mcp) { // a plain text answer for a background job (title, summary, memory): no tools, no MCP server
+    if (kind === 'claude') return ['-p', '--output-format', 'stream-json', '--verbose', '--no-session-persistence', '--strict-mcp-config', '--tools', '', ...(system ? ['--system-prompt', system] : []), ...(model ? ['--model', model] : [])];
+    return ['exec', '--json', '--ephemeral', '--skip-git-repo-check', '--sandbox', 'read-only', '-C', folder, ...(model ? ['-m', model] : [])];
+  }
   if (kind === 'claude') {
     return [
       '-p', '--output-format', 'stream-json', '--verbose', '--no-session-persistence',
@@ -176,7 +180,7 @@ function createCliAgents(deps) {
     if (!o.folder || !fs.existsSync(o.folder)) throw new Error(`The working folder does not exist: ${o.folder || '(none)'}`);
     const args = argsFor(kind, o);
     if (kind === 'codex') args.push([o.system, o.prompt].filter(Boolean).join('\n\n'));
-    const env = { ...env0, PATH: [path.dirname(bin), ...DIRS, env0.PATH || ''].join(path.delimiter), ARTEMIS_TEAM_TOKEN: o.mcp.token };
+    const env = { ...env0, PATH: [path.dirname(bin), ...DIRS, env0.PATH || ''].join(path.delimiter), ...(o.mcp ? { ARTEMIS_TEAM_TOKEN: o.mcp.token } : {}) };
     delete env.ELECTRON_RUN_AS_NODE; delete env.ELECTRON_NO_ATTACH_CONSOLE;
     const stripped = KEY_VARS[kind].filter((k) => k in env);
     for (const k of stripped) delete env[k];
@@ -222,7 +226,10 @@ function createCliAgents(deps) {
     });
   }
 
-  return { run, find, available: async () => ({ claude: !!(await find('claude')), codex: !!(await find('codex')) }) };
+  /** One text answer without tools, for background jobs: ask({ kind, model, system, prompt, signal, onUsage }) -> text */
+  const ask = (o) => run({ kind: o.kind, model: o.model || '', system: o.system, prompt: o.prompt, folder: o.folder || os.tmpdir(), signal: o.signal, onUsage: o.onUsage });
+
+  return { run, ask, find, available: async () => ({ claude: !!(await find('claude')), codex: !!(await find('codex')) }) };
 }
 
 /**

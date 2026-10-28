@@ -882,6 +882,7 @@ export default function App() {
       if (api.platform === 'darwin' && !s.permissionsAsked) setModal('permissions');
       const list = c || [];
       if (list.length) {
+        sentChats.current = new Map(list.map((x) => [x.id, x])); // main already has these as they are
         setChats(list);
         setCurrentId([...list].sort((a, b) => b.updatedAt - a.updatedAt)[0].id);
       } else {
@@ -900,10 +901,28 @@ export default function App() {
     setChats((cs) => cs.map((c) => (c.id === chatId ? { ...c, updatedAt: Date.now(), messages: [...c.messages, { id: uid(), role: 'user', content: user, via: 'telegram', createdAt: Date.now() }, { id: uid(), role: 'assistant', via: 'telegram', createdAt: Date.now(), steps: [{ text: assistant, toolCalls: [] }] }] } : c)));
   }), []);
   // Save 300 ms after the last change; while an answer streams the changes never pause, so also save at least every 2 s.
+  // Only chats whose object changed since the last save are sent (state updates replace a chat's object), plus the id order.
   const lastSave = useRef(0);
+  const sentChats = useRef(new Map()); // id -> the chat object main already has
+  const saveChats = (cs) => {
+    const live = cs.filter((c) => !c.incognito);
+    const changed = live.filter((c) => sentChats.current.get(c.id) !== c);
+    const order = live.map((c) => c.id);
+    if (!changed.length && order.length === sentChats.current.size && order.every((id) => sentChats.current.has(id))) return Promise.resolve(true);
+    return api.saveChats({ order, chats: stripImages(changed) }).then((r) => {
+      if (r && r.full) { sentChats.current = new Map(); return api.setStore('chats', stripImages(cs)); }
+      if (!r || !r.ok) return false;
+      const keep = new Set(order);
+      for (const id of [...sentChats.current.keys()]) if (!keep.has(id)) sentChats.current.delete(id);
+      for (const c of changed) sentChats.current.set(c.id, c);
+      for (const id of r.missing || []) sentChats.current.delete(id);
+      if ((r.missing || []).length) setChats((x) => [...x]); // a new save sends the missing ones in full
+      return true;
+    }).catch(() => { sentChats.current = new Map(); return false; }); // unsure what main got: send everything next time
+  };
   useEffect(() => {
     if (!loaded) return undefined;
-    const save = () => { lastSave.current = Date.now(); api.setStore('chats', stripImages(chats)); };
+    const save = () => { lastSave.current = Date.now(); saveChats(chats); };
     if (runningIds.length && Date.now() - lastSave.current >= 2000) { save(); return undefined; }
     const t = setTimeout(save, 300); return () => clearTimeout(t);
   }, [chats, loaded]);
@@ -911,11 +930,11 @@ export default function App() {
   const chatsNow = useRef(chats); chatsNow.current = loaded ? chats : null;
   useEffect(() => api.onAppFlush?.(() => {
     const cs = chatsNow.current;
-    Promise.resolve(cs ? api.setStore('chats', stripImages(cs)) : null).catch(() => {}).finally(() => api.appFlushed());
+    Promise.resolve(cs ? saveChats(cs) : null).catch(() => {}).finally(() => api.appFlushed());
   }), []);
   // "Reload window" (Memory panel): save now, before the page goes away.
   useEffect(() => {
-    const now = () => { const cs = chatsNow.current; if (cs) api.setStore('chats', stripImages(cs)).catch(() => {}); };
+    const now = () => { const cs = chatsNow.current; if (cs) saveChats(cs); };
     window.addEventListener('artemis:save-now', now);
     return () => window.removeEventListener('artemis:save-now', now);
   }, []);
@@ -1632,7 +1651,7 @@ export default function App() {
   // Conversations coming from the phone (Telegram) show up as a chat here, live.
   useEffect(() => api.onPhoneStart((p) => {
     const asst = { id: uid(), role: 'assistant', steps: [{ text: '', toolCalls: [] }] };
-    const user = { id: uid(), role: 'user', content: p.text || (p.images.length ? '(image)' : ''), attachments: p.images.map((u, i) => ({ kind: 'image', name: `photo-${i + 1}`, dataUrl: u })) };
+    const user = { id: uid(), role: 'user', content: p.text || (p.images.length ? '(image)' : ''), attachments: p.images.map((u, i) => ({ kind: 'image', name: `photo-${i + 1}`, ...(String(u).startsWith('artemis-media://') ? { url: u } : { dataUrl: u }) })) };
     const into = p.chatId || null; // the phone (or the gateway) is continuing one of the desktop chats
     const pre = p.prefix != null ? p.prefix : 'phone-'; // gateway runs send prefix '' and their own session id
     const via = p.via || 'telegram';
