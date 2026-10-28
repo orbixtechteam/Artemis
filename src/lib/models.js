@@ -2,6 +2,17 @@ import { priceTag } from './cost.js';
 
 // Claude Code / Codex on the user's own plan login (no API key): Artemis runs the installed CLI for each message.
 export const CLI_MODELS = [['cli:claude', 'Claude Code · your Claude plan'], ['cli:codex', 'Codex · your ChatGPT plan']];
+// The models each CLI can run, shown as their own group like a provider. The bare id keeps the CLI's own default.
+export const CLI_GROUPS = [
+  { kind: 'claude', label: 'Claude Code (your Claude plan)', items: [
+    ['cli:claude', 'Claude Code · default'],
+    ['cli:claude:claude-opus-5-5', 'Opus 5.5'],
+    ['cli:claude:claude-sonnet-5-5', 'Sonnet 5.5'],
+    ['cli:claude:claude-haiku-5-5', 'Haiku 5.5'],
+    ['cli:claude:claude-fable-5-1', 'Fable 5.1']
+  ] },
+  { kind: 'codex', label: 'Codex (your ChatGPT plan)', items: [['cli:codex', 'Codex · default']] }
+];
 
 /** Groups for the chat model picker: one group per enabled provider, then the installed CLIs (clis: { claude, codex }).
  *  Ids look like "prov:<providerId>:<modelId>" or "cli:claude" / "cli:codex". */
@@ -10,8 +21,7 @@ export function modelGroups(current, providers = [], clis = {}) {
     label: p.name + (p.local ? ' (on this computer)' : ''),
     items: p.models.map((m) => { const id = `prov:${p.id}:${m.id}`; const t = priceTag(id); const n = m.name || m.id; return [id, t ? `${n} (${t})` : n]; })
   }));
-  const cliItems = CLI_MODELS.filter(([id]) => clis[id.slice(4)]);
-  if (cliItems.length) provGroups.push({ label: 'Your subscription (no API key)', items: cliItems });
+  for (const g of CLI_GROUPS) if (clis[g.kind]) provGroups.push({ label: g.label, items: g.items });
   const inProv = new Set(provGroups.flatMap((g) => g.items.map(([id]) => id)));
   const c = String(current || '');
   if (c.startsWith('cli:') && !inProv.has(c)) {

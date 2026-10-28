@@ -1,8 +1,14 @@
 // IPC: files
 module.exports = function registerFilesIpc(deps) {
-  const { ipcMain, BrowserWindow, app, defaultFilesDir, dialog, files, tools, library, getWin } = deps;
+  const { ipcMain, BrowserWindow, app, defaultFilesDir, dialog, files, tools, library, media, getWin } = deps;
+  // An image goes to the window as a media link (core/mediastore.js), never as base64 kept in the chat.
+  const linkImage = (att) => {
+    if (!media || !att || att.kind !== 'image' || typeof att.dataUrl !== 'string') return att;
+    try { const url = media.putDataUrl(att.dataUrl); if (url === att.dataUrl) return att; const { dataUrl, ...rest } = att; return { ...rest, url }; } catch { return att; }
+  };
   // Every attachment is kept in the Files library: its path points at the stored copy, so it can be found, edited and re-used later.
-  const keep = (att) => {
+  const keep = (att0) => {
+    const att = linkImage(att0);
     if (!library || !att || att.kind === 'error' || !att.path) return att;
     try { const r = library.ingest(att.path); return { ...att, path: r.abs, lib: r.path }; } catch { return att; }
   };

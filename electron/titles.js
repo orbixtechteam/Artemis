@@ -67,8 +67,9 @@ function buildTitleMessages({ first = '', reply = '', recent = [] } = {}) {
  * One non-streaming /chat/completions call. Returns { title, usage } (title '' when the answer was unusable).
  * Throws on HTTP errors and timeouts. A 400 is retried once without max_tokens / temperature (strict endpoints).
  */
-async function requestTitle({ url, key, model, headers = {}, extraBody = {}, first, reply, recent, signal, timeoutMs = 15000, fetchImpl = fetch } = {}) {
+async function requestTitle({ url, key, model, headers = {}, extraBody = {}, first, reply, recent, signal, timeoutMs = 15000, fetchImpl = fetch, complete } = {}) {
   const messages = buildTitleMessages({ first, reply, recent });
+  if (complete) return { title: cleanTitle(await complete(messages[0].content, messages[1].content), ''), usage: null }; // Claude Code / Codex: one plain answer
   const sig = signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs);
   const post = (extra) => fetchImpl(url, {
     method: 'POST', signal: sig,

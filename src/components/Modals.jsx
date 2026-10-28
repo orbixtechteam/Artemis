@@ -245,7 +245,7 @@ export function FilePreviewModal({ file, onClose }) {
   return (
     <Modal title={a.name} onClose={onClose} wide>
       <div className="preview">
-        {a.kind === 'image' && a.dataUrl && <img className="preview-img" src={a.dataUrl} alt={a.name} />}
+        {a.kind === 'image' && (a.dataUrl || a.url) && <img className="preview-img" src={a.dataUrl || a.url} alt={a.name} />}
         {shown && (
           <>
             {sheets.length > 1 && <div className="tabs">{sheets.map((sh, i) => <button key={i} className={i === tab ? 'active' : ''} onClick={() => setTab(i)}>{sh.name}</button>)}</div>}

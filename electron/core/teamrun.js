@@ -38,6 +38,7 @@ function createTeamRunner(deps) {
       try { const ph = st.teamPhoneApprovals !== false && deps.phone && deps.phone(); if (ph && ph.askApproval) ph.askApproval(id, `${team ? `Team "${team}" · ` : ''}${agent.name} wants to:\n${summary}`).catch(() => {}); } catch {}
     });
     if (agent.model) agent = { ...agent, model: modelId(agent.model) }; // "Claude Code" written in a prompt is cli:claude
+    if (!agent.model || agent.model === 'inherit') { const fb = deps.fallbackModel(); if (cliKind(fb)) agent = { ...agent, model: fb }; } // no model of its own (the lead): follow a CLI default
     const cli = cliKind(agent.model);
     // Claude Code / Codex with Artemis's tools for the member's groups (the browser, Make, connectors …), like a chat on that CLI
     if (cli && deps.cliChat) return runMember({ cli });
