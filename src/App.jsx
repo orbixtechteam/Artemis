@@ -486,9 +486,8 @@ export default function App() {
   const brainsRef = useRef([]); brainsRef.current = brains; // read by Sentinel's long-lived callbacks (a closure would keep the first list)
   useEffect(() => { const load = () => window.api.brainsList().then(setBrains).catch(() => {}); load(); const off = window.api.onBrainsChanged && window.api.onBrainsChanged(load); return () => off && off(); }, []);
   const pendingVoice = useRef(null); // chat id waiting for a spoken reply
-  const sentChat = useRef(null);     // the chat Sentinel talks in: the chat open on screen when Sentinel first needs one (it follows you when you
-                                     // switch chats, except mid-answer); a new chat only when nothing suitable is open or you say "new chat"
-  const sentFollow = useRef(null);   // a chat opened while Sentinel was mid-answer: Sentinel moves there on the next turn
+  const sentChat = useRef(null);     // the one chat Sentinel talks in (saved as settings.sentinelChatId, so it survives a restart); it changes
+                                     // only when you say "new chat", go to another chat by voice, or the chat is deleted
   const voiceT0 = useRef(0);         // when the spoken question was sent, to log how fast the answer starts
   const voiceStream = useRef(null);  // the reply being read aloud while it is still being written
   const voiceApproval = useRef(null); // { id, chatId, tries }: a tool is waiting for a spoken yes / no
@@ -624,7 +623,7 @@ export default function App() {
     sentRef.current = sn;
     sn.start();
   };
-  const stopSentinel = () => { const sn = sentRef.current; voiceApproval.current = null; voiceAsk.current = null; setSentMuted(false); pendingVoice.current = null; sentChat.current = null; sentFollow.current = null; voiceStream.current = null; if (sn) sn.stop(); stopSpeaking(); };
+  const stopSentinel = () => { const sn = sentRef.current; voiceApproval.current = null; voiceAsk.current = null; setSentMuted(false); pendingVoice.current = null; sentChat.current = null; voiceStream.current = null; if (sn) sn.stop(); stopSpeaking(); };
   const toggleSentinel = () => { if (sentRef.current && sentRef.current.running) stopSentinel(); else startSentinel(); };
   // Stop button on the pill: cut the reading / give up on the current question and go back to waiting for "Wake up".
   const skipSentinel = () => { const sn = sentRef.current; if (!sn || !sn.running) return; pendingVoice.current = null; voiceStream.current = null; sn.resume(); stopSpeaking(); };
@@ -1247,7 +1246,13 @@ export default function App() {
       const c = chats.find((x) => x.id === cid);
       if (!c) continue;
       setQueues((q) => ({ ...q, [cid]: (q[cid] || []).slice(1) }));
-      sendTo(c, list[0].text, list[0].atts, list[0].extra);
+      const { sentinelVoice, ...extra } = list[0].extra || {};
+      const sn = sentRef.current;
+      if (sentinelVoice && sn && sn.running) { // a spoken message that waited for the last answer: read this reply aloud
+        pendingVoice.current = cid; voiceT0.current = performance.now(); voiceSentText.current = list[0].text; prepareVoice();
+        sn.replyLang = extra.lang || ''; sn.thinking();
+      }
+      sendTo(c, list[0].text, list[0].atts, list[0].extra ? extra : undefined);
       break;
     }
   }, [queues, runningIds, chats, held]);
@@ -1268,9 +1273,15 @@ export default function App() {
     finally { setCompacting(false); }
   };
   actionsRef.current.compact = compactChat;
-  // Sentinel talks in the chat that is open on screen: the first thing you say continues it (sentChat remembers it), and if you
-  // open another chat while Sentinel is on, it follows you there (see the effect below). Only when no suitable chat is open
-  // (a page like Settings or Home, a phone / scheduled-task chat) or when you say "new chat" (fresh) does it start a new one.
+  // Sentinel keeps one chat. The first time it needs one it takes the chat open on screen (or starts a new one when no suitable
+  // chat is open: a page like Settings or Home, a phone / scheduled-task chat), and from then on every turn goes there, even after
+  // Sentinel or the app restarts. Opening another chat does not move it; "new chat" or a voice "go to" does.
+  const setSentChat = (id) => {
+    sentChat.current = id;
+    if (id && id === guestChat.current) return; // the guest's throwaway chat is never remembered
+    if ((settingsRef.current || {}).sentinelChatId === id) return;
+    api.setSettings({ sentinelChatId: id || '' }).then((s) => setSettings({ ...s })).catch(() => {});
+  };
   const openChatForSentinel = () => {
     if (viewRef.current !== 'chat' || TAB_MODALS.includes(modalRef.current)) return null;
     const c = chatsRef.current.find((x) => x.id === currentRef.current);
@@ -1278,29 +1289,19 @@ export default function App() {
     return c; // an incognito chat counts only because it is the one open: you are already incognito
   };
   const sentinelChat = (fresh) => {
-    if (!fresh && sentFollow.current) { // you opened another chat while Sentinel was answering: move there now
-      const f = chatsRef.current.find((x) => x.id === sentFollow.current); sentFollow.current = null;
-      if (f) sentChat.current = f.id;
-    }
-    let cur = chatsRef.current.find((x) => x.id === sentChat.current);
-    if (!cur && !fresh) { const open = openChatForSentinel(); if (open) { sentChat.current = open.id; return open; } }
-    if (cur && !fresh) return cur;
+    const live = (id) => id && chatsRef.current.find((x) => x.id === id && x.id !== guestChat.current);
+    let cur = live(sentChat.current) || live((settingsRef.current || {}).sentinelChatId);
+    if (cur && !fresh) { if (sentChat.current !== cur.id) sentChat.current = cur.id; return cur; }
+    if (!cur && !fresh) { const open = openChatForSentinel(); if (open && !open.guest) { setSentChat(open.id); return open; } }
     if (fresh && !cur) { const open = openChatForSentinel(); if (open && !open.messages.length && !open.incognito) cur = open; } // "new chat" on an empty open chat: use it
-    if (cur && fresh && !cur.messages.length) { sentChat.current = cur.id; select(cur.id); return cur; }
+    if (cur && fresh && !cur.messages.length) { setSentChat(cur.id); select(cur.id); return cur; }
     // Fast by default: the chosen Sentinel model and no council vote (say "turn on the council" to get it back).
     const c = { id: uid(), title: 'New chat', model: settings.sentinelModel || defaultModel(settings, providers), projectId: null, sentinel: true, brain: '', messages: [], updatedAt: Date.now() };
     setChats((cs) => [c, ...cs]);
-    sentChat.current = c.id;
+    setSentChat(c.id);
     select(c.id);
     return c;
   };
-  // Sentinel follows the chat you open. Mid-answer it stays put (the reply keeps streaming and being read) and moves on the next turn.
-  useEffect(() => {
-    const sn = sentRef.current; if (!sn || !sn.running) return;
-    const open = openChatForSentinel(); if (!open || open.id === sentChat.current) return;
-    if (pendingVoice.current || voiceStream.current || voiceApproval.current) { sentFollow.current = open.id; return; }
-    sentChat.current = open.id; sentFollow.current = null;
-  }, [currentId, view, modal]);
   // Say a short answer and go back to waiting for "Wake up".
   const sayVoice = (text, end = false) => {
     const sn = sentRef.current; if (!sn || !sn.running) return;
@@ -1324,12 +1325,12 @@ export default function App() {
   const lastAnswer = (c) => { const m = c && [...c.messages].reverse().find((x) => x.role === 'assistant'); return { m, text: m ? assistantText(m) : '' }; };
   const talkChats = () => chatsRef.current.filter((c) => !c.incognito && c.source !== 'phone' && c.source !== 'schedule').sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   // Moves Sentinel (and the chat selected in the main window, which stays in the background) to another chat.
-  const voiceGoto = (c) => { sentChat.current = c.id; sentFollow.current = null; voiceSentText.current = ''; if (currentRef.current !== c.id) select(c.id); };
+  const voiceGoto = (c) => { setSentChat(c.id); voiceSentText.current = ''; if (currentRef.current !== c.id) select(c.id); };
   const voiceDelete = (id) => {
     const run = runOf(id); if (run) api.abort(run[0]);
     const rest = chatsRef.current.filter((c) => c.id !== id);
     setChats((cs) => cs.filter((c) => c.id !== id));
-    if (sentChat.current === id) sentChat.current = null;
+    if (sentChat.current === id || (settingsRef.current || {}).sentinelChatId === id) setSentChat(null);
     if (id === currentRef.current) { const next = [...rest].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0]; if (next) setCurrentId(next.id); }
   };
   const runVoiceCommand = (cmd) => {
@@ -1523,11 +1524,11 @@ export default function App() {
   // The widget without Sentinel: a typed message goes to the same chat, the answer is shown in the widget and is not read aloud.
   actionsRef.current.widgetText = (text) => {
     if (!settingsRef.current?.hasApiKey) { flashSent('Add a provider in Settings first.'); return false; }
-    let c = sentinelChat(false);
-    if (isRunning(c.id)) c = sentinelChat(true); // still answering the last one: this goes to a new chat
+    const c = sentinelChat(false);
     widgetChat.current = true; voiceSentText.current = text;
     setSent((p) => ({ ...p, heard: text, said: '' }));
     if (currentRef.current !== c.id) select(c.id);
+    if (isRunning(c.id)) { enqueue(c.id, text, [], undefined); log('info', 'sentinel', `Message typed in the widget queued: chat "${c.title}" is still answering`); return true; } // same chat, sent when the answer ends
     log('info', 'sentinel', `Message typed in the widget (Sentinel is off), chat "${c.title}"`);
     if (!sendTo(c, text, [], {})) { flashSent('Could not send: this chat is busy or has no API key.'); return false; }
     return true;
@@ -1549,13 +1550,18 @@ export default function App() {
     } else {
       if (sentChat.current && sentChat.current === guestChat.current) sentChat.current = null; // the owner is back: not in the guest's chat
       c = sentinelChat(false);
-      if (isRunning(c.id)) c = sentinelChat(true); // still answering the last one: this goes to a new chat
     }
     if (currentRef.current !== c.id || !chatView) select(c.id);
     voiceSentText.current = text; if (shown !== undefined) setSent((p) => ({ ...p, heard: shown || p.heard }));
-    pendingVoice.current = c.id; voiceT0.current = performance.now(); prepareVoice(); // wake the voice server while the model thinks
-    const lang = (sn && sn.heardLang) || ''; if (sn) { sn.heardLang = ''; sn.replyLang = lang; } // used once: typed text has no spoken language
+    const lang = (sn && sn.heardLang) || ''; if (sn) sn.heardLang = ''; // used once: typed text has no spoken language
     sn && sn.thinking();
+    if (!guest && isRunning(c.id)) { // still answering (by voice or a typed task): wait in the same chat's queue, never a new chat
+      enqueue(c.id, text, [], { voice: true, lang, sentinelVoice: true });
+      log('info', 'sentinel', `Queued in chat "${c.title}": it is still answering`);
+      return;
+    }
+    pendingVoice.current = c.id; voiceT0.current = performance.now(); prepareVoice(); // wake the voice server while the model thinks
+    if (sn) sn.replyLang = lang;
     log('info', 'sentinel', `Sending to chat "${c.title}" (brain: ${brainOf(c) || 'none'})`);
     if (!sendTo(c, text, [], { voice: true, lang, ...(guest ? { guest: true } : {}) })) { pendingVoice.current = null; log('warn', 'sentinel', 'The chat could not start the message'); flashSent('Could not send: this chat is busy or has no API key.'); sn && sn.next(); }
   };
