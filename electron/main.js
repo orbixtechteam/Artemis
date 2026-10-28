@@ -1,5 +1,5 @@
 const { app, BrowserWindow, ipcMain, safeStorage, shell, Menu, nativeTheme, dialog, session, screen, globalShortcut, Notification, Tray, nativeImage, protocol, systemPreferences, desktopCapturer } = require('electron');
-try { protocol.registerSchemesAsPrivileged([{ scheme: 'artifact', privileges: { standard: true, secure: true } }]); } catch {}
+try { protocol.registerSchemesAsPrivileged([{ scheme: 'artifact', privileges: { standard: true, secure: true } }, { scheme: 'artemis-media', privileges: { standard: true, secure: true, supportFetchAPI: true } }]); } catch {}
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -42,6 +42,7 @@ const tools = require('./tools');
 // core: SQLite sessions, the memory workspace and the gateway API (electron/core/)
 const { openDb } = require('./core/db');
 const { createSessions } = require('./core/sessions');
+const { createMediaStore, nameOf: mediaNameOf } = require('./core/mediastore');
 const { createWorkspace } = require('./core/workspace');
 const { createMemIndex } = require('./core/memindex');
 const { createMemoryApi, embedderFrom } = require('./core/memory-api');
@@ -314,6 +315,8 @@ require('./shell').setSource(() => getSettings().shellPolicy);
 const coreState = { tried: false, db: null, sessions: null, ws: null, index: null };
 const workspaceDir = () => getSettings().workspaceFolder || path.join(app.getPath('userData'), 'workspace');
 const coreLog = (area) => (lv, m) => { try { (logger[lv] || logger.info)(area, m); } catch {} };
+// chat images live in <userData>/media as files; chats keep an artemis-media:// link (core/mediastore.js)
+const mediaStore = createMediaStore({ dir: path.join(app.getPath('userData'), 'media'), log: coreLog('media') });
 function initCore() {
   if (coreState.tried) return coreState;
   coreState.tried = true;
@@ -322,14 +325,16 @@ function initCore() {
     try {
       const db = openDb(path.join(app.getPath('userData'), 'artemis.db'), { log: coreLog('db') });
       if (db) {
-        const sessions = createSessions({ db, log: coreLog('db'), writer: 'renderer' });
+        const sessions = createSessions({ db, log: coreLog('db'), writer: 'renderer', media: mediaStore });
         if (db.getMeta('chatsImported') !== '1') {
           const arr = readJson('chats', []);
           if (Array.isArray(arr) && arr.length) sessions.sync(arr);
           if (!corruptStores.has('chats')) db.setMeta('chatsImported', '1');
           logger.info('db', `Chats moved into artemis.db (${Array.isArray(arr) ? arr.length : 0} chats); chats.json stays as a backup copy`);
         }
+        if (db.getMeta('mediaMigrated') !== '1') migrateChatImages(db, sessions);
         try { const n = sessions.purge(30); if (n) logger.info('db', `${n} chats deleted more than 30 days ago were removed for good`); } catch {}
+        try { const n = sessions.gcMedia(); if (n) logger.info('media', `${n} images no chat uses any more were removed`); } catch (e) { logger.warn('media', 'Media clean-up failed: ' + e.message); }
         coreState.db = db; coreState.sessions = sessions;
       }
     } catch (e) { logger.error('db', 'artemis.db could not be opened, chats stay in chats.json: ' + ((e && e.message) || e)); coreState.db = null; coreState.sessions = null; }
@@ -344,11 +349,29 @@ function initCore() {
   }
   return coreState;
 }
+/** One time, for chats saved by older versions: base64 images in artemis.db become files in the media folder. A copy of the
+ *  database is kept first (artemis.pre-media.db); on any error nothing is marked done, so the next start tries again. */
+function migrateChatImages(db, sessions) {
+  try {
+    const n = db.get("SELECT COUNT(*) AS n FROM messages WHERE json LIKE '%data:image/%'").n;
+    if (n) {
+      const backup = path.join(app.getPath('userData'), 'artemis.pre-media.db');
+      if (!fs.existsSync(backup)) db.exec(`VACUUM INTO '${backup.replace(/'/g, "''")}'`);
+      const t0 = Date.now();
+      const r = sessions.migrateMedia();
+      logger.info('media', `Chat images moved to the media folder: ${r.messages} messages in ${r.chats} chats (${Date.now() - t0} ms); backup: ${backup}`);
+      writeJson('chats', sessions.toArray()); // the chats.json backup copy without the base64
+    }
+    db.setMeta('mediaMigrated', '1');
+  } catch (e) { logger.error('media', 'Moving chat images to files failed, will retry on next start: ' + ((e && e.message) || e)); }
+}
 /** The saved chats (SQLite when available, else chats.json). */
 const readChats = () => { const c = initCore(); if (c.sessions) { try { return c.sessions.toArray(); } catch (e) { logger.error('db', 'Reading chats from artemis.db failed, using chats.json: ' + e.message); } } return readJson('chats', []); };
-let mirrorTimer = null;
-/** After a write that did not come from the window (gateway, phone without a window): refresh the chats.json backup copy. */
-const mirrorChats = () => { if (mirrorTimer) return; mirrorTimer = setTimeout(() => { mirrorTimer = null; const c = initCore(); if (c.sessions) { try { writeJson('chats', c.sessions.toArray()); } catch (e) { logger.warn('db', 'chats.json backup copy failed: ' + e.message); } } }, 3000); };
+let mirrorTimer = null, mirroredAt = 0;
+const MIRROR_EVERY = 10 * 60 * 1000;
+const writeMirror = () => { mirrorTimer = null; mirroredAt = Date.now(); const c = initCore(); if (c.sessions) { try { writeJson('chats', c.sessions.toArray()); } catch (e) { logger.warn('db', 'chats.json backup copy failed: ' + e.message); } } };
+/** Refreshes the chats.json backup copy from artemis.db, at most once per 10 minutes (and on quit): rewriting it on every save froze the app. */
+const mirrorChats = () => { if (mirrorTimer) return; mirrorTimer = setTimeout(writeMirror, Math.max(3000, mirroredAt + MIRROR_EVERY - Date.now())); };
 
 const SECRET_FIELDS = { telegramToken: 'telegramTokenEnc', makeToken: 'makeTokenEnc', mcpToken: 'mcpTokenEnc', braveKey: 'braveKeyEnc', gatewayToken: 'gatewayTokenEnc', hooksTunnelToken: 'hooksTunnelTokenEnc' };
 const cleanSecret = (v) => String(v == null ? '' : v).replace(/[\s\u00a0\u200b-\u200f\u2028\u2029\ufeff]+/g, '');
@@ -493,12 +516,28 @@ ipcMain.handle('store:set', (_e, name, data) => {
         if (Array.isArray(data)) for (const x of data) if (x && x.id != null) rendererKnown.add(String(x.id));
         c.sessions.sync(data, { writer: 'renderer', known: rendererKnown });
         setTimeout(pushExternal, 50); // merged chats go back to the window right away
+        mirrorChats();
+        return true;
       } catch (e) { logger.error('db', 'Saving chats to artemis.db failed (chats.json is still written): ' + e.message); }
     }
   }
   if (name === 'memory') { const c = initCore(); if (c.ws) { try { c.ws.replaceAll(data); return true; } catch (e) { logger.error('memory', 'Saving MEMORY.md failed: ' + e.message); return false; } } }
   writeJson(name, data);
   return true;
+});
+// The window's usual save: every chat id in order plus only the chats that changed. { full: true } asks for a whole-array
+// store:set instead (no artemis.db); `missing` lists ids main does not have, which the window sends in full next time.
+ipcMain.handle('chats:save', (_e, delta) => {
+  if (corruptStores.has('chats') && corruptNotified !== true) { notifyCorrupt(); return { ok: false }; }
+  const c = initCore();
+  if (!c.sessions || !delta || !Array.isArray(delta.order)) return { ok: false, full: true };
+  try {
+    for (const id of delta.order) if (id != null) rendererKnown.add(String(id));
+    const r = c.sessions.syncDelta({ order: delta.order, chats: Array.isArray(delta.chats) ? delta.chats : [] }, { writer: 'renderer', known: rendererKnown });
+    setTimeout(pushExternal, 50);
+    if (r.changed || r.deleted) mirrorChats();
+    return { ok: true, missing: r.missing };
+  } catch (e) { logger.error('db', 'Saving chats to artemis.db failed: ' + e.message); return { ok: false, full: true }; }
 });
 ipcMain.handle('settings:get', () => publicSettings());
 ipcMain.handle('settings:set', async (_e, patch) => {
@@ -883,18 +922,19 @@ INSTRUCTIONS:
 <markdown steps, at most 25 lines>
 Use MODE: update only when the task clearly used or improved an existing skill from the list: NAME must then be exactly that skill's name and INSTRUCTIONS the COMPLETE improved text.`;
 async function learnFromRun({ settings, root, userText, toolLog, finalText, signal, send, myApprovals, chatId, model, route }) {
-  const chosen = settings.reflectModel ? liveModel(settings.reflectModel) : cheapModel(model);
-  let r = providersLib.resolve(chosen, readProviders(), getProviderKey);
-  if (r.error) r = route;
+  const chosen = settings.reflectModel ? liveModel(settings.reflectModel) : cliKindOf(model) ? model : cheapModel(model);
+  const cli = cliComplete(chosen, { signal: AbortSignal.any([signal, AbortSignal.timeout(120000)]), source: 'learn', chatId });
+  let r = cli ? null : providersLib.resolve(chosen, readProviders(), getProviderKey);
+  if (r && r.error) r = route;
   const trace = toolLog.slice(0, 30).map((t, i) => `${i + 1}. ${t.name}${t.args ? ' ' + JSON.stringify(t.args).replace(/\s+/g, ' ').slice(0, 140) : ''}`).join('\n');
   const user = `Existing skills:\n${skills.indexText(root) || '(none)'}\n\nThe user asked:\n${String(userText).slice(0, 1500)}\n\nTools used, in order:\n${trace}\n\nThe final answer:\n${String(finalText).slice(0, 1500)}`;
-  const res = await fetch(providersLib.joinUrl(r.baseUrl, 'chat/completions'), {
+  const res = cli ? null : await fetch(providersLib.joinUrl(r.baseUrl, 'chat/completions'), {
     method: 'POST', signal: AbortSignal.any([signal, AbortSignal.timeout(60000)]),
     headers: { ...providersLib.headersFor(providersLib.joinUrl(r.baseUrl, 'chat/completions')), 'content-type': 'application/json', ...(r.key ? { authorization: `Bearer ${r.key}` } : {}) },
     body: JSON.stringify({ model: r.model, stream: false, max_tokens: 1200, temperature: 0.3, ...providersLib.routingBody(providersLib.joinUrl(r.baseUrl, 'chat/completions')), messages: [{ role: 'system', content: LEARN_SYSTEM }, { role: 'user', content: user }] })
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const j = await res.json();
+  if (res && !res.ok) throw new Error(`HTTP ${res.status}`);
+  const j = res ? await res.json() : { choices: [{ message: { content: await cli(LEARN_SYSTEM, user) } }] };
   try { if (j.usage) recordUsage({ t: Date.now(), model: chosen, chat: chatId || '', project: '', source: 'learn', prompt: j.usage.prompt_tokens || 0, completion: j.usage.completion_tokens || 0, cached: 0, estimated: false }); } catch {}
   const text = String((j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '').replace(/^```\w*\n?|```$/gm, '').trim();
   if (!/^\s*SAVE:\s*yes/i.test(text)) { logger.info('learn', 'Nothing worth saving from this task'); return; }
@@ -922,7 +962,7 @@ async function learnFromRun({ settings, root, userText, toolLog, finalText, sign
 // A model id that does not belong to a provider (an old default, Telegram's or Sentinel's model) moves to the first enabled provider.
 function liveModel(model) {
   const m = String(model || '');
-  if (/^prov:/.test(m)) return model;
+  if (/^prov:/.test(m) || cliKindOf(m)) return model; // Claude Code / Codex stay on the CLI everywhere (chats, phone, gateway, background jobs)
   // skip speech, transcription, embedding, image and moderation models: background jobs need a chat model
   const notChat = /tts|whisper|orpheus|playai|speech|audio|transcri|embed|rerank|guard|moderation|dall-e|image|flux|stable-diffusion/i;
   const chatModel = (p) => (p.models || []).find((x) => x && x.id && !notChat.test(x.id));
@@ -932,6 +972,15 @@ function liveModel(model) {
   const pick = chatModel(ok);
   if (liveModel.last !== ok.id) { liveModel.last = ok.id; logger.info('chat', `Model "${m}" has no provider: using "${ok.name}" (${pick.id})`); }
   return `prov:${ok.id}:${pick.id}`;
+}
+// Background jobs (titles, compaction, memory, learning) on a Claude Code / Codex model: one plain answer from the CLI, no tools.
+// A bare "cli:claude" runs these small jobs on Haiku, so they stay quick and light on the plan. null for a provider model.
+function cliComplete(model, { signal, source, chatId } = {}) {
+  const kind = cliKindOf(model);
+  if (!kind) return null;
+  const sub = cliModelOf(model) || (kind === 'claude' ? 'haiku' : '');
+  return (system, user) => cliAgents.ask({ kind, model: sub, system, prompt: user, signal,
+    onUsage: (u) => { try { recordUsage({ t: Date.now(), model: String(model), chat: chatId || '', project: '', source, prompt: u.prompt, completion: u.completion, cached: u.cached || 0, estimated: false }); } catch {} } });
 }
 // Pictures the user attaches, saved to disk for providers that cannot take them inline (a proxy in front of the Claude CLI): the model gets the file path and opens it with artemis_view_image.
 const IMAGES_DIR = path.join(app.getPath('userData'), 'attachments');
@@ -991,7 +1040,7 @@ const cliTeam = createCliTeamTurn({ cli: cliAgents, createMcpServer: require('./
  *  sandbox, the phone, memory, scheduling), each only when the member's tool groups include it. Files go to the Files folder. */
 const runTeamTurn = require('./core/teamrun').createTeamRunner({
   runAgent, settings: () => getSettings(), userData: app.getPath('userData'), stripThinkText,
-  resolveModel: (m) => providersLib.resolve(m, readProviders(), getProviderKey), fallbackModel: () => liveModel(getSettings().model),
+  resolveModel: (m) => providersLib.resolve(m, readProviders(), getProviderKey), fallbackModel: () => liveModel(getSettings().model), // a Claude Code / Codex default stays on that CLI
   prices: () => providersLib.priceMap(readProviders()), costOf, recordUsage, limitBlocked: () => limitState().blocked || '', filesDir: () => defaultFilesDir(),
   tools: ({ caps, agent, team, runId }) => {
     const st = getSettings();
@@ -1018,6 +1067,7 @@ const runTeamTurn = require('./core/teamrun').createTeamRunner({
 
 async function executeRun({ requestId, model: model0, messages, project, system, maxTokens, send: rawSend, restrict, incognito, source, unattended, allowEdits, permMode, chatId, brain, brainPick, revote, agentsMode, toolsMode, effort, mentions, shellMode }) {
   const model = cliKindOf(model0) ? String(model0) : liveModel(model0); // Claude Code / Codex models are not a provider's
+  messages = mediaStore.resolveMessages(messages); // artemis-media:// links -> base64, only for this call
   // where run_command goes in this run: the sandbox from Settings, unless the chat picked "this Mac" (only a chat in the window can)
   const sb = shellMode === 'host' && !unattended && !restrict ? null : currentSandbox();
   let usesFloat = false;
@@ -1225,9 +1275,15 @@ async function executeRun({ requestId, model: model0, messages, project, system,
   }
 }
 
+/** A tool screenshot goes to the window as a media link, so the chat never holds its base64. */
+function withMediaLink(ev) {
+  if (!ev || ev.type !== 'tool:result' || typeof ev.image !== 'string' || !ev.image.startsWith('data:image/')) return ev;
+  try { return { ...ev, image: mediaStore.putDataUrl(ev.image) }; } catch { return ev; }
+}
+ipcMain.handle('media:put', (_e, dataUrl) => { try { return mediaStore.putDataUrl(String(dataUrl || '')); } catch (e) { logger.warn('media', 'Could not save an image: ' + e.message); return dataUrl; } });
 ipcMain.handle('chat:run', (e, { requestId, model, messages, project, system, maxTokens, incognito, permMode, chatId, brain, brainPick, revote, agentsMode, toolsMode, effort, mentions, shellMode }) => {
   const wc = e.sender;
-  const send = (ev) => { if (!wc.isDestroyed()) wc.send('chat:event', { requestId, ...ev }); };
+  const send = (ev) => { if (!wc.isDestroyed()) wc.send('chat:event', { requestId, ...withMediaLink(ev) }); };
   return executeRun({ requestId, model, messages, project, system, maxTokens, send, incognito: !!incognito, permMode, chatId, brain, brainPick, revote, agentsMode, toolsMode, effort, mentions, shellMode });
 });
 ipcMain.handle('chat:compact', (_e, o = {}) => compactSummary(o));
@@ -1235,11 +1291,12 @@ async function compactSummary({ model, messages, chatId, incognito } = {}) {
   try {
     const settings = getSettings();
     const m = liveModel(model || settings.model);
-    const route = providersLib.resolve(m, readProviders(), getProviderKey);
+    const complete = cliComplete(m, { signal: AbortSignal.timeout(180000), source: 'compact', chatId });
+    const route = complete ? {} : providersLib.resolve(m, readProviders(), getProviderKey);
     if (route.error) return { ok: false, error: route.error };
     if (!Array.isArray(messages) || !messages.length) return { ok: false, error: 'Nothing to compact.' };
-    const summary = await summarizeAll(messages, {
-      url: providersLib.joinUrl(route.baseUrl, 'chat/completions'), key: route.key, model: route.model, signal: AbortSignal.timeout(120000),
+    const summary = await summarizeAll(messages, { complete,
+      url: complete ? '' : providersLib.joinUrl(route.baseUrl, 'chat/completions'), key: route.key, model: route.model, signal: AbortSignal.timeout(120000),
       onUsage: incognito ? null : (u) => recordUsage({ t: Date.now(), model: m, chat: chatId || '', project: '', source: 'compact', prompt: u.prompt, completion: u.completion, cached: 0, estimated: u.estimated })
     });
     return { ok: true, summary };
@@ -1254,11 +1311,13 @@ ipcMain.handle('chat:title', async (_e, o = {}) => {
     if (settings.autoTitles === false || o.incognito) return { ok: false, error: 'Automatic titles are off.' };
     const own = liveModel(o.model || settings.model);
     let m = settings.titleModel ? liveModel(settings.titleModel) : own;
-    let route = providersLib.resolve(m, readProviders(), getProviderKey);
-    if (route.error && m !== own) { m = own; route = providersLib.resolve(m, readProviders(), getProviderKey); }
+    const res = (id) => (cliKindOf(id) ? {} : providersLib.resolve(id, readProviders(), getProviderKey));
+    let route = res(m);
+    if (route.error && m !== own) { m = own; route = res(m); }
     if (route.error) throw new Error(route.error);
-    const url = providersLib.joinUrl(route.baseUrl, 'chat/completions');
-    const r = await titlesLib.requestTitle({ url, key: route.key, model: route.model, headers: providersLib.headersFor(url), extraBody: providersLib.routingBody(url),
+    const complete = cliComplete(m, { signal: AbortSignal.timeout(90000), source: 'title', chatId: o.chatId });
+    const url = complete ? '' : providersLib.joinUrl(route.baseUrl, 'chat/completions');
+    const r = await titlesLib.requestTitle({ url, complete, key: route.key, model: route.model, headers: providersLib.headersFor(url), extraBody: providersLib.routingBody(url),
       first: String(o.first || ''), reply: String(o.reply || ''), recent: Array.isArray(o.recent) ? o.recent : [] });
     if (r.usage) recordUsage({ t: Date.now(), model: m, chat: o.chatId || '', project: '', source: 'title', prompt: r.usage.prompt, completion: r.usage.completion, cached: 0, estimated: false });
     return r.title ? { ok: true, title: r.title } : { ok: false, error: 'The model gave no usable title.' };
@@ -1952,11 +2011,13 @@ async function flushFromRun(text, { model, chatId, project }) {
     const st = getSettings();
     const own = liveModel(model || st.model);
     const pick = st.memoryModel ? liveModel(st.memoryModel) : st.scheduleModel ? liveModel(st.scheduleModel) : own;
-    let r = providersLib.resolve(pick, readProviders(), getProviderKey);
+    const res = (id) => (cliKindOf(id) ? {} : providersLib.resolve(id, readProviders(), getProviderKey));
+    let r = res(pick);
     let used = pick;
-    if (r.error && pick !== own) { used = own; r = providersLib.resolve(own, readProviders(), getProviderKey); }
+    if (r.error && pick !== own) { used = own; r = res(own); }
     if (r.error) return;
-    const ask = (system, user) => brainsLib.askJson({ url: providersLib.joinUrl(r.baseUrl, 'chat/completions'), key: r.key, model: r.model, system, user, signal: AbortSignal.timeout(90000),
+    const complete = cliComplete(used, { signal: AbortSignal.timeout(180000), source: 'memory', chatId });
+    const ask = (system, user) => brainsLib.askJson({ complete, url: complete ? '' : providersLib.joinUrl(r.baseUrl, 'chat/completions'), key: r.key, model: r.model, system, user, signal: AbortSignal.timeout(90000),
       onUsage: (u) => recordUsage({ t: Date.now(), model: used, chat: chatId || '', project: (project && project.name) || '', source: 'memory', prompt: u.prompt, completion: u.completion, cached: 0, estimated: false }) });
     const out = await flushMemory({ transcript: text, ask, workspace: c.ws, log: coreLog('memory') });
     if (out.facts || out.notes) toWinSafe('chat:event', { type: 'memory:changed' });
@@ -2175,6 +2236,14 @@ app.whenReady().then(() => {
       return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8', 'content-security-policy': ARTIFACT_CSP } });
     });
   } catch {}
+  try {
+    // chat images: only hash-named files inside the media folder are served
+    protocol.handle('artemis-media', (req) => {
+      const r = mediaNameOf(req.url) ? mediaStore.read(req.url) : null;
+      if (!r) return new Response('Not found', { status: 404 });
+      return new Response(r.buf, { headers: { 'content-type': r.mime, 'cache-control': 'private, max-age=31536000, immutable', 'x-content-type-options': 'nosniff' } });
+    });
+  } catch {}
   if (process.platform === 'darwin' && app.dock) {
     // Indigo icon in light mode, dark icon in dark mode; follows the app theme (nativeTheme.themeSource)
     let dockIconFile = '';
@@ -2240,8 +2309,8 @@ app.whenReady().then(() => {
       const images = Array.isArray(c) ? c.filter((p) => p.type === 'image_url').map((p) => p.image_url.url) : [];
       const model = liveModel(remote.control.currentModel());
       const linkedChat = remote.linked && remote.linked();
-      toWin('phone:start', { requestId, session, text, images, model, projectId: st.remoteProjectId || null, chatId: linkedChat ? linkedChat.id : null });
-      const send = (ev) => { toPhone(ev); toWin('chat:event', { ...ev, requestId }); };
+      toWin('phone:start', { requestId, session, text, images: images.map((u) => { try { return mediaStore.putDataUrl(u); } catch { return u; } }), model, projectId: st.remoteProjectId || null, chatId: linkedChat ? linkedChat.id : null });
+      const send = (ev) => { toPhone(ev); toWin('chat:event', { ...withMediaLink(ev), requestId }); };
       return executeRun({
         requestId, messages, send, restrict: !st.remoteAllowDangerous, source: 'phone',
         model, system: st.systemPrompt, maxTokens: st.maxTokens,
@@ -2279,7 +2348,7 @@ app.whenReady().then(() => {
 });
 app.on('will-quit', () => {
   // each step on its own: one that throws must not skip the rest
-  for (const f of [() => terminals.closeAll(), () => scheduler.stop(), () => heartbeat.stop(), () => { hookService.stop().catch(() => {}); }, () => unregisterShortcuts(), () => globalShortcut.unregisterAll(), () => remote?.stop(), () => wakeword.stop(), () => updater.stop(), () => { const r = mcp.close(); if (r && r.catch) r.catch(() => {}); }, () => { if (gateway) gateway.stop(); gatewayLib.removeDiscovery(gatewayFile()); }, () => releaseInstance(), () => { if (mirrorTimer) { clearTimeout(mirrorTimer); mirrorTimer = null; } }, () => { if (coreState.db) coreState.db.close(); }]) { try { f(); } catch {} }
+  for (const f of [() => terminals.closeAll(), () => scheduler.stop(), () => heartbeat.stop(), () => { hookService.stop().catch(() => {}); }, () => unregisterShortcuts(), () => globalShortcut.unregisterAll(), () => remote?.stop(), () => wakeword.stop(), () => updater.stop(), () => { const r = mcp.close(); if (r && r.catch) r.catch(() => {}); }, () => { if (gateway) gateway.stop(); gatewayLib.removeDiscovery(gatewayFile()); }, () => releaseInstance(), () => { if (mirrorTimer) { clearTimeout(mirrorTimer); writeMirror(); } }, () => { if (coreState.db) coreState.db.close(); }]) { try { f(); } catch {} }
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 
@@ -2412,7 +2481,7 @@ require('./ipc/project')({ ipcMain, dialog, fs, logoDir, nativeImage, path, getW
 require('./ipc/profile')({ ipcMain, avatarData, avatarFile, dialog, fs, nativeImage, path, profileDir, shell, getWin: () => win });
 require('./ipc/sheet')({ ipcMain, BrowserWindow, dialog, files });
 require('./ipc/voice')({ ipcMain, getSettings, logger, providersLib, systemPreferences, transcribeAudio, fs, path, crypto: require('crypto'), cacheDir: () => path.join(app.getPath('home'), '.artemis', 'tts-cache') });
-require('./ipc/files')({ ipcMain, BrowserWindow, app, defaultFilesDir, dialog, files, tools, library, getWin: () => win });
+require('./ipc/files')({ ipcMain, BrowserWindow, app, defaultFilesDir, dialog, files, tools, library, media: mediaStore, getWin: () => win });
 require('./ipc/library')({ ipcMain, BrowserWindow, dialog, shell, files, library, getWin: () => win });
 require('./ipc/perm')({ ipcMain, permissions });
 require('./ipc/lock')({ ipcMain, lock, speaker, voiceGate, lockAuthWaiting, snapWaiting, logger, testAlert: testLockAlert });

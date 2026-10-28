@@ -4,7 +4,8 @@ import Select from '../Select.jsx';
 import { Icon } from '../Icons.jsx';
 import { Switch, Segmented } from '../settings/ui.jsx';
 import { askConfirm } from '../../lib/dialog.js';
-import { Avatar, MODES, CLI_CLAUDE, CLI_CODEX, isCli } from './parts.jsx';
+import { Avatar, MODES, isCli } from './parts.jsx';
+import { CLI_GROUPS } from '../../lib/models.js';
 
 const BUDGETS = [['0', 'No cap'], ['0.5', '$0.50'], ['1', '$1'], ['3', '$3'], ['5', '$5'], ['10', '$10'], ['25', '$25']];
 const MINUTES = [['0', 'No limit'], ['10', '10 min'], ['30', '30 min'], ['60', '1 hour'], ['120', '2 hours']];
@@ -36,9 +37,10 @@ export default function DeploySheet({ team, roster: userRoster, chatGroups, proj
   const [clis, setClis] = useState({ claude: false, codex: false });
   useEffect(() => { window.api.teamsClis?.().then((c) => c && setClis(c)).catch(() => {}); }, []);
   // Claude Code and Codex run on this computer with their own login (a subscription or their own key)
-  const cliGroup = [clis.claude && [CLI_CLAUDE, 'Claude Code · your login'], clis.codex && [CLI_CODEX, 'Codex · your login']].filter(Boolean);
-  const memberGroups = cliGroup.length ? [{ label: 'On this computer', items: cliGroup }, ...chatGroups] : chatGroups;
-  const usesCodex = d.members.some((m) => m.model === CLI_CODEX);
+  const cliIds = new Set(CLI_GROUPS.flatMap((g) => g.items.map(([id]) => id)));
+  const cliGroups = CLI_GROUPS.filter((g) => clis[g.kind]).map((g) => ({ label: g.label, items: g.items }));
+  const memberGroups = [...cliGroups, ...chatGroups.filter((g) => !g.items.some(([id]) => cliIds.has(id)))];
+  const usesCodex = d.members.some((m) => /^cli:codex(:|$)/.test(String(m.model || '')));
   const usesCli = d.members.some((m) => isCli(m.model));
   const pickFolder = async () => { const f = await window.api.pickFolder(); if (f) set('folder')(f); };
   const set = (k) => (v) => setD((x) => ({ ...x, [k]: v }));

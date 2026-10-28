@@ -32,6 +32,8 @@ const ALWAYS_ASK = new Set(['delete_file', 'library_delete']);
 const modelId = (m) => {
   const v = String(m || '').trim();
   if (!v || /^(prov|cli):/.test(v) || v === 'inherit') return v;
+  const fam = /^(?:claude[\s_-]*(?:code)?[\s_-]*)?(opus|sonnet|haiku|fable)$/i.exec(v); // "Opus", "Claude Code Sonnet" -> that model on Claude Code
+  if (fam) return `cli:claude:claude-${fam[1].toLowerCase()}-${fam[1].toLowerCase() === 'fable' ? '5-1' : '5-5'}`;
   if (/claude[\s_-]*code|^claude$/i.test(v)) return 'cli:claude';
   if (/codex/i.test(v)) return 'cli:codex';
   return v;
@@ -1368,7 +1370,7 @@ async function runTool(name, args, ctx) {
         if (!ctx.teams || !ctx.teams.models) throw new Error('The model list is not available here.');
         const l = ctx.teams.models();
         const price = (m) => (typeof m.in === 'number' || typeof m.out === 'number' ? ` · $${m.in || 0} in / $${m.out || 0} out per 1M` : m.local ? ' · free (local)' : '');
-        return { ok: true, text: (l.map((m) => `${m.id} · ${m.name} (${m.provider})${price(m)}`).join('\n') || 'No provider models connected.') + '\ncli:claude · Claude Code (user\'s own login)\ncli:codex · Codex (user\'s own login)' };
+        return { ok: true, text: (l.map((m) => `${m.id} · ${m.name} (${m.provider})${price(m)}`).join('\n') || 'No provider models connected.') + '\ncli:claude · Claude Code (user\'s own login, its default model)\ncli:claude:claude-opus-5-5 · Opus 5.5 on Claude Code\ncli:claude:claude-sonnet-5-5 · Sonnet 5.5 on Claude Code\ncli:claude:claude-haiku-5-5 · Haiku 5.5 on Claude Code\ncli:claude:claude-fable-5-1 · Fable 5.1 on Claude Code\ncli:codex · Codex (user\'s own login)' };
       }
       case 'agent_set_model': {
         if (!ctx.teams) throw new Error('Agents and teams are not available here.');

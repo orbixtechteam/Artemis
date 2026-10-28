@@ -82,7 +82,8 @@ function createBrains(deps) {
 const personaText = (b) => `You are talking as the brain "${b.name}"${b.role ? ` (${b.role})` : ''}. Stay in this character in tone and style, but keep every other rule and tool the same.\n${b.body}`;
 
 /** One short, tool-free model call that returns parsed JSON (or null). */
-async function askJson({ url, key, model, system, user, signal, onUsage, fetchImpl = fetch }) {
+async function askJson({ url, key, model, system, user, signal, onUsage, fetchImpl = fetch, complete }) {
+  if (complete) { const m = /\{[\s\S]*\}/.exec(String(await complete(system, user) || '')); if (!m) return null; try { return JSON.parse(m[0]); } catch { return null; } } // Claude Code / Codex
   const res = await fetchImpl(url, {
     method: 'POST', signal,
     headers: { ...headersFor(url), 'content-type': 'application/json', ...(key ? { authorization: `Bearer ${key}` } : {}) },
