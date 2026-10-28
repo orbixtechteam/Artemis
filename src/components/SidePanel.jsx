@@ -174,7 +174,7 @@ export function FilePanel({ file: a, onClose, expanded, onExpand }) {
       {!editing && sheets && sheets.length > 1 && <div className="tabs sp-sheets">{sheets.map((sh, i) => <button key={i} className={i === tab ? 'active' : ''} onClick={() => setTab(i)}>{sh.name}</button>)}</div>}
       {!live && vk !== 'image' && <FindBar key={a.path || a.name} targetRef={bodyRef} />}
       <div className={`sp-body ${live ? 'flush' : ''}`} ref={bodyRef}>
-        {vk === 'image' && a.dataUrl && <img className="preview-img" src={a.dataUrl} alt={a.name} />}
+        {vk === 'image' && (a.dataUrl || a.url) && <img className="preview-img" src={a.dataUrl || a.url} alt={a.name} />}
         {draft !== null && <textarea className="fp-edit" value={draft} onChange={(e) => setDraft(e.target.value)} spellCheck={false} autoFocus />}
         {draft === null && editable && editing && <SheetEditor path={a.path} name={a.name} onDirty={setDirty} onSaved={setEdPath} />}
         {draft === null && !editing && (vk === 'sheet' || vk === 'table') && mode === 'preview' && rows && <DataTable rows={rows} clean />}

@@ -17,7 +17,7 @@ export function toApiMessages(messages) {
       let text = '';
       const images = [];
       for (const a of m.attachments || []) {
-        if (a.kind === 'image' && a.dataUrl) images.push(a);
+        if (a.kind === 'image' && (a.dataUrl || a.url)) images.push(a); // url: an artemis-media:// link, made into base64 by the main process
         else if (a.text != null) {
           const MAX_INLINE = 3000; // a big file is shown only in part (the start, so the model sees the format); it searches the rest with tools
           const big = a.text.length > MAX_INLINE;
@@ -33,7 +33,7 @@ export function toApiMessages(messages) {
       if (images.length) {
         out.push({
           role: 'user',
-          content: [{ type: 'text', text: text || '(image)' }, ...images.map((i) => ({ type: 'image_url', image_url: { url: i.dataUrl } }))]
+          content: [{ type: 'text', text: text || '(image)' }, ...images.map((i) => ({ type: 'image_url', image_url: { url: i.dataUrl || i.url } }))]
         });
       } else out.push({ role: 'user', content: text });
     } else {

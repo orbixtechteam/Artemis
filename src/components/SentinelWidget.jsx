@@ -200,7 +200,7 @@ function FileViewer({ file, onBack }) {
       <div className={`swv-body${src ? ' flush' : ''}`}>
         {!a ? <div className="pad"><span className="swc-load" /></div>
           : a.kind === 'error' ? <div className="pad swm-err">{a.error || 'Could not read the file.'}</div>
-          : vk === 'image' && a.dataUrl ? <div className="swv-media"><img src={a.dataUrl} alt={a.name} /></div>
+          : vk === 'image' && (a.dataUrl || a.url) ? <div className="swv-media"><img src={a.dataUrl || a.url} alt={a.name} /></div>
           : binary ? <div className="pad swv-none"><Icon name="file" size={28} /><p>No preview for this kind of file.</p><div className="swc-row"><button onClick={() => abs && api.openPath(abs)}>Open with default app</button><button onClick={() => abs && api.revealPath(abs)}>Show in Finder</button></div></div>
           : (vk === 'html' || vk === 'svg') ? (src ? <iframe className="swv-frame" title={a.name} sandbox="allow-scripts" src={src} /> : <div className="pad"><span className="swc-load" /></div>)
           : vk === 'markdown' ? <div className="swm-md pad"><Markdown text={a.text || ''} /></div>

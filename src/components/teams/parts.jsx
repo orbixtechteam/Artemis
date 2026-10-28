@@ -6,11 +6,14 @@ import logoUrl from '../../assets/artemis-logo.png';
 export const LEAD = 'Artemis';
 export const CLI_CLAUDE = 'cli:claude', CLI_CODEX = 'cli:codex';
 export const isCli = (model) => /^cli:/.test(String(model || ''));
+const CLI_SHORT = { 'claude-opus-5-5': 'Opus 5.5', 'claude-sonnet-5-5': 'Sonnet 5.5', 'claude-haiku-5-5': 'Haiku 5.5', 'claude-fable-5-1': 'Fable 5.1' };
 /** A member's model as a short name: Claude Code / Codex, a model from the providers, or "Chat model". */
 export function modelLabel(id, groups = []) {
   if (!id) return 'Chat model';
   if (id === CLI_CLAUDE) return 'Claude Code';
   if (id === CLI_CODEX) return 'Codex';
+  const sub = /^cli:(claude|codex):(.+)$/.exec(String(id));
+  if (sub) return `${sub[1] === 'claude' ? 'Claude Code' : 'Codex'} · ${CLI_SHORT[sub[2]] || sub[2]}`;
   for (const g of groups) for (const [mid, n] of g.items) if (mid === id) return n;
   return String(id).replace(/^(prov|cli):[^:]+:/, '');
 }

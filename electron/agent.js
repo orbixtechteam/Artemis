@@ -621,7 +621,8 @@ async function summarizeHistory(history, { url, key, model, usageModel, signal, 
 }
 
 /** Summarise a whole list of API messages into a briefing (used by the manual Compact button). */
-async function summarizeAll(msgs, { url, key, model, usageModel, signal, onUsage }) {
+async function summarizeAll(msgs, { url, key, model, usageModel, signal, onUsage, complete }) {
+  if (complete) { const s = String(await complete(SUMMARY_SYSTEM, transcript(msgs).slice(-70000)) || '').trim(); if (!s) throw new Error('The model returned an empty summary.'); return s; } // Claude Code / Codex
   const res = await fetch(url, {
     method: 'POST', signal,
     headers: { ...headersFor(url), 'content-type': 'application/json', ...(key ? { authorization: `Bearer ${key}` } : {}) },

@@ -4,20 +4,21 @@
 const crypto = require('crypto');
 const chatSearch = require('../chatsearch');
 const { ftsQuery, fold } = require('./db');
+const { namesIn } = require('./mediastore');
 
 const sha1 = (s) => crypto.createHash('sha1').update(s).digest('hex');
 const day = (t) => { if (!t) return ''; const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }; // local date, like the user's calendar
 const uid = () => Math.random().toString(36).slice(2, 10);
 const DAY = 86400000;
 
-/** deps: { db (from openDb), log?(level, msg) } */
-function createSessions({ db, log = () => {}, writer: defaultWriter = 'app' }) {
+/** deps: { db (from openDb), log?(level, msg), media? (core/mediastore: images are stored as files, not base64) } */
+function createSessions({ db, log = () => {}, writer: defaultWriter = 'app', media = null }) {
   const hashes = new Map(); // session id -> content hash, so unchanged chats are skipped without a query
   for (const r of db.all('SELECT id, hash FROM sessions WHERE deleted_at IS NULL')) hashes.set(r.id, r.hash);
 
   function writeChat(chat, ord, hash, writer = defaultWriter) {
     const { messages, ...meta } = chat;
-    const msgs = Array.isArray(messages) ? messages : [];
+    const msgs = (Array.isArray(messages) ? messages : []).map((m) => (media ? media.externalize(m) : m));
     const incognito = chat.incognito ? 1 : 0;
     const created = Number(chat.createdAt) || Number(chat.updatedAt) || Date.now();
     db.run(`INSERT INTO sessions (id, title, project_id, source, incognito, created_at, updated_at, ord, hash, meta, deleted_at, seq, writer)
@@ -55,17 +56,40 @@ function createSessions({ db, log = () => {}, writer: defaultWriter = 'app' }) {
    */
   function sync(chats, { writer = defaultWriter, known = null } = {}) {
     if (!Array.isArray(chats)) throw new Error('chats must be an array');
+    return apply(chats.map((c) => (c && c.id != null ? String(c.id) : null)), chats, { writer, known });
+  }
+
+  /**
+   * Like sync(), but the saver sends only what changed: `order` is every chat id in list order, `chats` holds the chats
+   * whose content changed since its last save. Ids in `order` that are neither sent nor stored come back in `missing`,
+   * so the saver can send them in full next time.
+   */
+  function syncDelta({ order, chats = [] } = {}, { writer = defaultWriter, known = null } = {}) {
+    if (!Array.isArray(order) || !Array.isArray(chats)) throw new Error('order and chats must be arrays');
+    const byId = new Map();
+    for (const c of chats) if (c && c.id != null && !byId.has(String(c.id))) byId.set(String(c.id), c);
+    return apply(order.map((id) => (id == null ? null : String(id))), order.map((id) => byId.get(String(id)) || null), { writer, known });
+  }
+
+  // ids[i] is the chat at position i; list[i] its full content, or null when only its position is known (syncDelta).
+  function apply(ids, list, { writer, known }) {
     let changed = 0, deleted = 0;
-    const merged = [];
+    const merged = [], missing = [];
     db.tx(() => {
       const seen = new Set();
       // other writers may have changed rows since the hash cache was filled
       for (const r of db.all('SELECT id, hash FROM sessions WHERE deleted_at IS NULL AND writer <> ?', String(writer))) hashes.set(r.id, r.hash);
-      chats.forEach((c, i) => {
-        if (!c || c.id == null) return;
-        const id = String(c.id);
+      ids.forEach((id, i) => {
+        if (id == null) return;
         if (seen.has(id)) return; // a duplicate id would make the rows ambiguous: the first copy wins
         seen.add(id);
+        const c = list[i];
+        if (!c) { // unchanged content: keep the row, only follow its position
+          if (!hashes.has(id)) { missing.push(id); return; }
+          const [base, ord] = String(hashes.get(id)).split(':');
+          if (ord !== String(i)) { const h = base + ':' + i; db.run('UPDATE sessions SET ord = ?, hash = ? WHERE id = ?', i, h, id); hashes.set(id, h); }
+          return;
+        }
         const h = sha1(JSON.stringify(c)) + ':' + i;
         if (hashes.get(id) === h) return;
         if (hashes.has(id) && hashes.get(id).split(':')[0] === h.split(':')[0]) { db.run('UPDATE sessions SET ord = ?, hash = ? WHERE id = ?', i, h, id); hashes.set(id, h); return; } // only moved
@@ -90,7 +114,7 @@ function createSessions({ db, log = () => {}, writer: defaultWriter = 'app' }) {
       }
     });
     if (changed || deleted) log('debug', `sessions sync: ${changed} written, ${deleted} deleted${merged.length ? `, ${merged.length} merged` : ''}`);
-    return { changed, deleted, merged };
+    return { changed, deleted, merged, missing };
   }
 
   /** Changes by other writers after change number `since`: { seq, chats (current versions), deleted (ids) }. */
@@ -186,9 +210,37 @@ function createSessions({ db, log = () => {}, writer: defaultWriter = 'app' }) {
     return old.length;
   }
 
+  /** Moves base64 images already in the database into media files (one pass, for chats saved by older versions). */
+  function migrateMedia() {
+    if (!media) return { messages: 0, chats: 0 };
+    const rows = db.all("SELECT session_id, seq, json FROM messages WHERE json LIKE '%data:image/%'");
+    const touched = new Set();
+    let n = 0;
+    db.tx(() => {
+      for (const r of rows) {
+        let m; try { m = JSON.parse(r.json); } catch { continue; }
+        const out = media.externalize(m);
+        if (out === m) continue;
+        db.run('UPDATE messages SET json = ? WHERE session_id = ? AND seq = ?', JSON.stringify(out), r.session_id, r.seq);
+        touched.add(r.session_id); n++;
+      }
+      // another process that has these chats open gets the new versions through changesSince()
+      for (const id of touched) db.run("UPDATE sessions SET seq = ?, writer = 'media' WHERE id = ?", db.nextSeq(), id);
+    });
+    return { messages: n, chats: touched.size };
+  }
+
+  /** Deletes media files that no stored message (deleted chats in the 30-day trash included) links to. */
+  function gcMedia(opts) {
+    if (!media) return 0;
+    const keep = new Set();
+    for (const r of db.all("SELECT json FROM messages WHERE json LIKE '%artemis-media://%'")) namesIn(r.json, keep);
+    return media.gc(keep, opts);
+  }
+
   /** Chats deleted in the last `days` days (for an undo / restore view). */
   const trash = (days = 30) => db.all('SELECT id, title, deleted_at FROM sessions WHERE deleted_at IS NOT NULL AND deleted_at >= ? ORDER BY deleted_at DESC', Date.now() - days * DAY);
-  return { sync, changesSince, seq: () => db.seq(), toArray, get, count, recent, search, read, turns, appendTurn, purge, trash };
+  return { sync, syncDelta, changesSince, seq: () => db.seq(), toArray, get, count, recent, search, read, turns, appendTurn, purge, trash, migrateMedia, gcMedia };
 }
 
 module.exports = { createSessions };

@@ -2,7 +2,13 @@
 export function readImage(file) {
   return new Promise((resolve) => {
     const fr = new FileReader();
-    fr.onload = () => resolve({ name: file.name || 'image.png', kind: 'image', dataUrl: fr.result, size: file.size });
+    fr.onload = async () => {
+      const att = { name: file.name || 'image.png', kind: 'image', size: file.size };
+      // stored as a file in the media folder; the chat keeps only its link
+      let url = '';
+      try { url = window.api.mediaPut ? await window.api.mediaPut(fr.result) : ''; } catch {}
+      resolve(url && url.startsWith('artemis-media://') ? { ...att, url } : { ...att, dataUrl: fr.result });
+    };
     fr.readAsDataURL(file);
   });
 }

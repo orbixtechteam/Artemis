@@ -34,6 +34,7 @@ const brainsLib = require('../brains');
 const web = require('../web');
 const { openDb } = require('./db');
 const { createSessions } = require('./sessions');
+const { createMediaStore } = require('./mediastore');
 const { createWorkspace } = require('./workspace');
 const { createMemIndex } = require('./memindex');
 const { createMemoryApi, embedderFrom } = require('./memory-api');
@@ -93,11 +94,23 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
   // ---- storage ----
   const db = openDb(file('artemis.db'), { log: L('db') });
   if (!db) throw new Error('The headless gateway needs node:sqlite (Node.js 22.13 or newer).');
-  const sessions = createSessions({ db, log: L('db'), writer: 'headless' });
+  const media = createMediaStore({ dir: file('media'), log: L('media') });
+  const sessions = createSessions({ db, log: L('db'), writer: 'headless', media });
   if (db.getMeta('chatsImported') !== '1') {
     const arr = readJson('chats', []);
     if (Array.isArray(arr) && arr.length) sessions.sync(arr);
     db.setMeta('chatsImported', '1');
+  }
+  if (db.getMeta('mediaMigrated') !== '1') { // same one-time move as the desktop app (main.js migrateChatImages)
+    try {
+      if (db.get("SELECT COUNT(*) AS n FROM messages WHERE json LIKE '%data:image/%'").n) {
+        const backup = file('artemis.pre-media.db');
+        if (!fs.existsSync(backup)) db.exec(`VACUUM INTO '${backup.replace(/'/g, "''")}'`);
+        const r = sessions.migrateMedia();
+        log('info', 'media', `Chat images moved to the media folder: ${r.messages} messages in ${r.chats} chats`);
+      }
+      db.setMeta('mediaMigrated', '1');
+    } catch (e) { log('error', 'media', 'Moving chat images to files failed, will retry on next start: ' + e.message); }
   }
   let mirrorTimer = null;
   const mirror = () => { if (mirrorTimer || lockAlive('desktop')) return; // the app keeps chats.json up to date while it runs

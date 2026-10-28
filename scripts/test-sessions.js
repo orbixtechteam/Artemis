@@ -123,4 +123,23 @@ assert.throws(() => s.sync(null));
   ch = ui.changesSince(ch.seq, { exclude: 'renderer' });
   assert.deepStrictEqual(ch.deleted, ['x']);
 }
+// syncDelta: only changed chats are sent, the rest is known by id and position
+{
+  const d = createSessions({ db: openDb(':memory:'), writer: 'renderer' });
+  const a = { id: 'a', title: 'A', updatedAt: 1, messages: [{ id: 'm1', role: 'user', content: 'one' }] };
+  const b = { id: 'b', title: 'B', updatedAt: 2, messages: [{ id: 'm2', role: 'user', content: 'two' }] };
+  let r = d.syncDelta({ order: ['a', 'b'], chats: [a, b] });
+  assert.deepStrictEqual([r.changed, r.deleted, r.missing], [2, 0, []]);
+  r = d.syncDelta({ order: ['a', 'b'], chats: [] });
+  assert.deepStrictEqual([r.changed, r.deleted], [0, 0], 'nothing sent, nothing written');
+  const a2 = { ...a, messages: [...a.messages, { id: 'm3', role: 'assistant', steps: [{ text: 'reply', toolCalls: [] }] }] };
+  r = d.syncDelta({ order: ['b', 'a'], chats: [a2] });
+  assert.strictEqual(r.changed, 1);
+  assert.deepStrictEqual(d.toArray(), [b, a2], 'unsent chat kept, order followed');
+  assert.strictEqual(d.sync([b, a2]).changed, 0, 'full sync agrees with the delta result');
+  r = d.syncDelta({ order: ['b', 'zz'], chats: [] });
+  assert.deepStrictEqual([r.deleted, r.missing], [1, ['zz']], 'dropped id deleted, unknown id reported');
+  assert.deepStrictEqual(d.toArray().map((c) => c.id), ['b']);
+  assert.throws(() => d.syncDelta({ order: null }));
+}
 console.log('test-sessions: ok');

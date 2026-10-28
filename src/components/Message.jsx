@@ -68,8 +68,8 @@ function fmtTime(ts) {
 
 export function AttachmentChip({ a, onRemove }) {
   return (
-    <span className={`chip ${a.kind === 'error' ? 'bad' : a.pending ? 'pending' : 'clickable'} ${a.kind === 'image' && a.dataUrl ? 'has-thumb' : ''}`} title={a.pending ? `Reading ${a.name}…` : a.error || a.path || a.name} onClick={() => a.kind !== 'error' && !a.pending && openPreview(a)}>
-      {a.pending ? <Icon name="spinner" size={16} className="spin" /> : a.kind === 'image' && a.dataUrl ? <img src={a.dataUrl} alt="" /> : <Icon name={a.name?.toLowerCase().endsWith('.zip') ? 'file' : (FILE_ICON[a.kind] || 'file')} size={16} />}
+    <span className={`chip ${a.kind === 'error' ? 'bad' : a.pending ? 'pending' : 'clickable'} ${a.kind === 'image' && (a.dataUrl || a.url) ? 'has-thumb' : ''}`} title={a.pending ? `Reading ${a.name}…` : a.error || a.path || a.name} onClick={() => a.kind !== 'error' && !a.pending && openPreview(a)}>
+      {a.pending ? <Icon name="spinner" size={16} className="spin" /> : a.kind === 'image' && (a.dataUrl || a.url) ? <img src={a.dataUrl || a.url} alt="" /> : <Icon name={a.name?.toLowerCase().endsWith('.zip') ? 'file' : (FILE_ICON[a.kind] || 'file')} size={16} />}
       <span className="chip-name">{a.name}</span>
       {a.truncated && <span className="chip-note">truncated</span>}
       {onRemove && <button aria-label={`Remove ${a.name || 'attachment'}`} title="Remove" onClick={(e) => { e.stopPropagation(); onRemove(); }}><Icon name="x" size={13} /></button>}

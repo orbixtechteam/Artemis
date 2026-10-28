@@ -78,7 +78,7 @@ export function widgetView(chat, { maxText = 6000, maxShot = 1500000, maxImages 
       if ((tc.status === 'running' || tc.status === 'awaiting')) out.activity = activityOf(tc);
       if (tc.status === 'awaiting' && !out.approval) out.approval = { id: tc.id, title: activityOf(tc).replace(/…$/, ''), summary: clip(tc.summary || tc.category || '', 300) };
       for (const a of tc.agents || []) for (const x of (a && a.tools) || []) if (x.status === 'awaiting' && !out.approval) out.approval = { id: x.id, title: `${a.name || 'Agent'}: ${activityOf(x).replace(/…$/, '')}`, summary: clip(x.summary || x.category || '', 300) };
-      if (typeof tc.image === 'string' && /^data:image\//.test(tc.image) && tc.image.length <= maxShot) imgs.push({ type: 'src', src: tc.image, kind: 'image', label: tc.name === 'computer' ? 'Screen' : 'Screenshot' });
+      if (typeof tc.image === 'string' && /^(data:image\/|artemis-media:\/\/)/.test(tc.image) && tc.image.length <= maxShot) imgs.push({ type: 'src', src: tc.image, kind: 'image', label: tc.name === 'computer' ? 'Screen' : 'Screenshot' });
     }
     for (const md of s.media || []) if (md && md.path) imgs.push({ type: 'media', path: md.path, kind: md.kind === 'video' ? 'video' : 'image', label: clip(md.prompt || '', 80) });
     for (const id of s.artifactRefs || []) { const a = artifactCard(chat, id); if (a && !out.artifacts.some((x) => x.id === id)) out.artifacts.push(a); }
@@ -149,7 +149,7 @@ export function chatMessages(chat, { max = 20, maxText = 4000, maxShot = 1500000
       for (const tc of s.toolCalls || []) {
         if (!tc || !tc.name) continue;
         tools.push({ id: tc.id || String(tools.length), label: activityOf(tc).replace(/…$/, ''), status: tc.status || '' });
-        if (i === lastA && typeof tc.image === 'string' && /^data:image\//.test(tc.image) && tc.image.length <= maxShot) images.push({ type: 'src', src: tc.image, kind: 'image', label: tc.name === 'computer' ? 'Screen' : 'Screenshot' });
+        if (i === lastA && typeof tc.image === 'string' && /^(data:image\/|artemis-media:\/\/)/.test(tc.image) && tc.image.length <= maxShot) images.push({ type: 'src', src: tc.image, kind: 'image', label: tc.name === 'computer' ? 'Screen' : 'Screenshot' });
       }
       for (const md of s.media || []) if (md && md.path) images.push({ type: 'media', path: md.path, kind: md.kind === 'video' ? 'video' : 'image', label: clip(md.prompt || '', 80) });
       for (const aid of s.artifactRefs || []) { const a = artifactCard(chat, aid); if (a && !artifacts.some((x) => x.id === aid)) artifacts.push(a); }
