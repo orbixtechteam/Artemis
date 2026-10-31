@@ -30,12 +30,12 @@
 .composer-bar > * { flex: none; }
 .composer-bar > .sel, .composer-bar > .mp-wrap { flex: 0 1 auto; min-width: 0; }
 .composer-bar .mp-wrap .mp-btn { max-width: 100%; }
-.compact-btn { display: inline-flex; align-items: center; gap: 5px; width: auto; padding: 0 9px; font-size: 12.5px; }
+.composer-bar .compact-btn { display: inline-flex; align-items: center; gap: 5px; width: auto; height: 30px; padding: 0 10px; border-radius: var(--r-full); font-size: 12.5px; line-height: 1; }
 .compact-btn .btn-label { white-space: nowrap; }
 .composer-bar .send { margin-left: auto; }
 @container (max-width: 1000px) {
   .compact-btn .btn-label { display: none; }
-  .compact-btn { padding: 0 7px; }
+  .composer-bar .compact-btn { width: 30px; padding: 0; justify-content: center; }
   .composer-bar .sel.pill-select { max-width: 120px; padding: 5px 6px; }
   .composer-bar .mp-wrap { max-width: 190px; }
   .composer-bar .mp-btn { padding: 5px 9px; }

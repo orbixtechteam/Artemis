@@ -22,7 +22,7 @@ const { createAgents } = require('../subagents');
 const { createNotes } = require('../notes');
 const { createScheduler } = require('../scheduler');
 const prompts = require('../prompts');
-const { createHeartbeats, fromSettings: hbFromSettings, fileOf: hbFileOf } = require('./heartbeat');
+const { createHeartbeats, fromSettings: hbFromSettings, fileOf: hbFileOf, scopedTeams } = require('./heartbeat');
 const { createTeams } = require('../teams');
 const { createTeamRunner } = require('./teamrun');
 const { createMake } = require('../make');
@@ -202,7 +202,7 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
   }
 
   /** One agent run. Returns { text, steps, error }. */
-  async function run({ runId, messages, modelId, project, chatId, send, unattended = false, allowEdits = false, restrict = false, system = '', source = '' }) {
+  async function run({ runId, messages, modelId, project, chatId, send, unattended = false, allowEdits = false, restrict = false, system = '', source = '', watchTeamId = '' }) {
     const st = settings();
     const route = providersLib.resolve(modelId, readProviders(), getProviderKey);
     if (route.error) throw new Error(route.error + (/key/i.test(route.error) ? ` Set ARTEMIS_KEY_${envName(String(modelId).split(':')[1] || '')} or add it to ${file('headless.json')}.` : ''));
@@ -234,7 +234,7 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
         mcp: mcp && st.connectorsEnabled !== false ? (sandbox() ? hideHostShellTools(agentMcp()) : agentMcp()) : null, mcpLazy: st.connectorsLazy !== false, lazyTools: st.toolsLazy !== false, fullFileAccess: st.fullFileAccess !== false,
         phone: remote ? remote.phone() : null,
         schedule: unattended ? null : { list: () => sched.list(), save: (j) => sched.save(j), remove: (id) => sched.remove(id), hooks: hooksTools, heartbeat: heartbeatTools },
-        teams: unattended ? null : {
+        teams: unattended ? (watchTeamId ? scopedTeams({ list: async () => teams.list(), projects: () => readJson('projects', []), start: async (id) => teams.start(id) }, watchTeamId) : null) : {
           agents: (root) => agents.list(root || null).map(({ file, ...a }) => a), projects: () => readJson('projects', []).map((p) => ({ id: p.id, name: p.name, folder: p.folder || '', instructions: p.instructions || '' })), saveAgent: (a) => agents.save(a),
           list: async () => teams.list(), get: async (id) => teams.list().find((t) => t.id === id || String(t.name).toLowerCase() === String(id).toLowerCase()) || null,
           save: async (d) => { const t = teams.save(d); syncTeamJob(t); return t; }, start: async (id) => teams.start(id), remove: async (id) => { const j = sched.list().find((x) => x.teamId === id); if (j) sched.remove(j.id); return teams.remove(id); }
@@ -253,7 +253,7 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
         memoryApi, onCompact: memoryApi && st.memoryFlush !== false ? (t) => flushFor(t, modelId, chatId) : null,
         onUsage: (u) => recordUsage({ t: Date.now(), model: u.model || modelId, chat: chatId || '', project: (project && project.name) || '', source: source || (unattended ? 'schedule' : 'gateway'), prompt: u.prompt, completion: u.completion, cached: u.cached || 0, cacheWrite: u.cacheWrite || 0, estimated: u.estimated }),
         autoApprove: unattended ? !!allowEdits : !!st.autoApproveEdits, autoAll: false, agentAutoApprove: false,
-        approve: (info) => unattended ? Promise.resolve(info.category === 'phone' || (info.name === 'run_command' && !!sandbox())) : new Promise((resolve) => {
+        approve: (info) => unattended ? Promise.resolve(info.category === 'phone' || (info.name === 'run_command' && !!sandbox()) || (info.name === 'team_start' && !!watchTeamId)) : new Promise((resolve) => {
           mine.add(info.id);
           const timer = setTimeout(() => { if (approvals.delete(info.id)) resolve(false); }, APPROVAL_TIMEOUT);
           approvals.set(info.id, (ok) => { clearTimeout(timer); resolve(ok); });
@@ -295,10 +295,10 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
   });
 
   // ---- heartbeat and webhooks (same as in the app; they run here while this process owns the background jobs) ----
-  async function backgroundRun({ prompt, model, allowEdits, projectId, source }) {
+  async function backgroundRun({ prompt, model, allowEdits, projectId, source, teamId }) {
     const modelId = pickModel(model || settings().scheduleModel);
     const runId = 'bg-' + crypto.randomBytes(5).toString('hex');
-    const res = await run({ runId, messages: [{ role: 'user', content: prompt }], modelId, project: projectFor(projectId), chatId: runId, send: () => {}, unattended: true, allowEdits: !!allowEdits, restrict: true, system: prompts.text('background', prompts.defaultOf('background')), source });
+    const res = await run({ runId, messages: [{ role: 'user', content: prompt }], modelId, project: projectFor(projectId), chatId: runId, send: () => {}, unattended: true, allowEdits: !!allowEdits, restrict: true, system: prompts.text('background', prompts.defaultOf('background')), source, watchTeamId: teamId });
     return { text: res.text, error: res.error, model: modelId };
   }
   async function backgroundTell({ title, user, text, model, source, phone, icon }) {
@@ -314,7 +314,7 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
     checklist: (hb) => (ws ? ws.readText(hbFileOf(hb)) || '' : null),
     writeChecklist: (hb, text) => { if (!ws) throw new Error('Heartbeats need the memory workspace.'); const f = ws.abs(hbFileOf(hb)); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f + '.tmp', text.endsWith('\n') ? text : text + '\n'); fs.renameSync(f + '.tmp', f); },
     removeChecklist: (hb) => { if (ws) fs.rmSync(ws.abs(hbFileOf(hb)), { force: true }); },
-    run: ({ prompt, model }) => backgroundRun({ prompt, model, source: 'heartbeat' }),
+    run: ({ prompt, model, projectId, teamId }) => backgroundRun({ prompt, model, projectId, teamId, source: 'heartbeat' }),
     deliver: ({ text, model, hb }) => backgroundTell({ title: hb.name === 'Heartbeat' ? 'Heartbeat' : `Heartbeat: ${hb.name}`, user: `Heartbeat check (${hbFileOf(hb)})`, text, model, source: 'heartbeat', phone: hb.phone !== false, icon: '💓' }),
     readState: () => readJson('heartbeat-state', {}), writeState: (x) => writeJson('heartbeat-state', x), log: L('heartbeat')
   });

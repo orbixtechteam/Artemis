@@ -38,6 +38,7 @@
 .mem-card .mem-add { padding: 10px 14px; border-top: .5px solid var(--line); }
 .mem-card .mem-add input { height: 28px; padding: 0 10px; }
 .mem-card .mem-add button { height: 28px; padding: 0 14px; }
+.list-tools:has(+ .mem-list) { margin-bottom: 0; }
 .mem-list { max-height: none; gap: 0; border-radius: 12px; background: var(--pref-card); border: .5px solid var(--line-2); overflow: hidden; }
 .mem-list:has(.mem-empty) { border: 0; background: none; }
 .mem-empty { padding: 8px 4px; color: var(--muted); }

@@ -7,6 +7,8 @@ import { Row, Switch, Segmented } from './settings/ui.jsx';
 import { splitSheets } from '../lib/preview.js';
 import { Icon } from './Icons.jsx';
 import ProjectLogo from './ProjectLogo.jsx';
+import ListTools from './ListTools.jsx';
+import { filterSort } from '../lib/listfilter.mjs';
 import { ClaudeUsageFor } from './ClaudeUsage.jsx';
 
 export function Modal({ title, sub, onClose, children, wide, cls, bare }) {
@@ -160,6 +162,10 @@ export function UsageModal({ onClose, projects = [], chats = [] }) {
 export function MemoryModal({ memory, enabled, onChange, onToggle, onClose }) {
   const page = useContext(PageContext);
   const [text, setText] = useState('');
+  const [q, setQ] = useState('');
+  const [sort, setSort] = useState('new');
+  // MEMORY.md has no per-fact dates, so a fact's place in the file is its age (new facts are appended)
+  const shown = filterSort(memory, { q, sort, text: (m) => m.text, at: (_, i) => i });
   const add = () => {
     if (!text.trim()) return;
     onChange([...memory, { id: Math.random().toString(36).slice(2, 8), text: text.trim().slice(0, 500), createdAt: Date.now() }]);
@@ -177,9 +183,10 @@ export function MemoryModal({ memory, enabled, onChange, onToggle, onClose }) {
           <button className="primary" onClick={add} disabled={!text.trim()}>Add</button>
         </div>
       </div>
+      {memory.length > 0 && <ListTools q={q} onQ={setQ} sort={sort} onSort={setSort} placeholder="Search memory…" />}
       <div className="mem-list">
-        {memory.length === 0 && <div className="mem-empty">Nothing remembered yet.</div>}
-        {memory.map((m) => (
+        {shown.length === 0 && <div className="mem-empty">{memory.length ? 'No facts match your search.' : 'Nothing remembered yet.'}</div>}
+        {shown.map((m) => (
           <div key={m.id} className="mem-item">
             <input value={m.text} aria-label="Fact" onChange={(e) => onChange(memory.map((x) => (x.id === m.id ? { ...x, text: e.target.value } : x)))} />
             <button title="Delete" aria-label="Delete" onClick={() => onChange(memory.filter((x) => x.id !== m.id))}><Icon name="x" size={14} /></button>

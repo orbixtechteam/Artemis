@@ -4,7 +4,7 @@ const http = require('http');
 const crypto = require('crypto');
 const { EventEmitter } = require('events');
 const { nextRunAfter, validate, describe, preview } = require('../electron/scheduler');
-const { createHeartbeats, fromSettings, parseReply, inActiveHours, checklistText, TEMPLATE } = require('../electron/core/heartbeat');
+const { createHeartbeats, fromSettings, scopedTeams, parseReply, inActiveHours, checklistText, buildPrompt, TEMPLATE } = require('../electron/core/heartbeat');
 const hooksLib = require('../electron/core/hooks');
 const { createTunnel } = require('../electron/core/tunnel');
 const { createHookService } = require('../electron/core/hookservice');
@@ -41,6 +41,7 @@ assert.deepStrictEqual(parseReply('HEARTBEAT_OK'), { ok: true });
 assert.deepStrictEqual(parseReply('**HEARTBEAT_OK**'), { ok: true });
 assert.deepStrictEqual(parseReply('All quiet. HEARTBEAT_OK.'), { ok: true });
 assert.deepStrictEqual(parseReply(''), { ok: true });
+assert.ok(buildPrompt({ checklist: '- x', every: 30, now: Date.now() }).includes('exactly HEARTBEAT_OK'), 'the heartbeat prompt names the real token');
 assert.deepStrictEqual(parseReply('Your bank wrote: card blocked.'), { ok: false, alert: 'Your bank wrote: card blocked.' });
 assert.strictEqual(parseReply('HEARTBEAT_OK ' + 'x'.repeat(400)).ok, false);
 assert.strictEqual(inActiveHours(at(2026, 10, 25, 7, 59), '08:00', '23:00'), false);
@@ -61,6 +62,23 @@ function req(port, path, { method = 'POST', headers = {}, body = '' } = {}) {
 }
 
 (async () => {
+  // ---- a heartbeat that watches one team ----
+  {
+    let now = 10 * 3600000; const started = [];
+    const all = [{ id: 'a', name: 'Mine', run: { status: 'done', startedAt: 0 } }, { id: 'b', name: 'Other', run: { status: 'done', startedAt: 0 } }];
+    const s = scopedTeams({ list: async () => all, start: async (id) => { started.push(id); } }, 'a', () => now);
+    assert.deepStrictEqual((await s.list()).map((t) => t.id), ['a'], 'it sees only its own team');
+    assert.strictEqual(await s.get('Other'), null); assert.strictEqual((await s.get('mine')).id, 'a');
+    await assert.rejects(s.start('b'), /its own team/);
+    await s.start('a'); assert.deepStrictEqual(started, ['a']);
+    all[0].run = { status: 'working', startedAt: now };
+    await assert.rejects(s.start('a'), /already working/);
+    all[0].run = { status: 'done', startedAt: now }; now += 3600000;
+    await assert.rejects(s.start('a'), /2 hours/);
+    now += 3600000; await s.start('a'); assert.deepStrictEqual(started, ['a', 'a']);
+    assert.strictEqual(s.save, undefined); assert.strictEqual(s.remove, undefined);
+  }
+
   // ---- heartbeats ----
   {
     let t = at(2026, 10, 25, 9, 0), st = {}, list = fromSettings({ heartbeatEnabled: true, heartbeatEvery: 30, heartbeatFrom: '08:00', heartbeatTo: '23:00', heartbeatModel: 'cheap' });

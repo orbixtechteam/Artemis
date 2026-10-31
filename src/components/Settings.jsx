@@ -9,6 +9,7 @@ import { ProvidersTab } from './settings/ProvidersTab.jsx';
 import { LimitsTab } from './settings/LimitsTab.jsx';
 import { AppearanceTab } from './settings/AppearanceTab.jsx';
 import { AccessTab } from './settings/AccessTab.jsx';
+import { NotificationsTab } from './settings/NotificationsTab.jsx';
 import { SecurityTab } from './settings/SecurityTab.jsx';
 import { VoiceTab } from './settings/VoiceTab.jsx';
 import { UpdatesGroup } from './settings/UpdatesGroup.jsx';
@@ -61,6 +62,7 @@ function ShortcutField({ label, about, value, onChange, placeholder, error }) {
 export const SECTIONS = [
   ['general', 'General', 'sliders', 'Default model, personality and how Artemis starts.', 'app', ['general']],
   ['appearance', 'Appearance', 'eye', 'Light or dark, palette, accent colour and text size.', 'app', ['appearance']],
+  ['notifications', 'Notifications', 'bell', 'What Artemis told you, a test, and the macOS switch.', 'app', ['notifications']],
   ['shortcuts', 'Keyboard', 'keyboard', 'Shortcuts that work from any app, and inside Artemis.', 'app', ['shortcuts']],
   ['providers', 'Models & providers', 'plug', 'Model providers, endpoints and API keys.', 'models', ['providers']],
   ['agents', 'Agents & brains', 'layers', 'Helper agents, and personalities with their own model.', 'models', ['agents', 'brains']],
@@ -483,6 +485,7 @@ export function SettingsModal({ settings, groups = [], projects = [], providers 
               {s.shellEnabled && <SandboxGroup s={s} setS={setS} put={put} />}
             </>
           )}
+          {has('notifications') && <NotificationsTab />}
           {has('access') && partHead('access')}
           {has('access') && <AccessTab s={s} set={set} setS={setS} projects={projects} goTo={setTab} />}
           {has('security') && partHead('security')}
