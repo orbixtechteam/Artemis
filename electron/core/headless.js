@@ -301,8 +301,8 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
     const res = await run({ runId, messages: [{ role: 'user', content: prompt }], modelId, project: projectFor(projectId), chatId: runId, send: () => {}, unattended: true, allowEdits: !!allowEdits, restrict: true, system: prompts.text('background', prompts.defaultOf('background')), source, watchTeamId: teamId });
     return { text: res.text, error: res.error, model: modelId };
   }
-  async function backgroundTell({ title, user, text, model, source, phone, icon }) {
-    try { sessions.appendTurn('bg-' + crypto.randomBytes(5).toString('hex'), { user, assistant: text, title, via: source, source, model: model || '' }); mirror(); } catch (e) { log('warn', source, 'could not save the chat: ' + e.message); }
+  async function backgroundTell({ chatId, title, user, text, model, source, phone, icon }) {
+    try { sessions.appendTurn(chatId || 'bg-' + crypto.randomBytes(5).toString('hex'), { user, assistant: text, title, via: source, source, model: model || '' }); mirror(); } catch (e) { log('warn', source, 'could not save the chat: ' + e.message); }
     if (!phone) return;
     const ph = remote && remote.phone();
     if (ph) await ph.send(`${icon} ${title}\n\n${String(text).slice(0, 3500)}`);
@@ -315,7 +315,7 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
     writeChecklist: (hb, text) => { if (!ws) throw new Error('Heartbeats need the memory workspace.'); const f = ws.abs(hbFileOf(hb)); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f + '.tmp', text.endsWith('\n') ? text : text + '\n'); fs.renameSync(f + '.tmp', f); },
     removeChecklist: (hb) => { if (ws) fs.rmSync(ws.abs(hbFileOf(hb)), { force: true }); },
     run: ({ prompt, model, projectId, teamId }) => backgroundRun({ prompt, model, projectId, teamId, source: 'heartbeat' }),
-    deliver: ({ text, model, hb }) => backgroundTell({ title: hb.name === 'Heartbeat' ? 'Heartbeat' : `Heartbeat: ${hb.name}`, user: `Heartbeat check (${hbFileOf(hb)})`, text, model, source: 'heartbeat', phone: hb.phone !== false, icon: '💓' }),
+    deliver: ({ text, model, hb }) => backgroundTell({ chatId: 'heartbeat-' + hb.id, title: hb.name === 'Heartbeat' ? 'Heartbeat' : `Heartbeat: ${hb.name}`, user: `Heartbeat check (${hbFileOf(hb)})`, text, model, source: 'heartbeat', phone: hb.phone !== false, icon: '💓' }),
     readState: () => readJson('heartbeat-state', {}), writeState: (x) => writeJson('heartbeat-state', x), log: L('heartbeat')
   });
   const hooks = createHooks({

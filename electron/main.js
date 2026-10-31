@@ -1710,9 +1710,9 @@ async function backgroundRun({ prompt, model: m0, allowEdits, projectId, source,
   return { text: text.trim(), error, model };
 }
 /** Tells the user: a saved chat, a notification and (when asked) Telegram. */
-async function backgroundTell({ title, user, text, model, source, phone, icon }) {
+async function backgroundTell({ chatId, title, user, text, model, source, phone, icon }) {
   const c = initCore();
-  if (c.sessions) { try { c.sessions.appendTurn('bg-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), { writer: 'desktop', user, assistant: text, title, via: source, source, model }); mirrorChats(); } catch (e) { logger.warn('db', 'Could not save the ' + source + ' chat: ' + e.message); } }
+  if (c.sessions) { try { c.sessions.appendTurn(chatId || 'bg-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), { writer: 'desktop', user, assistant: text, title, via: source, source, model }); mirrorChats(); } catch (e) { logger.warn('db', 'Could not save the ' + source + ' chat: ' + e.message); } }
   try { if (Notification.isSupported()) { const n = new Notification({ title, body: text.slice(0, 160) }); n.on('click', () => showMain(source + ' notification clicked')); n.show(); } } catch {}
   if (phone) {
     const ph = phoneNow();
@@ -1729,7 +1729,7 @@ const heartbeat = hbLib.createHeartbeats({
   writeChecklist: (hb, text) => { const f = wsFile(hbLib.fileOf(hb)); if (!f) throw new Error('Heartbeats need the memory workspace (Settings → Tools → Memory).'); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f + '.tmp', text.endsWith('\n') ? text : text + '\n'); fs.renameSync(f + '.tmp', f); },
   removeChecklist: (hb) => { const f = wsFile(hbLib.fileOf(hb)); if (f) fs.rmSync(f, { force: true }); },
   run: ({ prompt, model, projectId, teamId }) => backgroundRun({ prompt, model, projectId, teamId, source: 'heartbeat' }),
-  deliver: ({ text, model, hb }) => backgroundTell({ title: hb.name === 'Heartbeat' ? 'Heartbeat' : `Heartbeat: ${hb.name}`, user: `Heartbeat check (${hbLib.fileOf(hb)})`, text, model, source: 'heartbeat', phone: hb.phone !== false, icon: '💓' }),
+  deliver: ({ text, model, hb }) => backgroundTell({ chatId: 'heartbeat-' + hb.id, title: hb.name === 'Heartbeat' ? 'Heartbeat' : `Heartbeat: ${hb.name}`, user: `Heartbeat check (${hbLib.fileOf(hb)})`, text, model, source: 'heartbeat', phone: hb.phone !== false, icon: '💓' }),
   readState: () => readJson('heartbeat-state', {}), writeState: (x) => { writeJson('heartbeat-state', x); toWinSafe('automation:changed', {}); },
   log: coreLog('heartbeat')
 });
