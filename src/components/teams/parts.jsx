@@ -55,6 +55,16 @@ export function teamState(t) {
   }
 }
 
+// Files travel inside a message's text as absolute paths, so an agent can open them and the gateway needs no new field.
+const FILES_HEAD = 'Attached files:';
+export const joinFiles = (text, files) => (files.length ? [text, FILES_HEAD, ...files.map((f) => `- ${f.name}: ${f.path}${f.url ? ` [${f.url}]` : ''}`)].filter(Boolean).join('\n') : text);
+export function splitFiles(raw) {
+  const s = String(raw || ''); const at = s.lastIndexOf(FILES_HEAD);
+  if (at < 0) return { text: s, files: [] };
+  const files = s.slice(at + FILES_HEAD.length).trim().split('\n').map((l) => /^- (.+?): (\/.+?)(?: \[(artemis-media:\/\/\S+)\])?$/.exec(l)).filter(Boolean).map((m) => ({ name: m[1], path: m[2], url: m[3] || '' }));
+  return files.length ? { text: s.slice(0, at).trim(), files } : { text: s, files: [] };
+}
+
 export const usd = (n) => '$' + (Number(n) || 0).toFixed((Number(n) || 0) >= 10 ? 1 : 2);
 export const tokens = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M' : n >= 1e3 ? Math.round(n / 1e3) + 'k' : String(n || 0));
 export function elapsed(t) {

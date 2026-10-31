@@ -30,6 +30,7 @@ const SHAPES = {
   arrowRight: P('M5 12h14M13 6l6 6-6 6'),
   arrowUp: P('M12 19V5M5 12l7-7 7 7'),
   stop: <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" />,
+  bell: P('M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15zM10 21h4'),
   search: <><circle cx="11" cy="11" r="7" /><path d="M20 20l-4-4" /></>,
   bulb: P('M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.5 1 2.5h6c0-1 .3-1.8 1-2.5A6 6 0 0 0 12 3z'),
   user: <><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 4-6 8-6s8 2 8 6" /></>,

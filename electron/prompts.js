@@ -36,7 +36,7 @@ function fill(t, vars) {
 /** The text to use: the user's version (filled), '' when switched off, else the default. */
 function text(id, def, vars) {
   const o = override(id);
-  if (!o) return def;
+  if (!o) return fill(def, vars);
   if (o.off) return '';
   return fill(o.text, vars);
 }

@@ -454,6 +454,20 @@ function createBrowser(deps) {
       try { if (t.id === activeId) t.view.setBounds(b); t.view.setVisible(on); } catch {}
     }
   }
+  // A hidden view (panel closed, or the window covered or minimized) reports document.visibilityState 'hidden' and stops animation frames, and pages
+  // such as Substack then ignore clicks on their menus. While an agent drives the browser, focus emulation keeps every tab painting as if it were on screen.
+  async function keepVisible(t) {
+    const dbg = t.view.webContents.debugger;
+    if (t.awake || !dbg) return;
+    t.awake = true;
+    try {
+      if (!dbg.isAttached()) dbg.attach('1.3');
+      await dbg.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true });
+    } catch (e) { t.awake = false; warn('Could not keep the page visible for the agent: ' + e.message); }
+  }
+  function letSleep() {
+    for (const t of tabs) { if (t.awake) { t.awake = false; try { t.view.webContents.debugger.detach(); } catch {} } }
+  }
   function setAudio() { for (const t of tabs) { try { t.view.webContents.setAudioMuted(!shown); } catch {} } }
 
   // The app page's CSP only allows data: images, so favicons are fetched here (through the browser's session) and sent as data URLs.
@@ -494,7 +508,8 @@ function createBrowser(deps) {
     wc.on('will-navigate', guard);
     wc.on('will-redirect', guard);
     // A page calling window.focus() would activate the app window and pull Artemis in front of the app you are using: make it a no-op.
-    wc.on('dom-ready', () => { try { Promise.resolve(wc.executeJavaScript('try { window.focus = function () {}; } catch (e) {}', false)).catch(() => {}); } catch {} });
+    // The Dock number belongs to Artemis's own unread notifications, so a site's setAppBadge is a no-op too.
+    wc.on('dom-ready', () => { try { Promise.resolve(wc.executeJavaScript('try { window.focus = function () {}; } catch (e) {} try { Navigator.prototype.setAppBadge = Navigator.prototype.clearAppBadge = function () { return Promise.resolve(); }; } catch (e) {}', false)).catch(() => {}); } catch {} });
     wc.on('did-start-loading', () => { t.loading = true; t.error = ''; pushState(); });
     wc.on('did-stop-loading', () => { t.loading = false; pushState(); });
     wc.on('page-title-updated', (_e, title) => { t.title = title || t.title; pushState(); });
@@ -516,6 +531,7 @@ function createBrowser(deps) {
     if (target !== 'about:blank') wc.loadURL(target).catch(() => {});
     if (t.id === activeId) emit('browser:url', target);
     pushState();
+    if (agentRuns.size) keepVisible(t);
     return t;
   }
   function select(id) {
@@ -660,6 +676,7 @@ function createBrowser(deps) {
     if (signal && signal.aborted) throw abortErr();
     agentRuns.add(requestId || '');
     emit('browser:agent', { active: true, requestId, tool: name, show: !shown, ...who });
+    await Promise.all(tabs.map(keepVisible));
     switch (name) {
       case 'browser_tabs': {
         const a = String(args.action || 'list');
@@ -834,7 +851,7 @@ function createBrowser(deps) {
       }
     };
   }
-  function agentDone(requestId) { if (agentRuns.delete(requestId || '')) emit('browser:agent', { active: false, requestId }); }
+  function agentDone(requestId) { if (agentRuns.delete(requestId || '')) { emit('browser:agent', { active: false, requestId }); if (!agentRuns.size) letSleep(); } }
 
   return { open, hide, setRect, setCovered, nav, navigate, newTab: (u) => newTab(u), select, close, state, destroy, onWindowResize: layout, agent, agentDone, tool, host, isShown: () => shown };
 }
