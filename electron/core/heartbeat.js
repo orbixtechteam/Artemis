@@ -1,7 +1,7 @@
 // Heartbeats: each one is a short checklist that Artemis checks every few minutes (within its active hours).
 // If nothing needs attention the model answers HEARTBEAT_OK and nothing is sent. Otherwise its answer goes to the
 // user (Telegram, a notification, a saved chat). An empty checklist costs nothing: no model call is made.
-// The same alert is not sent twice within a day. Only the process that owns the background jobs runs them.
+// The same alert or topic is not sent twice within a day, and alerts are at least two hours apart. Only the process that owns the background jobs runs them.
 // There can be several, each with its own checklist, interval, hours and model. The first one ("main") keeps its
 // checklist in HEARTBEAT.md, the others in heartbeats/<id>.md in the memory workspace; the list is <data>/heartbeats.json.
 //
@@ -24,6 +24,7 @@ const MIN = 60000;
 const TOKEN = 'HEARTBEAT_OK';
 const ACK_MAX = 300;                // an "OK" with a few extra words is still an OK
 const DEDUPE_MS = 24 * 60 * MIN;
+const ALERT_GAP_MS = 2 * 60 * MIN;  // a hand-run check ignores this
 
 const TEMPLATE = TEMPLATES['HEARTBEAT.md'];
 
@@ -53,21 +54,29 @@ function parseReply(text, TOKEN = 'HEARTBEAT_OK') {
   }
   return { ok: false, alert: t };
 }
+/** Splits "TOPIC: some-key" off the first line of an alert; a model rewords a problem, the key stays the same. */
+function splitTopic(alert) {
+  const m = /^\s*[*_`]*TOPIC:[*_`]*\s*([^\n]+)\n+([\s\S]+)$/i.exec(String(alert || ''));
+  if (!m) return { topic: '', body: String(alert || '') };
+  return { topic: m[1].toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60), body: m[2].trim() };
+}
 const hashOf = (t) => crypto.createHash('sha256').update(String(t).toLowerCase().replace(/\s+/g, ' ').trim()).digest('hex').slice(0, 16);
 
 const RULES = [
   'Go through the checklist from HEARTBEAT.md below. Use tools only when an item needs them, and keep it short. Do not repeat old tasks from earlier chats and do not invent new items.',
   "If nothing needs the user's attention right now, reply with exactly {token} and nothing else.",
-  'If something does, reply with a short message to the user instead (without {token}): what happened and what they may want to do. It is sent to them as it is.'
+  'If something does, reply instead (without {token}) with a first line "TOPIC: short-stable-key" naming the problem, for example "TOPIC: blog-waiting-for-email-code", then a short message to the user: what happened and what they may want to do. Everything after the first line is sent to them as it is.',
+  'A problem the user already knows about is not news: if it has not changed, reply with exactly {token}, even when it is still unsolved.'
 ].join('\n\n');
 prompts.register('heartbeat.rules', { title: 'Heartbeat checks', description: 'How a heartbeat check works. {token} is the word that means "nothing to report"; without it every check is sent to you.', text: RULES });
 
-function buildPrompt({ checklist, every, now, lastAlert, name }) {
+function buildPrompt({ checklist, every, now, lastAlert, name, topics = [] }) {
   const when = new Date(now).toLocaleString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   return [
     `This is a heartbeat check${name && name !== 'Heartbeat' ? ` ("${name}")` : ''}. It runs by itself every ${every} minutes and nobody is waiting for an answer. Current local time: ${when}.`,
     prompts.text('heartbeat.rules', RULES, { token: TOKEN }),
     lastAlert ? `Your last alert (${new Date(lastAlert.at).toLocaleString()}) was:\n"""${String(lastAlert.text).slice(0, 600)}"""\nDo not send it again unless something new happened.` : '',
+    topics.length ? `Topics already sent in the last day, not sent again: ${topics.join(', ')}. Use the same key if one of them is still the problem.` : '',
     `<HEARTBEAT.md>\n${checklist}\n</HEARTBEAT.md>`
   ].filter(Boolean).join('\n\n');
 }
@@ -126,9 +135,10 @@ function createHeartbeats(deps) {
     const prev = stateOf(hb.id);
     save(hb.id, { lastRun: t, lastStatus: 'running', lastError: '' });
     const lastAlert = prev.lastAlertAt && t - prev.lastAlertAt < DEDUPE_MS ? { at: prev.lastAlertAt, text: prev.lastAlert || '' } : null;
+    const sentTopics = Object.fromEntries(Object.entries(prev.alertTopics || {}).filter(([, at]) => t - at < DEDUPE_MS));
     const model = hb.model || '';
     let res;
-    try { res = await deps.run({ prompt: buildPrompt({ checklist, every: everyOf(hb), now: t, lastAlert, name: hb.name }), model, hb, projectId: hb.projectId, teamId: hb.teamId }); }
+    try { res = await deps.run({ prompt: buildPrompt({ checklist, every: everyOf(hb), now: t, lastAlert, name: hb.name, topics: Object.keys(sentTopics) }), model, hb, projectId: hb.projectId, teamId: hb.teamId }); }
     catch (e) { res = { text: '', error: (e && e.message) || String(e) }; }
     running.delete(hb.id);
     const runs = (prev.runs || 0) + 1;
@@ -140,17 +150,20 @@ function createHeartbeats(deps) {
     }
     const r = parseReply(res.text);
     if (r.ok) { save(hb.id, { lastStatus: 'ok', runs, oks: (prev.oks || 0) + 1 }); log('info', `${who}: nothing to report${manual ? ' (run by hand)' : ''}`); return { status: 'ok' }; }
-    const h = hashOf(r.alert);
-    if (h === prev.lastAlertHash && prev.lastAlertAt && t - prev.lastAlertAt < DEDUPE_MS) {
+    const { topic, body } = splitTopic(r.alert);
+    const h = hashOf(body);
+    const sameAlert = h === prev.lastAlertHash && prev.lastAlertAt && t - prev.lastAlertAt < DEDUPE_MS;
+    const tooSoon = !manual && prev.lastAlertAt && t - prev.lastAlertAt < ALERT_GAP_MS;
+    if (sameAlert || (topic && sentTopics[topic]) || tooSoon) {
       save(hb.id, { lastStatus: 'duplicate', runs });
       log('info', `${who}: same alert as before, not sent again`);
       return { status: 'duplicate', text: r.alert };
     }
-    try { await deps.deliver({ text: r.alert, model, hb }); }
+    try { await deps.deliver({ text: body, model, hb }); }
     catch (e) { log('warn', `${who}: the alert could not be delivered: ${e.message}`); save(hb.id, { lastStatus: 'error', lastError: 'Could not deliver the alert: ' + e.message, runs }); return { status: 'error', error: e.message, text: r.alert }; }
-    save(hb.id, { lastStatus: 'alert', runs, alerts: (prev.alerts || 0) + 1, lastAlert: r.alert.slice(0, 2000), lastAlertAt: t, lastAlertHash: h });
+    save(hb.id, { lastStatus: 'alert', runs, alerts: (prev.alerts || 0) + 1, lastAlert: body.slice(0, 2000), lastAlertAt: t, lastAlertHash: h, alertTopics: topic ? { ...sentTopics, [topic]: t } : sentTopics });
     log('info', `${who}: alert sent`);
-    return { status: 'alert', text: r.alert };
+    return { status: 'alert', text: body };
   }
 
   const isDue = (hb, t) => {
@@ -218,4 +231,4 @@ function createHeartbeats(deps) {
   };
 }
 
-module.exports = { scopedTeams, createHeartbeats, fromSettings, fileOf, parseReply, inActiveHours, checklistText, buildPrompt, TEMPLATE, TOKEN, MIN_EVERY };
+module.exports = { splitTopic, scopedTeams, createHeartbeats, fromSettings, fileOf, parseReply, inActiveHours, checklistText, buildPrompt, TEMPLATE, TOKEN, MIN_EVERY };

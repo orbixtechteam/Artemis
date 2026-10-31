@@ -4,7 +4,7 @@ const http = require('http');
 const crypto = require('crypto');
 const { EventEmitter } = require('events');
 const { nextRunAfter, validate, describe, preview } = require('../electron/scheduler');
-const { createHeartbeats, fromSettings, scopedTeams, parseReply, inActiveHours, checklistText, buildPrompt, TEMPLATE } = require('../electron/core/heartbeat');
+const { splitTopic, createHeartbeats, fromSettings, scopedTeams, parseReply, inActiveHours, checklistText, buildPrompt, TEMPLATE } = require('../electron/core/heartbeat');
 const hooksLib = require('../electron/core/hooks');
 const { createTunnel } = require('../electron/core/tunnel');
 const { createHookService } = require('../electron/core/hookservice');
@@ -77,6 +77,30 @@ function req(port, path, { method = 'POST', headers = {}, body = '' } = {}) {
     await assert.rejects(s.start('a'), /2 hours/);
     now += 3600000; await s.start('a'); assert.deepStrictEqual(started, ['a', 'a']);
     assert.strictEqual(s.save, undefined); assert.strictEqual(s.remove, undefined);
+  }
+
+  // ---- a reworded alert about the same problem stays silent ----
+  {
+    assert.deepStrictEqual(splitTopic('**TOPIC:** Blog waiting!\n\nEnter the code.'), { topic: 'blog-waiting', body: 'Enter the code.' });
+    assert.deepStrictEqual(splitTopic('No key here.'), { topic: '', body: 'No key here.' });
+    let t = at(2026, 10, 25, 9, 0), st = {}, reply = '', list = [{ id: 'w', name: 'W', every: 30, enabled: true }];
+    const sent = [], prompts = [];
+    const hb = createHeartbeats({
+      list: () => list, saveList: (l) => { list = l; }, checklist: () => '- x', writeChecklist: () => {}, now: () => t,
+      run: async ({ prompt }) => { prompts.push(prompt); return { text: reply }; }, deliver: async ({ text }) => { sent.push(text); },
+      readState: () => st, writeState: (s) => { st = s; }
+    });
+    const beat = async (text, mins) => { t += mins * 60000; reply = text; return (await hb.beat('w')).status; };
+    t += 0; reply = 'TOPIC: blog-code\nThe blog needs a code.';
+    assert.strictEqual((await Promise.all(hb.tick()))[0].status, 'alert');
+    assert.deepStrictEqual(sent, ['The blog needs a code.']); // the key line never reaches the user
+    reply = 'TOPIC: other\nSomething else.'; t += 30 * 60000;
+    assert.strictEqual((await Promise.all(hb.tick()))[0].status, 'duplicate'); // too soon after the last alert
+    assert.ok(prompts[1].includes('blog-code'));
+    assert.strictEqual(await beat('TOPIC: blog-code\nStill waiting for that code, reworded.', 180), 'duplicate');
+    assert.strictEqual(await beat('TOPIC: other\nSomething else.', 0), 'alert');
+    assert.strictEqual(await beat('TOPIC: blog-code\nThe code again.', 25 * 60), 'alert'); // a day later it may remind once
+    assert.strictEqual(sent.length, 3);
   }
 
   // ---- heartbeats ----
