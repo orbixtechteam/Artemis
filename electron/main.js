@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, safeStorage, shell, Menu, nativeTheme, dialog, session, screen, globalShortcut, Notification, Tray, nativeImage, protocol, systemPreferences, desktopCapturer } = require('electron');
+const { app, BrowserWindow, ipcMain, safeStorage, shell, Menu, nativeTheme, dialog, session, screen, globalShortcut, Notification: NativeNotification, Tray, nativeImage, protocol, systemPreferences, desktopCapturer } = require('electron');
 try { protocol.registerSchemesAsPrivileged([{ scheme: 'artifact', privileges: { standard: true, secure: true } }, { scheme: 'artemis-media', privileges: { standard: true, secure: true, supportFetchAPI: true } }]); } catch {}
 const path = require('path');
 const fs = require('fs');
@@ -445,6 +445,20 @@ const broadcastTheme = () => {
 
 // ---------- window ----------
 let win;
+const { createNotificationCenter } = require('./notifications');
+// Every notification Artemis shows also lands in Settings → Notifications, and its unread count is the Dock number.
+let notifyCenter = null;
+const notifications = () => notifyCenter || (notifyCenter = createNotificationCenter({
+  file: path.join(app.getPath('userData'), 'notifications.json'),
+  onChange: (state) => { try { app.setBadgeCount(state.unread); } catch {} try { if (win && !win.isDestroyed()) win.webContents.send('notifications:changed', state); } catch {} }
+}));
+function Notification(opts) { try { notifications().add(opts); } catch {} return new NativeNotification(opts); }
+Notification.isSupported = () => NativeNotification.isSupported();
+ipcMain.handle('notifications:read-all', () => notifications().readAll());
+ipcMain.handle('notifications:settings', () => shell.openExternal('x-apple.systempreferences:com.apple.Notifications-Settings.extension'));
+ipcMain.handle('notifications:clear', () => notifications().clear());
+ipcMain.handle('notifications:test', () => { if (!Notification.isSupported()) return false; new Notification({ title: 'Artemis', body: 'Notifications are working.' }).show(); return true; });
+app.whenReady().then(() => notifications().sync());
 // The integrated browser: tabs on their own persistent session, laid over the renderer's browser panel (see electron/browser.js)
 const browser = createBrowser({
   session, getWebContentsView: () => require('electron').WebContentsView, getWin: () => win, isDev: IS_DEV,
@@ -1066,7 +1080,7 @@ const runTeamTurn = require('./core/teamrun').createTeamRunner({
   log: (lv, m) => (logger[lv] || logger.info)('teams', m)
 });
 
-async function executeRun({ requestId, model: model0, messages, project, system, maxTokens, send: rawSend, restrict, incognito, source, unattended, allowEdits, permMode, chatId, brain, brainPick, revote, agentsMode, toolsMode, effort, mentions, shellMode }) {
+async function executeRun({ requestId, model: model0, messages, project, system, maxTokens, send: rawSend, restrict, incognito, source, unattended, allowEdits, permMode, chatId, brain, brainPick, revote, agentsMode, toolsMode, effort, mentions, shellMode, watchTeamId }) {
   const model = cliKindOf(model0) ? String(model0) : liveModel(model0); // Claude Code / Codex models are not a provider's
   messages = mediaStore.resolveMessages(messages); // artemis-media:// links -> base64, only for this call
   // where run_command goes in this run: the sandbox from Settings, unless the chat picked "this Mac" (only a chat in the window can)
@@ -1185,7 +1199,7 @@ async function executeRun({ requestId, model: model0, messages, project, system,
       searchVia: searchViaFor(settings),
       computer: settings.computerEnabled && !restrict && process.platform === 'darwin' ? computer : null,
       schedule: unattended || restrict ? null : { list: () => scheduler.list(), save: (j) => scheduler.save({ ...j, projectId: j.projectId !== undefined ? j.projectId : (project?.id || null) }), remove: (id) => scheduler.remove(id), hooks: hooksTools, heartbeat: heartbeatTools },
-      teams: unattended || restrict ? null : teamsTools,
+      teams: unattended || restrict ? (watchTeamId ? hbLib.scopedTeams(teamsTools, watchTeamId) : null) : teamsTools,
       lockApp: unattended || restrict ? null : () => lock.lock('ai'),
       appShot: unattended || restrict ? null : appScreenshot, withArtemisVisible: unattended || restrict ? null : withArtemisVisible,
       notes: settings.notesAi !== false ? notesAi : null,
@@ -1236,7 +1250,7 @@ async function executeRun({ requestId, model: model0, messages, project, system,
       agentAutoApprove: !unattended && (perm === 'auto' || (perm === 'edits' && settings.agentWriteApproval === false)),
       memoryApi: memoryApi(() => send({ type: 'memory:changed' })),
       onCompact: incognito || settings.memoryEnabled === false || settings.memoryFlush === false || !initCore().ws ? null : (text) => flushFromRun(text, { model, chatId, project }),
-      approve: (info) => unattended ? Promise.resolve(info.category === 'phone' || (info.name === 'run_command' && !!sb)) : new Promise((resolve) => {
+      approve: (info) => unattended ? Promise.resolve(info.category === 'phone' || (info.name === 'run_command' && !!sb) || (info.name === 'team_start' && !!watchTeamId)) : new Promise((resolve) => {
         myApprovals.add(info.id);
         approvals.set(info.id, resolve);
         if (approvalMeta.size > 200) approvalMeta.clear();
@@ -1271,6 +1285,10 @@ async function executeRun({ requestId, model: model0, messages, project, system,
       if (stopReason && !aborted && !looking && !unattended && Notification.isSupported()) {
         new Notification({ title: 'Artemis stopped', body: stopReason.slice(0, 180), silent: false }).show();
         logger.info('chat', 'Stop notification shown: ' + stopReason.slice(0, 120));
+      } else if (!stopReason && !aborted && !looking && !unattended && !source && lastText.trim() && Notification.isSupported()) {
+        const n = new Notification({ title: 'Artemis finished', body: lastText.replace(/\s+/g, ' ').trim().slice(0, 180) });
+        n.on('click', () => showMain('chat notification clicked'));
+        n.show();
       }
     } catch {}
   }
@@ -1682,13 +1700,13 @@ const scheduler = createScheduler({
 // ---------- heartbeat and webhooks (electron/core/heartbeat.js, hooks.js, hookservice.js) ----------
 // Both run unattended, like scheduled tasks, and only where the background jobs run (here, unless the headless gateway does).
 /** One unattended run without window events. Returns the final text. */
-async function backgroundRun({ prompt, model: m0, allowEdits, projectId, source }) {
+async function backgroundRun({ prompt, model: m0, allowEdits, projectId, source, teamId }) {
   const st = getSettings();
   const model = (m0 ? liveModel(m0) : '') || (st.scheduleModel ? liveModel(st.scheduleModel) : '') || st.model;
   const requestId = 'bg-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
   let text = '', error = '';
   const send = (ev) => { if (ev.type === 'step:new') text = ''; if (ev.type === 'chunk') text += ev.text; if (ev.type === 'error') error = ev.message; };
-  await executeRun({ requestId, messages: [{ role: 'user', content: prompt }], send, restrict: true, source, unattended: true, allowEdits: !!allowEdits, model, system: [st.systemPrompt || '', prompts.text('background', prompts.defaultOf('background'))].filter(Boolean).join('\n\n'), maxTokens: st.maxTokens, project: projectFor(projectId) });
+  await executeRun({ requestId, messages: [{ role: 'user', content: prompt }], send, restrict: true, source, unattended: true, allowEdits: !!allowEdits, model, system: [st.systemPrompt || '', prompts.text('background', prompts.defaultOf('background'))].filter(Boolean).join('\n\n'), maxTokens: st.maxTokens, project: projectFor(projectId), watchTeamId: teamId });
   return { text: text.trim(), error, model };
 }
 /** Tells the user: a saved chat, a notification and (when asked) Telegram. */
@@ -1710,7 +1728,7 @@ const heartbeat = hbLib.createHeartbeats({
   checklist: (hb) => { const c = initCore(); return c.ws ? (c.ws.readText(hbLib.fileOf(hb)) || '') : null; },
   writeChecklist: (hb, text) => { const f = wsFile(hbLib.fileOf(hb)); if (!f) throw new Error('Heartbeats need the memory workspace (Settings → Tools → Memory).'); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f + '.tmp', text.endsWith('\n') ? text : text + '\n'); fs.renameSync(f + '.tmp', f); },
   removeChecklist: (hb) => { const f = wsFile(hbLib.fileOf(hb)); if (f) fs.rmSync(f, { force: true }); },
-  run: ({ prompt, model }) => backgroundRun({ prompt, model, source: 'heartbeat' }),
+  run: ({ prompt, model, projectId, teamId }) => backgroundRun({ prompt, model, projectId, teamId, source: 'heartbeat' }),
   deliver: ({ text, model, hb }) => backgroundTell({ title: hb.name === 'Heartbeat' ? 'Heartbeat' : `Heartbeat: ${hb.name}`, user: `Heartbeat check (${hbLib.fileOf(hb)})`, text, model, source: 'heartbeat', phone: hb.phone !== false, icon: '💓' }),
   readState: () => readJson('heartbeat-state', {}), writeState: (x) => { writeJson('heartbeat-state', x); toWinSafe('automation:changed', {}); },
   log: coreLog('heartbeat')

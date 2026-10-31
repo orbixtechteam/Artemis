@@ -87,7 +87,7 @@
 .tm-text > :last-child, .tm-card > div > :last-child { margin-bottom: 0; }
 .tm-text.err { color: var(--danger); }
 .tm-m.you { flex-direction: row-reverse; align-self: flex-end; }
-.tm-m.you .tm-body { display: flex; justify-content: flex-end; }
+.tm-m.you .tm-body { display: flex; flex-direction: column; align-items: flex-end; }
 .tm-bubble { max-width: 560px; padding: 8px 13px; border-radius: 16px 16px 4px 16px; background: var(--fill-2); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 .tm-card { margin-top: 8px; padding: 10px 12px; border-radius: 12px; background: var(--pref-card); box-shadow: 0 0 0 .5px var(--line-2); max-width: 600px; }
 .tm-card h4 { margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--text-2); }
@@ -213,3 +213,39 @@ button.tm-hand:hover { background: var(--fill-2); }
 .proj-teams-head .link-btn { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
 .proj-chat .tm-dot { display: inline-block; vertical-align: middle; }
 img.tm-av.you { object-fit: cover; padding: 0; background: none; }
+
+/* Agents as a messenger: conversations on the left, the open one on the right */
+.tm-msgr { flex: 1; min-height: 0; width: 100%; display: flex; }
+.tm-list { width: 288px; flex: none; display: flex; flex-direction: column; min-height: 0; border-right: .5px solid var(--line); }
+.tm-list-h { flex: none; display: flex; align-items: center; gap: 2px; height: 50px; padding: 0 10px 0 16px; }
+.tm-list-h h1 { flex: 1; margin: 0; font-family: var(--font-display); font-size: 15px; font-weight: 600; letter-spacing: -.012em; }
+.tm-find { flex: none; width: auto; margin: 0 10px 8px; padding: 6px 10px; border: 0; border-radius: var(--r-sm); background: var(--fill); color: var(--text); font-size: 12.5px; outline: 0; }
+.tm-rows { flex: 1; min-height: 0; overflow-y: auto; padding: 0 6px 12px; }
+.tm-sec { margin: 12px 10px 4px; font-size: 11px; font-weight: 600; color: var(--muted); }
+.tm-row { width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 0; border-radius: var(--r-md); background: transparent; color: var(--text); text-align: left; box-shadow: none; }
+.tm-row:hover { background: var(--fill); }
+.tm-row.on { background: var(--hover); }
+.tm-row .tm-stack { flex: none; }
+.tm-row-b { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.tm-row-t { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.tm-row-t b { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tm-row-t small { flex: none; font-size: 11px; color: var(--muted); }
+.tm-row-s { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.tm-row-s > span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tm-row-s.ask { color: var(--warn); }
+.tm-unread { flex: none; min-width: 18px; height: 18px; padding: 0 5px; display: inline-grid; place-items: center; border-radius: var(--r-full); background: var(--accent); color: var(--accent-text); font-size: 10.5px; font-weight: 600; }
+.tm-group { --c: var(--text-2); }
+.tm-pane { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.tm-pick { margin: auto; }
+.tm-tb .tm-role { color: var(--muted); font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tm-thread.drag { outline: 1.5px dashed var(--accent); outline-offset: -6px; }
+.tm-files { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-top: 6px; }
+.tm-files button { display: inline-flex; align-items: center; gap: 6px; max-width: 260px; padding: 6px 10px; border: 0; border-radius: var(--r-md); background: var(--fill); color: var(--text); font-size: 12.5px; box-shadow: none; }
+.tm-files button span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tm-files button.img { padding: 0; overflow: hidden; background: none; }
+.tm-files img { display: block; max-width: 260px; max-height: 200px; border-radius: var(--r-md); }
+.tm-attached { display: flex; flex-wrap: wrap; gap: 6px; padding-bottom: 8px; }
+.tm-attached > span { display: inline-flex; align-items: center; gap: 6px; max-width: 220px; padding: 3px 4px 3px 6px; border-radius: var(--r-sm); background: var(--fill); font-size: 12px; }
+.tm-attached em { font-style: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tm-attached img { width: 22px; height: 22px; border-radius: 4px; object-fit: cover; }
+.tm-attached button { display: grid; place-items: center; width: 18px; height: 18px; padding: 0; border: 0; background: none; color: var(--muted); box-shadow: none; }

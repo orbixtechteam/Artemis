@@ -440,13 +440,33 @@ export default function App() {
 
   // the browser page is a native view laid over the tab: show it only on the Browser tab and hide it behind pop-ups
   const browserOn = useRef(false);
-  const splitBrowser = (() => { const st = splitTab && (tabs || []).find((t) => t.id === splitTab); return !!st && st.id !== activeTab && kindOf(st.s) === 'browser'; })();
+  const splitBrowser = (() => { const st = splitTab && (tabs || []).find((t) => t.id === splitTab); return !!st && st.id !== activeTab && kindOf(st.s) === 'browser' && SPLIT_KINDS.includes(TAB_MODALS.includes(modal) ? modal : view && view.project ? 'project' : view); })(); // pages without a split view have no panel to lay the page over
   const browserShown = (view === 'browser' && !TAB_MODALS.includes(modal)) || splitBrowser;
   useEffect(() => {
     if (browserShown) { if (!browserOn.current) { browserOn.current = true; api.browserOpen(browser.url || 'https://www.google.com'); } }
     else if (browserOn.current) { browserOn.current = false; api.browserClose(); }
   }, [browserShown]);
   useEffect(() => { if (browserOn.current) api.browserVisible && api.browserVisible(!palette && !(modal && !TAB_MODALS.includes(modal)) && !ctx); }, [palette, modal, ctx, view, browserShown]);
+  // Back and forward through the pages and chats opened in this window
+  const navHist = useRef({ back: [], fwd: [], last: null, skip: false });
+  const [navCan, setNavCan] = useState({ back: false, fwd: false });
+  useEffect(() => {
+    const h = navHist.current; const cur = { view, chatId: currentId, notePath };
+    if (h.last && JSON.stringify(h.last) === JSON.stringify(cur)) return;
+    if (h.last && !h.skip) { h.back = [...h.back, h.last].slice(-50); h.fwd = []; }
+    h.skip = false; h.last = cur;
+    setNavCan({ back: h.back.length > 0, fwd: h.fwd.length > 0 });
+  }, [view, currentId, notePath]);
+  const navGo = (dir) => {
+    const h = navHist.current; const from = dir < 0 ? h.back : h.fwd; const to = dir < 0 ? h.fwd : h.back;
+    const live = (e) => e.view !== 'chat' || chats.some((c) => c.id === e.chatId);
+    let e = from.pop();
+    while (e && !live(e)) e = from.pop();
+    if (!e) { setNavCan({ back: h.back.length > 0, fwd: h.fwd.length > 0 }); return; }
+    to.push(h.last); h.skip = true;
+    if (TAB_MODALS.includes(modal)) setModal(null);
+    setNotePath(e.notePath); setCurrentId(e.chatId); setView(e.view);
+  };
   // When the assistant uses the browser tools, the browser opens next to the chat (split view) so the user can watch and take over.
   const showBrowserRef = useRef(null);
   showBrowserRef.current = () => {
@@ -1836,6 +1856,8 @@ export default function App() {
   const topbar = (
     <header className={`topbar drag ${sideHidden && mac ? 'pad-mac' : ''}`}>
       <button className="icon-btn nodrag" title={`Sidebar (${mac ? '⌘' : 'Ctrl+'}\\)`} aria-label={`Sidebar (${mac ? '⌘' : 'Ctrl+'}\\)`} onClick={() => setSidebarHidden(!sidebarHidden)}><Icon name="sidebar" size={18} /></button>
+      <button className="icon-btn nodrag" title="Back" aria-label="Back" disabled={!navCan.back} onClick={() => navGo(-1)}><Icon name="chevronLeft" size={18} /></button>
+      <button className="icon-btn nodrag" title="Forward" aria-label="Forward" disabled={!navCan.fwd} onClick={() => navGo(1)}><Icon name="chevronRight" size={18} /></button>
       {tabsBar || <div className="chat-title">{chatView ? <TitleText text={chat.title} /> : ''}</div>}
       {!tabsBar && <span style={{ flex: 1 }} />}
       {chatView && (
@@ -1885,7 +1907,7 @@ export default function App() {
     if (kind === 'files') return <FilesView onOpen={openLibFile} onUse={useLibFile} />;
     if (kind === 'graph') return <NoteGraph rev={notes.items} onOpen={noteActions.open} onCreate={(name) => noteActions.create('', name)} />;
     if (kind === 'automations') return <AutomationsView onOpenSettings={(t) => { setSettingsTab(t || 'general'); setModal('settings'); }} />;
-    if (kind === 'agents') return <AgentsView settings={settings} chats={chats} runningIds={runningIds} groups={groups} projects={projects} avatar={avatar} onOpenChat={(id) => select(id)} />;
+    if (kind === 'agents') return <AgentsView settings={settings} chats={chats} runningIds={runningIds} groups={groups} projects={projects} avatar={avatar} onOpenChat={(id) => select(id)} onOpenNotifications={() => { setSettingsTab('notifications'); setModal('settings'); }} />;
     // Settings is a page like Home: it saves every change itself (no Save / Cancel) and is closed with its tab (⌘W)
     if (kind === 'settings') return <SettingsModal onBack={split ? undefined : closePage} profile={{ name: settings.profileName, avatar }} onProfile={() => setModal('profile')} projects={projects} onApply={async (patch) => { const { hasApiKey: _ro, ...rest } = patch || {}; const r = await api.setSettings(rest); setSettings({ ...r }); return r; }} settings={settings} groups={groups} providers={providers} onProviders={applyProviders} initialTab={split && splitT ? splitT.s.settingsTab : settingsTab} onTabChange={split ? undefined : setSettingsTab} />;
     if (kind === 'memory') body = <MemoryModal memory={memory} enabled={settings.memoryEnabled} onChange={changeMemory} onToggle={toggleMemory} onClose={close} />;
@@ -1893,7 +1915,7 @@ export default function App() {
     if (kind === 'connectors') body = <ConnectorsModal onClose={close} onChanged={(n) => setConnectorCount(n)} settings={settings} onApply={async (patch) => { try { setSettings({ ...(await api.setSettings(patch)) }); } catch {} }} />;
     return body && <PageContext.Provider value={true}><div className="page-host">{body}</div></PageContext.Provider>;
   };
-  const SETTING_TABS = [['general', 'General', 'sliders', 'default model personality startup import'], ['appearance', 'Appearance', 'eye', 'theme text size dark light'], ['shortcuts', 'Keyboard shortcuts', 'keyboard', 'shortcut hotkey keys'], ['providers', 'Providers', 'plug', 'api keys models'], ['tools', 'Tools & safety', 'wrench', 'terminal permissions'], ['access', 'Access & permissions', 'shield', 'folders computer control'], ['agents', 'Agents', 'layers', 'helpers delegate'], ['brains', 'Brains', 'bulb', 'council'], ['limits', 'Usage & limits', 'chart', 'budget cost usage'], ['voice', 'Voice', 'mic', 'sentinel speech'], ['make', 'Make', 'bolt', 'webhook automation'], ['phone', 'Phone', 'phone', 'telegram mobile remote']];
+  const SETTING_TABS = [['general', 'General', 'sliders', 'default model personality startup import'], ['notifications', 'Notifications', 'bell', 'notifications alerts dock badge'], ['appearance', 'Appearance', 'eye', 'theme text size dark light'], ['shortcuts', 'Keyboard shortcuts', 'keyboard', 'shortcut hotkey keys'], ['providers', 'Providers', 'plug', 'api keys models'], ['tools', 'Tools & safety', 'wrench', 'terminal permissions'], ['access', 'Access & permissions', 'shield', 'folders computer control'], ['agents', 'Agents', 'layers', 'helpers delegate'], ['brains', 'Brains', 'bulb', 'council'], ['limits', 'Usage & limits', 'chart', 'budget cost usage'], ['voice', 'Voice', 'mic', 'sentinel speech'], ['make', 'Make', 'bolt', 'webhook automation'], ['phone', 'Phone', 'phone', 'telegram mobile remote']];
   const paletteActions = [
     { id: 'newtab', group: 'Create', label: 'New tab', icon: 'plus', hint: '⌘T', run: () => newTab() },
     { id: 'newchat', group: 'Create', label: 'New chat', icon: 'plus', hint: '⌘N', run: () => newChat() },

@@ -2,7 +2,8 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import Markdown from '../Markdown.jsx';
 import { Icon } from '../Icons.jsx';
 import { labelFor, target } from '../ToolCard.jsx';
-import { Avatar, Stack, LEAD, teamState, usd, tokens, elapsed, isCli, modelLabel } from './parts.jsx';
+import { Avatar, Stack, LEAD, teamState, usd, tokens, elapsed, isCli, modelLabel, splitFiles, joinFiles } from './parts.jsx';
+import { readImage } from '../../lib/attach.js';
 import { useMentionMenu, MentionMenu } from './MentionMenu.jsx';
 
 const STATUS_LABEL = { todo: 'to do', doing: 'doing', review: 'review', done: 'done' };
@@ -47,10 +48,32 @@ function LiveCard({ live }) {
   );
 }
 
-/** One team: the room where its agents talk (left) and its tasks, members and budget (right). */
-export default function TeamRoom({ team: t, roster, you, youAvatar = "", onBack, onEdit }) {
+/** Files sent with a message: pictures inline, everything else as a chip. A click opens the file. */
+function Files({ files }) {
+  if (!files.length) return null;
+  return (
+    <div className="tm-files">
+      {files.map((f) => (
+        <button type="button" key={f.path} className={f.url ? 'img' : ''} title={f.path} onClick={() => window.api.openPath(f.path)}>
+          {f.url ? <img src={f.url} alt={f.name} /> : <><Icon name="paperclip" size={13} /><span>{f.name}</span></>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * One conversation: where the agents talk (left) and the team's tasks, members and budget (right).
+ * `dm` narrows the General room to one agent: only their messages, and whatever you write goes to them.
+ * `general` is the room with every agent, which has no goal to run again or settings to edit.
+ */
+export default function TeamRoom({ team: t, roster, you, youAvatar = "", onEdit, dm = '', general = false }) {
   const r = t.run || { messages: [], tasks: [], live: {}, spent: { usd: 0, tokens: 0 } };
-  const lives = Object.values(r.live || {});
+  const lives = Object.values(r.live || {}).filter((l) => !dm || l.name === dm);
+  const shown = dm ? r.messages.filter((m) => m.from === dm || m.to === dm) : r.messages;
+  const [files, setFiles] = useState([]); // attached to the message being written
+  const [drag, setDrag] = useState(false);
+  const picker = useRef(null);
   const [text, setText] = useState('');
   const [logs, setLogs] = useState({}); // message id -> its task's steps are shown
   const [err, setErr] = useState('');
@@ -65,17 +88,34 @@ export default function TeamRoom({ team: t, roster, you, youAvatar = "", onBack,
   const taskOf = (id) => r.tasks.find((k) => k.id === id);
   const act = async (fn) => { setErr(''); const res = await fn(t.id); if (res && res.ok === false) setErr(res.error); };
 
-  useLayoutEffect(() => { const el = scroller.current; if (el && stick.current) el.scrollTop = el.scrollHeight; }, [r.messages.length, lives.length, lives.reduce((n, l) => n + l.steps.length + (l.text ? 1 : 0), 0)]);
+  useLayoutEffect(() => { const el = scroller.current; if (el && stick.current) el.scrollTop = el.scrollHeight; }, [shown.length, lives.length, lives.reduce((n, l) => n + l.steps.length + (l.text ? 1 : 0), 0)]);
   useEffect(() => { stick.current = true; }, [t.id]);
   const onScroll = () => { const el = scroller.current; if (el) stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80; };
 
   const send = async () => {
-    const body = text.trim();
-    if (!body) return;
-    setText(''); stick.current = true;
+    const typed = text.trim();
+    if (!typed && !files.length) return;
+    const body = joinFiles(dm && !new RegExp('@' + dm + '\\b', 'i').test(typed) ? `@${dm} ${typed}`.trim() : typed, files);
+    setText(''); setFiles([]); stick.current = true;
     const res = await window.api.teamsSay(t.id, body);
     if (res && res.ok === false) setErr(res.error);
   };
+  // a file goes into the Files library, so agents can open it by its path
+  const addFiles = async (list) => {
+    setErr('');
+    const root = await window.api.libRoot();
+    for (const f of list) {
+      try {
+        let p = ''; try { p = window.api.pathForFile(f); } catch {}
+        const res = p ? await window.api.libAddPaths([p]) : await window.api.libAddBuffer(f.name || 'file', new Uint8Array(await f.arrayBuffer()));
+        const item = res && (res.item || (res.items && res.items[0]));
+        if (!item) throw new Error((res && res.error) || 'Could not store this file.');
+        const url = f.type && f.type.startsWith('image/') ? (await readImage(f)).url || '' : '';
+        setFiles((x) => [...x, { name: item.name || f.name || 'file', path: `${root}/${item.path}`, url }]);
+      } catch (e) { setErr(`${f.name || 'File'}: ${e.message}`); }
+    }
+  };
+  const onPaste = (e) => { const list = [...e.clipboardData.files]; if (list.length) { e.preventDefault(); addFiles(list); } };
   const mention = (n) => setText((x) => (x && !/\s$/.test(x) ? x + ' ' : x) + '@' + n + ' ');
   const menu = useMentionMenu({ text, setText, ta: taRef, members, lead: LEAD, roster });
 
@@ -84,7 +124,7 @@ export default function TeamRoom({ team: t, roster, you, youAvatar = "", onBack,
 
   const bubble = (m) => {
     if (m.from === 'you') return (
-      <div key={m.id} className="tm-m you"><Avatar you name={you} src={youAvatar} /><div className="tm-body"><div className="tm-bubble">{m.text}</div></div></div>
+      <div key={m.id} className="tm-m you"><Avatar you name={you} src={youAvatar} /><div className="tm-body">{(() => { const sp = splitFiles(m.text); return <>{sp.text && <div className="tm-bubble">{sp.text}</div>}<Files files={sp.files} /></>; })()}</div></div>
     );
     if (m.kind === 'status') return <div key={m.id} className="tm-status">{m.text}</div>;
     const who = (
@@ -130,42 +170,44 @@ export default function TeamRoom({ team: t, roster, you, youAvatar = "", onBack,
   return (
     <div className="tm-room-page">
       <div className="tm-tb">
-        <button type="button" className="tm-ib" aria-label="Back to Agents" title="Back to Agents" onClick={onBack}><Icon name="chevronLeft" size={16} /></button>
-        <h1>{t.name}</h1>
-        <span className={`tm-pill ${st.dot}`}><i className={`tm-dot ${st.dot}`} />{st.label}{r.status === 'working' ? ` · ${elapsed(t)}` : ''}</span>
+        <h1>{dm || t.name}</h1>
+        {dm ? <span className="tm-role">{roleOf(dm)}</span> : <span className={`tm-pill ${st.dot}`}><i className={`tm-dot ${st.dot}`} />{general && !r.status ? 'Ready' : st.label}{r.status === 'working' ? ` · ${elapsed(t)}` : ''}</span>}
         <span className="sp" />
-        <Stack names={[LEAD, ...members]} />
-        {r.status === 'working' && <>
+        {!dm && !general && <Stack names={[LEAD, ...members]} />}
+        {!dm && r.status === 'working' && <>
           <button type="button" className="quiet" onClick={() => act(window.api.teamsPause)}><Icon name="pause" size={14} />Pause</button>
           <button type="button" onClick={() => act(window.api.teamsStop)}><Icon name="stop" size={12} />Stop</button>
         </>}
-        {(r.status === 'paused' || r.status === 'failed') && <>
+        {!dm && (r.status === 'paused' || r.status === 'failed') && <>
           <button type="button" className="primary" onClick={() => act(window.api.teamsResume)}><Icon name="play" size={13} />Resume</button>
           <button type="button" onClick={() => act(window.api.teamsStop)}>Stop</button>
         </>}
-        {r.status !== 'working' && <button type="button" onClick={onEdit}>Edit</button>}
-        {(r.status === 'idle' || !r.status) && <button type="button" className="primary" onClick={() => act(window.api.teamsStart)}><Icon name="play" size={13} />Start</button>}
-        {(r.status === 'done' || r.status === 'stopped') && <button type="button" onClick={() => act(window.api.teamsStart)}><Icon name="refresh" size={13} />Run again</button>}
+        {(dm || (!general && r.status !== 'working')) && <button type="button" onClick={onEdit}>Edit</button>}
+        {!dm && !general && (r.status === 'idle' || !r.status) && <button type="button" className="primary" onClick={() => act(window.api.teamsStart)}><Icon name="play" size={13} />Start</button>}
+        {!dm && !general && (r.status === 'done' || r.status === 'stopped') && <button type="button" onClick={() => act(window.api.teamsStart)}><Icon name="refresh" size={13} />Run again</button>}
       </div>
       <div className="tm-room">
-        <section className="tm-thread" aria-label="Team room">
+        <section className={`tm-thread ${drag ? 'drag' : ''}`} aria-label="Conversation" onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); setDrag(false); addFiles([...e.dataTransfer.files]); }}>
           <div className="tm-msgs" ref={scroller} onScroll={onScroll}>
-            {r.messages.length === 0 && <div className="tm-empty"><b>Nothing here yet</b><span>Start the team and its agents will plan and talk here.</span></div>}
-            {r.messages.map(bubble)}
+            {shown.length === 0 && <div className="tm-empty"><b>Nothing here yet</b><span>{dm ? `Write to ${dm}. Files and pictures work too.` : general ? 'Every agent is here. @mention one to get them on it, or attach a file.' : 'Start the team and its agents will plan and talk here.'}</span></div>}
+            {shown.map(bubble)}
             {lives.map((l) => <LiveCard key={l.name + l.since} live={l} />)}
           </div>
           {err && <div className="tm-err" role="alert">{err}</div>}
           <div className="tm-compose">
             <MentionMenu menu={menu} />
-            <textarea ref={taRef} value={text} rows={2} aria-label="Message the team" placeholder={r.status === 'done' ? 'Ask a follow-up, or give the team more to do…' : 'Message the team, or @mention one agent…'}
-              onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (menu.onKey(e)) return; if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(); } }} />
+            {files.length > 0 && <div className="tm-attached">{files.map((f, i) => <span key={f.path}>{f.url ? <img src={f.url} alt="" /> : <Icon name="paperclip" size={12} />}<em>{f.name}</em><button type="button" aria-label={`Remove ${f.name}`} onClick={() => setFiles(files.filter((_, j) => j !== i))}><Icon name="x" size={11} /></button></span>)}</div>}
+            <textarea ref={taRef} value={text} rows={2} aria-label="Write a message" placeholder={dm ? `Message ${dm}…` : general ? 'Message everyone, or @mention one agent…' : r.status === 'done' ? 'Ask a follow-up, or give the team more to do…' : 'Message the team, or @mention one agent…'}
+              onPaste={onPaste} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (menu.onKey(e)) return; if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(); } }} />
             <div className="tm-ct">
-              {members.map((n) => <button type="button" key={n} className="tm-chipbtn" onClick={() => mention(n)}><Icon name="at" size={12} />{n}</button>)}
-              <button type="button" className="tm-go" aria-label="Send" disabled={!text.trim()} onClick={send}><Icon name="arrowUp" size={15} /></button>
+              <button type="button" className="tm-ib" aria-label="Attach files" title="Attach files. You can also drag or paste them here." onClick={() => picker.current && picker.current.click()}><Icon name="paperclip" size={15} /></button>
+              <input ref={picker} type="file" multiple hidden onChange={(e) => { addFiles([...e.target.files]); e.target.value = ''; }} />
+              {!dm && !general && members.map((n) => <button type="button" key={n} className="tm-chipbtn" onClick={() => mention(n)}><Icon name="at" size={12} />{n}</button>)}
+              <button type="button" className="tm-go" aria-label="Send" disabled={!text.trim() && !files.length} onClick={send}><Icon name="arrowUp" size={15} /></button>
             </div>
           </div>
         </section>
-        <aside className="tm-panel" aria-label="Team">
+        {!dm && !general && <aside className="tm-panel" aria-label="Team">
           <div className="tm-ph"><span>Goal</span></div>
           <p className="tm-goal">{t.goal}</p>
           <div className="tm-ph"><span>Tasks</span><span>{r.tasks.length ? `${done} of ${r.tasks.length} done` : ''}</span></div>
@@ -196,7 +238,7 @@ export default function TeamRoom({ team: t, roster, you, youAvatar = "", onBack,
               <button type="button" className="quiet" onClick={() => act(window.api.teamsNotebookClear)}>Clear notebook</button>
             </details>
           )}
-        </aside>
+        </aside>}
       </div>
     </div>
   );

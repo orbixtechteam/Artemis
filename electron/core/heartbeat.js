@@ -72,6 +72,24 @@ function buildPrompt({ checklist, every, now, lastAlert, name }) {
   ].filter(Boolean).join('\n\n');
 }
 
+const RESTART_GAP_MS = 2 * 60 * MIN;
+/** What a heartbeat with a teamId may do: see that one team and start it, at most once in two hours. */
+function scopedTeams(tools, teamId, now = Date.now) {
+  const own = async () => (await tools.list()).find((t) => t.id === teamId) || null;
+  return {
+    agents: () => [], projects: () => (tools.projects ? tools.projects() : []),
+    list: async () => { const t = await own(); return t ? [t] : []; },
+    get: async (id) => { const t = await own(); return t && (t.id === id || String(t.name).toLowerCase() === String(id).toLowerCase()) ? t : null; },
+    start: async (id) => {
+      const t = await own();
+      if (!t || t.id !== id) throw new Error('This heartbeat can only start its own team.');
+      if (t.run && t.run.status === 'working') throw new Error('The team is already working.');
+      if (t.run && t.run.startedAt && now() - t.run.startedAt < RESTART_GAP_MS) throw new Error('The team was started less than 2 hours ago.');
+      return tools.start(id);
+    }
+  };
+}
+
 const MIN_EVERY = 2;
 const everyOf = (hb) => Math.min(24 * 60, Math.max(MIN_EVERY, Number(hb.every) || 30));
 const fileOf = (hb) => (hb.id === 'main' ? 'HEARTBEAT.md' : `heartbeats/${hb.id}.md`);
@@ -110,7 +128,7 @@ function createHeartbeats(deps) {
     const lastAlert = prev.lastAlertAt && t - prev.lastAlertAt < DEDUPE_MS ? { at: prev.lastAlertAt, text: prev.lastAlert || '' } : null;
     const model = hb.model || '';
     let res;
-    try { res = await deps.run({ prompt: buildPrompt({ checklist, every: everyOf(hb), now: t, lastAlert, name: hb.name }), model, hb }); }
+    try { res = await deps.run({ prompt: buildPrompt({ checklist, every: everyOf(hb), now: t, lastAlert, name: hb.name }), model, hb, projectId: hb.projectId, teamId: hb.teamId }); }
     catch (e) { res = { text: '', error: (e && e.message) || String(e) }; }
     running.delete(hb.id);
     const runs = (prev.runs || 0) + 1;
@@ -200,4 +218,4 @@ function createHeartbeats(deps) {
   };
 }
 
-module.exports = { createHeartbeats, fromSettings, fileOf, parseReply, inActiveHours, checklistText, buildPrompt, TEMPLATE, TOKEN, MIN_EVERY };
+module.exports = { scopedTeams, createHeartbeats, fromSettings, fileOf, parseReply, inActiveHours, checklistText, buildPrompt, TEMPLATE, TOKEN, MIN_EVERY };

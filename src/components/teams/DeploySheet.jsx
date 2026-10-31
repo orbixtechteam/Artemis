@@ -35,6 +35,7 @@ export default function DeploySheet({ team, roster: userRoster, chatGroups, proj
   const reviewerNow = typeof d.reviewer === 'string' ? (d.members.some((m) => m.name === d.reviewer) ? d.reviewer : '') : legacyReviewer;
   const [busy, setBusy] = useState(false);
   const [clis, setClis] = useState({ claude: false, codex: false });
+  useEffect(() => { window.api.browserVisible?.(false); return () => { window.api.browserVisible?.(true); }; }, []); // the browser page is a native view above this sheet
   useEffect(() => { window.api.teamsClis?.().then((c) => c && setClis(c)).catch(() => {}); }, []);
   // Claude Code and Codex run on this computer with their own login (a subscription or their own key)
   const cliIds = new Set(CLI_GROUPS.flatMap((g) => g.items.map(([id]) => id)));
