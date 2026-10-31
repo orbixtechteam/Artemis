@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import Select from './Select.jsx';
 import { askConfirm } from '../lib/dialog.js';
 import { Icon } from './Icons.jsx';
+import ListTools from './ListTools.jsx';
+import { filterSort } from '../lib/listfilter.mjs';
 
 const api = window.api;
 const blank = () => ({ name: '', description: '', body: '', scope: 'user', isNew: true });
@@ -46,6 +48,9 @@ export default function SkillsView({ projects = [] }) {
   const [list, setList] = useState([]);
   const [edit, setEdit] = useState(null);
   const [msg, setMsg] = useState('');
+  const [q, setQ] = useState('');
+  const [sort, setSort] = useState('new');
+  const shown = filterSort(list, { q, sort, text: (sk) => `${sk.name} ${sk.description}`, at: (sk) => sk.updated });
   const folders = projects.filter((p) => p.folder);
   const load = async () => {
     try {
@@ -81,8 +86,11 @@ export default function SkillsView({ projects = [] }) {
           <button className="primary-btn" onClick={() => setEdit(blank())}>Create your first skill</button>
         </div>
       ) : (
+        <>
+        <ListTools q={q} onQ={setQ} sort={sort} onSort={setSort} placeholder="Search skills…" />
+        {shown.length === 0 && <div className="mem-empty">No skills match your search.</div>}
         <div className="sched-list">
-          {list.map((sk) => (
+          {shown.map((sk) => (
             <div key={sk.slug + sk.source} className={`sched-row ${sk.enabled ? '' : 'off'}`}>
               <div className="sched-main">
                 <div className="sched-name">{sk.name}{sk.byAgent && <span className="sched-badge" title="Written by Artemis">learned</span>}{sk.source === 'project' && <span className="sched-badge">{sk.projectName || 'project'}</span>}</div>
@@ -94,6 +102,7 @@ export default function SkillsView({ projects = [] }) {
             </div>
           ))}
         </div>
+        </>
       )}
       {edit && <Editor skill={edit} projects={projects} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); load(); }} />}
     </div>

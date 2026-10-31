@@ -197,7 +197,7 @@ function createTeams(deps) {
   const taskLine = (t, k) => `#${t.run.tasks.indexOf(k) + 1} ${k.title} (${k.assignee}, ${k.status})`;
   const roomFor = (t, name, n = 14) => t.run.messages
     .filter((m) => (m.kind === 'msg' || m.kind === 'review' || m.kind === 'result') && (!name || !m.to || same(m.to, name) || same(m.from, name)))
-    .slice(-n).map((m) => `${m.from === 'you' ? 'User' : m.from}${m.to ? ' → ' + m.to : ''}: ${clip(m.text, 600)}`).join('\n');
+    .slice(-n).map((m) => `${m.from === 'you' ? 'User' : m.from}${m.to ? ' → ' + m.to : ''}: ${clip(m.text, m.from === 'you' ? 1500 : 600)}`).join('\n');
 
   const notebookFor = (t, n) => (t.notebook ? `Team notebook (what earlier runs did and learned, newest last):\n${t.notebook.length > n ? '…' + t.notebook.slice(-n) : t.notebook}` : '');
   const rulesFor = (t) => {
@@ -550,7 +550,7 @@ function createTeams(deps) {
       const mention = t.members.find((m) => new RegExp('@' + m.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i').test(body));
       post(t, { from: 'you', to: mention ? mention.name : '', text: body });
       const direct = () => {
-        const k = { id: uid(), title: clip(`The user wrote to you in the team room: "${body}". Answer them and do what they ask.`, 500), assignee: mention.name, status: 'todo', after: [], result: '', feedback: '', rounds: 0, fails: 0, direct: true };
+        const k = { id: uid(), title: clip(`The user wrote to you in the team room: "${body}". Answer them and do what they ask.`, 1500), assignee: mention.name, status: 'todo', after: [], result: '', feedback: '', rounds: 0, fails: 0, direct: true };
         t.run.tasks.unshift(k); // first in line
         return k;
       };
