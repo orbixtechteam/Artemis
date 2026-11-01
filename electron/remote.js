@@ -130,7 +130,7 @@ function createRemote(deps) {
         getPairCode: () => pairCode, newPairCode: newCode,
         decide: deps.decide, abort: () => channel.abort(), describe: describeCall, parseFile: deps.parseFile,
         screen: () => (deps.getSettings().remoteAllowDangerous ? deps.screenshot() : Promise.reject(new Error('Computer control from the phone is turned off in Settings → Phone.'))),
-        chats: chatsForPhone, skills: deps.skillsList, transcribe: deps.transcribe,
+        chats: chatsForPhone, teamsApi: deps.teamsApi, skills: deps.skillsList, transcribe: deps.transcribe,
         notes: deps.notes || null, compact: compactPhone
       });
       try { await t.start(); tg = t; } catch (e) {

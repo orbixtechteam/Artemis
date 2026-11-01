@@ -2301,6 +2301,7 @@ app.whenReady().then(() => {
       if (c) { const id = () => Math.random().toString(36).slice(2, 10); c.messages.push({ id: id(), role: 'user', content: user, via: 'telegram' }, { id: id(), role: 'assistant', via: 'telegram', steps: [{ text: assistant, toolCalls: [] }] }); c.updatedAt = Date.now(); writeJson('chats', list); }
     },
     notes: notesAi,
+    teamsApi: { list: () => teamsClient.list(), agents: () => agents.list(null) },
     providersApi: {
       list: () => [...readProviders().map((p) => ({ key: p.id, name: p.name, on: p.enabled !== false }))],
       set: (key, on) => {
