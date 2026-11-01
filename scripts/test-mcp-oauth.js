@@ -38,7 +38,7 @@ const server = (routes) => {
   assert.strictEqual(none.seen.length, 0); assert.strictEqual(c.clientSecret, 's');
 
   // an ordinary web page, or endpoints that are not web addresses, are refused
-  await assert.rejects(resolveOAuth({ url: 'http://site.test/wp-admin' }, 'x', server({})), /does not offer OAuth/);
+  await assert.rejects(resolveOAuth({ url: 'http://site.test/wp-admin' }, 'x', server({})), /Try the https/);
   await assert.rejects(resolveOAuth({ url: 'https://e.test' }, 'x', server({ 'GET https://e.test/.well-known/oauth-authorization-server': () => json({ authorization_endpoint: 'file:///etc/passwd', token_endpoint: 'https://e.test/t' }) })), /does not offer OAuth/);
   await assert.rejects(resolveOAuth({ url: 'https://n.test' }, 'x', server({ 'GET https://n.test/.well-known/oauth-authorization-server': () => json({ authorization_endpoint: 'https://n.test/a', token_endpoint: 'https://n.test/t' }) })), /no automatic registration/);
   await assert.rejects(resolveOAuth({ url: 'nope' }, 'x', server({})), /valid http/);

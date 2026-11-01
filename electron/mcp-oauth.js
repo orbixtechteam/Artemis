@@ -78,7 +78,7 @@ async function resolveOAuth(cfg, redirectUri, fetchFn = fetch) {
   const resource = await firstJson(resourceUrls, fetchFn, (j) => Array.isArray(j.authorization_servers) && j.authorization_servers.length > 0);
   const issuer = resource?.authorization_servers.find(isWeb) || url.origin;
   const meta = await firstJson(authServerUrls(issuer), fetchFn, (j) => isWeb(j.authorization_endpoint) && isWeb(j.token_endpoint));
-  if (!meta) throw new Error('This server does not offer OAuth sign-in. Check that the URL is its MCP endpoint, or use a token if it gives you one.');
+  if (!meta) throw new Error(`This server does not offer OAuth sign-in${url.protocol === 'http:' ? ' over http. Try the https:// address' : ''}. Check that the URL is its MCP endpoint, or use a token if it gives you one.`);
   const scope = cfg.scope || hint.scope || resource?.scopes_supported?.join(' ') || '';
   const out = { authorizationUrl: meta.authorization_endpoint, tokenUrl: meta.token_endpoint, scope, resource: resource?.resource || '' };
   if (cfg.clientId && !cfg.dcr) return { ...out, clientId: cfg.clientId, clientSecret: cfg.clientSecret || '', dcr: false };
