@@ -182,7 +182,7 @@ function Approve({ tc, onDecide }) {
       if (!isAllow && !isDeny) return;
       const all = document.querySelectorAll('.approve[data-pending="1"]');
       if (!ref.current || all[all.length - 1] !== ref.current) return;
-      if (isDeny && document.querySelector('.modal.dialog, .ctx-menu, .slash-pop')) return; // Esc belongs to the pop-up
+      if (isDeny && document.querySelector('.modal.dialog, .ctx-menu, .slash-pop, .find-bar input:focus')) return; // Esc belongs to the pop-up
       e.preventDefault(); e.stopPropagation();
       onDecide(tc.id, isAllow);
     };
