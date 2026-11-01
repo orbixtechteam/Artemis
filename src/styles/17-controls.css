@@ -28,7 +28,7 @@
 .logs-search:focus { border-color: var(--accent); box-shadow: var(--ring); }
 
 /* dialogs: title, message, a right-aligned button row of equal-height push buttons */
-.modal .actions-row button, .modal.dialog .actions-row button { height: 28px; }
+.modal .actions-row button, .modal.dialog .actions-row button { height: 28px; padding-block: 0; }
 .modal.dialog .dialog-msg { color: var(--text-2); font-size: var(--fs-ui); line-height: 1.45; }
 button.danger-solid { box-shadow: 0 1px 2px rgba(0,0,0,.18), inset 0 1px 0 rgba(255,255,255,.15); font-weight: 500; }
 

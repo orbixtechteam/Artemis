@@ -396,7 +396,8 @@ function createBrowser(deps) {
   const winOk = () => { const w = getWin && getWin(); return w && !(w.isDestroyed && w.isDestroyed()) ? w : null; };
   // Typing needs the page focused, but focusing it while you are in another app would pull Artemis to the front: only when its window already has focus
   // (insertText and sendInputEvent reach the page either way).
-  const focusPage = (wc) => { const w = winOk(); try { if (w && w.isFocused && w.isFocused()) wc.focus(); } catch {} };
+  // never for a hidden page: it would take the keyboard away from the chat while an agent works in the background
+  const focusPage = (wc) => { const w = winOk(); try { if (shown && !covered && w && w.isFocused && w.isFocused()) wc.focus(); } catch {} };
   function bounds() {
     if (rect) return rect;
     const w = winOk(); if (!w || !w.getContentBounds) return { x: 0, y: 0, width: 1024, height: 768 };
