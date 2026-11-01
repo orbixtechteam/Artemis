@@ -379,7 +379,7 @@ export function ConnectorsModal({ onClose, onChanged, settings, onApply }) {
       command: f.command.trim(), args: splitArgs(f.args), env: parseLines(f.env, '='), url: f.url.trim(),
       headers: { ...parseLines(f.headers, ':'), ...authHeaders },
       oauth: f.oauthAccessToken ? { accessToken: f.oauthAccessToken, refreshToken: f.oauthRefreshToken || '', expiresAt: f.oauthExpiresAt || 0 } : undefined,
-      authorizationUrl: f.authorizationUrl?.trim() || '', tokenUrl: f.tokenUrl?.trim() || '', clientId: f.clientId?.trim() || '', scope: f.scope?.trim() || ''
+      authorizationUrl: f.authorizationUrl?.trim() || '', tokenUrl: f.tokenUrl?.trim() || '', clientId: f.clientId?.trim() || '', clientSecret: f.clientSecret || '', scope: f.scope?.trim() || '', resource: f.resource || '', dcr: !!f.dcr
     };
     setErr(''); setForm(null);
     await persist(f.id ? list.map((x) => (x.id === f.id ? item : x)) : [...list, item]);
@@ -390,7 +390,19 @@ export function ConnectorsModal({ onClose, onChanged, settings, onApply }) {
     const authToken = authType === 'bearer' ? headers.Authorization.slice(7) : authType === 'apiKey' ? headers['X-API-Key'] : '';
     const visibleHeaders = { ...headers };
     delete visibleHeaders.Authorization; delete visibleHeaders['X-API-Key'];
-    setForm({ id: c.id, name: c.name, type: c.type, command: c.command || '', args: (c.args || []).map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(' '), env: dumpLines(c.env, '='), url: c.url || '', headers: dumpLines(visibleHeaders, ': '), authType, authToken, authorizationUrl: c.authorizationUrl || '', tokenUrl: c.tokenUrl || '', clientId: c.clientId || '', clientSecret: c.clientSecret || '', scope: c.scope || '', oauthAccessToken: c.oauth?.accessToken || '', oauthRefreshToken: c.oauth?.refreshToken || '', oauthExpiresAt: c.oauth?.expiresAt || 0 });
+    setForm({ id: c.id, name: c.name, type: c.type, command: c.command || '', args: (c.args || []).map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(' '), env: dumpLines(c.env, '='), url: c.url || '', headers: dumpLines(visibleHeaders, ': '), authType, authToken, authorizationUrl: c.authorizationUrl || '', tokenUrl: c.tokenUrl || '', clientId: c.clientId || '', clientSecret: c.clientSecret || '', scope: c.scope || '', resource: c.resource || '', dcr: !!c.dcr, oauthAccessToken: c.oauth?.accessToken || '', oauthRefreshToken: c.oauth?.refreshToken || '', oauthExpiresAt: c.oauth?.expiresAt || 0 });
+  };
+  const signIn = async (c) => {
+    setErr('');
+    const r = await window.api.mcpOAuthStart(c);
+    if (!r.ok) return setErr(r.error);
+    await persist(list.map((x) => (x.id === c.id ? { ...x, ...r.config, oauth: r.oauth } : x)));
+  };
+  const signInForm = async () => {
+    setErr('');
+    const r = await window.api.mcpOAuthStart({ ...f, url: f.url.trim() });
+    if (r.ok) setForm({ ...f, ...r.config, oauthAccessToken: r.oauth.accessToken, oauthRefreshToken: r.oauth.refreshToken, oauthExpiresAt: r.oauth.expiresAt });
+    else setErr(r.error);
   };
   const doImport = async () => {
     const r = await window.api.mcpImport(importText);
@@ -438,6 +450,7 @@ export function ConnectorsModal({ onClose, onChanged, settings, onApply }) {
                 </div>
               )}
             </div>
+            {state === 'error' && c.type === 'http' && <button type="button" onClick={() => signIn(c)}>Sign in</button>}
             <Switch checked={c.enabled !== false} label={'Enable ' + c.name} onChange={() => persist(list.map((x) => (x.id === c.id ? { ...x, enabled: !(x.enabled !== false) } : x)))} />
             <button className="icon-btn" title="Edit" aria-label="Edit" onClick={() => edit(c)}><Icon name="pencil" size={15} /></button>
             <button className="icon-btn" title="Remove" aria-label="Remove" onClick={() => askConfirm({ title: 'Remove connector', message: `Remove "${c.name}"?`, confirmLabel: 'Remove', danger: true }).then((ok) => ok && persist(list.filter((x) => x.id !== c.id)))}><Icon name="trash" size={15} /></button>
@@ -463,7 +476,7 @@ export function ConnectorsModal({ onClose, onChanged, settings, onApply }) {
             </>
           ) : (
             <>
-              <Field label="Server URL"><input value={f.url} onChange={setUrl} placeholder="https://example.com/mcp" /></Field>
+              <Field label="Server URL" hint="The address where the server accepts MCP requests, not the site's admin page."><input value={f.url} onChange={setUrl} placeholder="https://example.com/mcp" /></Field>
               <div className="row">
                 <Field label="Authentication">
                   <Select value={f.authType || 'none'} onChange={setF('authType')}>
@@ -473,12 +486,12 @@ export function ConnectorsModal({ onClose, onChanged, settings, onApply }) {
                 {(f.authType && f.authType !== 'none') && <Field label={f.authType === 'bearer' ? 'Bearer token' : 'API key'} hint="Stored locally with the connector settings."><input type="password" autoComplete="off" value={f.authToken || ''} onChange={setF('authToken')} placeholder="Paste token…" /></Field>}
               </div>
               <Field label="Additional headers" hint="One per line: Header: value."><textarea rows={3} value={f.headers} onChange={setF('headers')} /></Field>
-              <fieldset className="group"><legend>OAuth 2.1</legend>
+              <div className="row"><button type="button" onClick={signInForm}>Sign in with browser</button>{f.oauthAccessToken && <small className="hint">OAuth connected</small>}</div>
+              <details className="group"><summary>Advanced OAuth settings</summary>
                 <div className="row"><Field label="Authorization URL"><input value={f.authorizationUrl || ''} onChange={setF('authorizationUrl')} placeholder="https://provider/authorize" /></Field><Field label="Token URL"><input value={f.tokenUrl || ''} onChange={setF('tokenUrl')} placeholder="https://provider/token" /></Field></div>
-                <div className="row"><Field label="Client ID"><input value={f.clientId || ''} onChange={setF('clientId')} /></Field><Field label="Client secret (optional)" hint="Google OAuth client secret is required for this flow."><input type="password" autoComplete="off" value={f.clientSecret || ''} onChange={setF('clientSecret')} /></Field></div>
+                <div className="row"><Field label="Client ID"><input value={f.clientId || ''} onChange={(e) => setForm({ ...f, clientId: e.target.value, dcr: false })} /></Field><Field label="Client secret (optional)" hint="Google OAuth client secret is required for this flow."><input type="password" autoComplete="off" value={f.clientSecret || ''} onChange={setF('clientSecret')} /></Field></div>
                 <Field label="Scope"><input value={f.scope || ''} onChange={setF('scope')} placeholder="https://www.googleapis.com/auth/drive.readonly" /></Field>
-                <div className="row"><button type="button" onClick={async () => { const r = await window.api.mcpOAuthStart(f); if (r.ok) setForm({ ...f, oauthAccessToken: r.oauth.accessToken, oauthRefreshToken: r.oauth.refreshToken, oauthExpiresAt: r.oauth.expiresAt }); else setErr(r.error); }}>Sign in with OAuth</button>{f.oauthAccessToken && <small className="hint">OAuth connected</small>}</div>
-              </fieldset>
+              </details>
             </>
           )}
           <div className="actions-row"><button onClick={() => { setForm(null); setErr(''); }}>Cancel</button><button className="primary" onClick={saveForm}>{f.id ? 'Save' : 'Add connector'}</button></div>

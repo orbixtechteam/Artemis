@@ -1,6 +1,7 @@
 // Telegram bot (long polling). Only the paired private chat can talk to it.
 
 const { stripThink } = require('./think');
+const teamStatus = require('./teamstatus');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -8,7 +9,7 @@ const path = require('path');
 const MAX_MSG = 4000;
 const COMMANDS = [
   ['model', 'Show or change the model'], ['project', 'Choose the project / folder'], ['tools', 'Turn tools on or off'], ['settings', 'Switches and model providers'], ['providers', 'Turn model providers on or off'], ['compact', 'Summarise the chat to save tokens'], ['notes', 'Search or list your notes'], ['note', 'Add to a note'],
-  ['status', 'Current model, project and switches'], ['screen', 'See your computer screen'], ['new', 'Start a new chat'],
+  ['status', 'Current model, project and switches'], ['agents', 'Teams and agents: status, tasks, room'], ['screen', 'See your computer screen'], ['new', 'Start a new chat'],
   ['stop', 'Cancel the running task'], ['chats', 'Open a chat from the desktop app'], ['search', 'Search your saved chats'], ['last', 'Last messages of the open chat'], ['skills', 'List skills'], ['memory', 'Show memory'], ['connectors', 'Show connectors'], ['help', 'All commands']
 ];
 const HELP = `Just write to me. Photos and files (xlsx, csv, pdf, docx, txt) are read too.
@@ -21,6 +22,7 @@ const HELP = `Just write to me. Photos and files (xlsx, csv, pdf, docx, txt) are
 /notes – recent notes; "/notes words" searches. Tap one to read it
 /note Title: text – add text to a note (created if new; "Folder/Title: text" works)
 /status – what is currently set
+/agents – teams and agents; tap a team for its tasks, who is working and the room. "/agents name" opens one
 /screen – see your computer screen now
 /chats – your desktop chats; tap one to continue it here (new messages also appear in the app)
 /search words – find an earlier chat   /last – recent messages of the open chat
@@ -272,6 +274,15 @@ function createTelegram(deps) {
         }
         const p = toolsPanel(); return say(p.text, { reply_markup: p.reply_markup });
       }
+      case '/agents': {
+        if (!deps.teamsApi) return say('Teams are not available.');
+        const teams = await deps.teamsApi.list();
+        if (arg) {
+          const t = teams.find((x) => String(x.name).toLowerCase().includes(arg.toLowerCase()));
+          return say(t ? teamStatus.detail(t) : 'No team matches.');
+        }
+        return say(teamStatus.overview(teams, deps.teamsApi.agents()), { reply_markup: { inline_keyboard: teams.slice(0, 10).map((t) => [{ text: String(t.name).slice(0, 40), callback_data: `g:${String(t.id).slice(0, 40)}` }]) } });
+      }
       case '/status': { const l = chatsApi() && chatsApi().linked(); return say(ctl().statusText() + (l ? `\nOpen chat: ${l.title}` : '')); }
       case '/chats': { if (!chatsApi()) return say('Chat access is not available.'); const p = chatPanel(chatsApi().recent(10), 'Recent chats. Tap one to continue it here:'); return say(p.text, { reply_markup: p.reply_markup }); }
       case '/search': {
@@ -380,6 +391,12 @@ function createTelegram(deps) {
       const p = noteMap.get(key);
       await api('answerCallbackQuery', { callback_query_id: q.id, text: p ? 'Opening…' : 'Expired' }).catch(() => {});
       if (p && deps.notes) { try { const r = deps.notes.read(p, { max: 3500 }); await say(`${p}\n\n${r.text}${r.truncated ? '\n…(cut)' : ''}`); } catch (e) { await say(e.message); } }
+      return;
+    }
+    if (kind === 'g') {
+      const t = deps.teamsApi ? (await deps.teamsApi.list()).find((x) => String(x.id).startsWith(key)) : null;
+      await api('answerCallbackQuery', { callback_query_id: q.id, text: t ? 'Opening…' : 'Expired' }).catch(() => {});
+      if (t) await say(teamStatus.detail(t));
       return;
     }
     if (kind === 'm' || kind === 'p' || kind === 't' || kind === 'v') return onControlCallback(q, kind, key);
