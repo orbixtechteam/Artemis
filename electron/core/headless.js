@@ -449,6 +449,7 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
       chatsApi: { recent: (n) => sessions.recent(n, readJson('projects', [])), search: (q, n) => sessions.search(q, { limit: n, projects: readJson('projects', []) }), get: (id) => { const c = sessions.get(id); return c && !c.incognito ? c : null; }, turns: (c, n) => chatSearch.chatTurns(c, n) },
       appendToChat: (chatId, user, assistant) => { try { if (sessions.get(chatId)) { sessions.appendTurn(chatId, { user, assistant, via: 'telegram' }); mirror(); } } catch (e) { log('warn', 'telegram', 'could not save the turn: ' + e.message); } },
       notes: settings().notesAi !== false ? notes : null,
+      teamsApi: { list: async () => teams.list(), agents: () => agents.list(null) },
       providersApi: { list: () => readProviders().map((p) => ({ key: p.id, name: p.name, on: p.enabled !== false })), set: (key, on) => { const l = readProviders(); const p = l.find((x) => x.id === key); if (p) { p.enabled = !!on; writeJson('providers', l); } } },
       liveModel: (m) => pickModel(m),
       summarize: async (messages) => {

@@ -195,6 +195,7 @@ async function refreshOAuth(cfg) {
     refresh_token: o.refreshToken,
     ...(cfg.clientId ? { client_id: cfg.clientId } : {}),
     ...(cfg.clientSecret ? { client_secret: cfg.clientSecret } : {}),
+    ...(cfg.resource ? { resource: cfg.resource } : {}),
   });
   const res = await fetch(cfg.tokenUrl, {
     method: "POST",
@@ -290,6 +291,10 @@ function httpTransport(cfg, onMessage, hooks = {}) {
       await reiniting;
       return send(msg, signal, { ...retried, session: true });
     }
+    if (res.status === 401 && msg.method === "initialize") {
+      await res.text().catch(() => "");
+      throw new Error("Sign-in required (HTTP 401). Use Sign in.");
+    }
     if (!res.ok) {
       const t = await res.text().catch(() => "");
       throw new Error(`HTTP ${res.status}${t ? ": " + t.slice(0, 200) : ""}`);
@@ -299,6 +304,8 @@ function httpTransport(cfg, onMessage, hooks = {}) {
     else {
       const text = await res.text();
       if (text.trim()) {
+        if (type.includes("text/html") || /^\s*</.test(text))
+          throw new Error("This URL returned a web page, not an MCP server. Use the server's MCP endpoint.");
         const j = JSON.parse(text);
         (Array.isArray(j) ? j : [j]).forEach(onMessage);
       }
