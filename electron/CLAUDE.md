@@ -18,7 +18,7 @@ Node/CommonJS code that runs in Electron's main process. No bundler: files are `
 - Persistence: `readJson` quarantines an unparseable chats/projects/memory file (`.corrupt-<time>`) and `store:set` refuses that store until the user has been told; keep it that way so a bad read never overwrites data.
 - `mcp-server.js`: Artemis as an MCP server (Streamable HTTP, JSON replies only). Binds to `127.0.0.1`, requires a bearer token, rejects any request with an `Origin` header. Do not loosen these checks.
 - `permissions.js`: macOS permission checks (microphone, screen, accessibility, automation, notifications). Automation can only be probed by trying, so keep that probe silent.
-- `artemis-tools.js`: the tools exposed to MCP clients (settings, theme, providers, memory, notes, terminal).
+- `artemis-tools.js`: the tools exposed to MCP clients (settings, theme, providers, memory, notes, terminal, agents and teams). The agent/team tools reuse the `tools.js` chat handlers (`agent_*`, `model_list`, `team_*`) with main's `teamsTools`; lists run at once, everything else asks.
 - `computer.js`: computer control (open, ui, click_ui, key, type). `terminal.js`, `pty-helper.py`, `shell.js`: the visible terminal.
 - JSON config: `personality.json`. Edit as data; keep valid JSON.
 
