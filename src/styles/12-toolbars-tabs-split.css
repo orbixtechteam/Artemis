@@ -123,6 +123,10 @@
 .split-wrap { flex: 1; display: flex; min-height: 0; min-width: 0; }
 .pane { flex: 1 1 0; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .split-pane { flex: 1 1 0; display: flex; flex-direction: column; min-width: 0; min-height: 0; border-left: .5px solid var(--line-2); }
+.split-wrap > .split-pane { flex: 0 0 var(--split2, 50%); }
+.split-grip { flex: none; width: 0; position: relative; z-index: 20; }
+.split-grip::before { content: ''; position: absolute; top: 0; bottom: 0; left: -4px; width: 8px; cursor: col-resize; }
+.split-grip:hover::before, body.resizing .split-grip::before { background: color-mix(in srgb, var(--accent, #d97757) 45%, transparent); }
 .split-head { flex: none; height: 48px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: .5px solid var(--line-2); }
 .split-head .chat-title { font-size: 14px; }
 .split-pane .top-pills { flex: 0 0 auto; }
