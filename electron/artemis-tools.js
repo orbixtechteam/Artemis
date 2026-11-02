@@ -46,6 +46,9 @@ const SAFE_SETTINGS = {
 const READ_KEYS = [...Object.keys(SAFE_SETTINGS), 'shellEnabled', 'computerEnabled', 'autoApproveEdits'];
 
 const READ_FS = new Set(['read_file', 'list_dir', 'search_files']);
+// Agents and teams: the chat tools from tools.js (agent_*, model_list, team_*), run against main's teams. Lists run at once, the rest ask.
+const TEAM_TOOLS = ['agent_list', 'agent_save', 'model_list', 'agent_set_model', 'team_list', 'team_save', 'team_start', 'team_delete'];
+const TEAM_READ = new Set(['agent_list', 'model_list', 'team_list']);
 const GRANT_MS = 10 * 60 * 1000;
 // "Allow for 10 minutes" answers. Module scope: main rebuilds the tool list on every request.
 const sharedGrants = new Map();
@@ -167,6 +170,46 @@ function buildArtemisTools(d) {
         return (r && (r.text !== undefined ? r.text : JSON.stringify(r))) || '(done)';
       });
     }) : []),
+    ...(d.teams ? d.teams.defs().filter((def) => TEAM_TOOLS.includes(def.function.name)).map((def) => {
+      const f = def.function;
+      const read = TEAM_READ.has(f.name);
+      return t(f.name, f.description.replace(/ Requires approval\.$/, ' The user is asked to confirm (once, or for 10 minutes).'), f.parameters.properties || {}, f.parameters.required || [], async (args) => {
+        const approve = (info) => {
+          const del = info.name === 'team_delete';
+          return asked(del ? 'teams:delete:' + Math.random() : 'teams', del ? 'Let an outside app delete an agent team?' : 'Let an outside app change your agents and teams?', String(info.summary || info.name).slice(0, 600));
+        };
+        const r = await d.teams.run(f.name, args || {}, { approve });
+        if (r && r.denied) throw new Error(r.text);
+        if (r && r.ok === false) throw new Error(r.text || 'failed');
+        return (r && r.text) || '(done)';
+      }, read ? ro : undefined);
+    }) : []),
+    ...(d.teams ? [
+      t('team_room', 'Shows one agent team\'s current or last run: status, tasks with their results, and the latest room messages (summary included). id is the team id or name (see artemis_team_list).', { id: str(200), messages: { type: 'integer', minimum: 1, maximum: 60 } }, ['id'], async ({ id, messages }) => {
+        const tm = await d.teams.get(String(id || ''));
+        if (!tm) throw new Error('No team with that id or name. Use artemis_team_list.');
+        const run = tm.run || {};
+        return {
+          id: tm.id, name: tm.name, status: run.status || 'idle', reason: run.reason || '', spent: run.spent || null,
+          tasks: (run.tasks || []).map((k, i) => ({ n: i + 1, title: k.title, assignee: k.assignee, status: k.status, result: String(k.result || '').slice(0, 3000) })),
+          messages: (run.messages || []).slice(-(Math.min(60, Math.max(1, Number(messages) || 20)))).map((m) => ({ from: m.from, to: m.to || '', kind: m.kind, text: String(m.text || '').slice(0, 3000) }))
+        };
+      }, ro),
+      t('team_say', 'Posts a message to an agent team\'s room as the user (a follow-up after a run starts a new round). The user is asked to confirm (once, or for 10 minutes).', { id: str(200), text: str(4000) }, ['id', 'text'], async ({ id, text }) => {
+        const tm = await d.teams.get(String(id || ''));
+        if (!tm) throw new Error('No team with that id or name. Use artemis_team_list.');
+        if (!String(text || '').trim()) throw new Error('text is empty');
+        if (!(await asked('teams', 'Let an outside app write to an agent team?', `Team "${tm.name}": ${String(text).slice(0, 500)}`))) throw new Error('The user declined.');
+        await d.teams.say(tm.id, String(text));
+        return { ok: true, team: tm.name };
+      }),
+      t('team_stop', 'Stops the running run of an agent team (id or name).', { id: str(200) }, ['id'], async ({ id }) => {
+        const tm = await d.teams.get(String(id || ''));
+        if (!tm) throw new Error('No team with that id or name. Use artemis_team_list.');
+        await d.teams.stop(tm.id);
+        return { ok: true, team: tm.name, stopped: true };
+      })
+    ] : []),
     t('computer', "Sees and controls the user's Mac screen, like a person would: open apps and links, list the buttons of the front window, click them, type, press keys, scroll, take a screenshot. Prefer this over the terminal for anything that is done by clicking. Cheapest way: action \"open\" (app or https url), then \"ui\" to list clickable elements and \"click_ui\" with a name; chain steps with \"actions\"; use \"screenshot\" or look:true when you must see the screen, and always check with a screenshot after a click before telling the user it worked (never guess coordinates; they are pixels of the latest screenshot). The user is asked to confirm (once, or for 10 minutes).", {
       action: { type: 'string', enum: ['screenshot', 'ui', 'click_ui', 'open', 'mouse_move', 'left_click', 'double_click', 'right_click', 'left_click_drag', 'scroll', 'type', 'key', 'wait', 'capture_screen', 'record_screen_start', 'record_screen_stop'] },
       actions: { type: 'array', description: 'Several actions in one call (max 15), each with the same fields as a single action.', items: { type: 'object' } },
