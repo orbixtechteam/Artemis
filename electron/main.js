@@ -1901,6 +1901,11 @@ const mcpServer = createMcpServer({
       run: (name, args, o) => tools.run(name, args, { root: o.root, approve: o.approve, session: new Set(), autoApprove: false, userData: app.getPath('userData') })
     },
     computer: { run: (a) => { if (!computer) throw new Error('Computer control is only available on macOS.'); return computer.run(a); } },
+    teams: {
+      defs: () => tools.definitions({ teamsEnabled: true }),
+      run: (name, args, o) => tools.run(name, args, { teams: teamsTools, approve: o.approve, session: new Set(), autoApprove: false }),
+      get: (id) => teamsClient.get(id), say: (id, text) => teamsClient.say(id, text), stop: (id) => teamsClient.act(id, 'stop')
+    },
     themes: () => listThemes().themes.map((t) => ({ id: t.id, name: t.name, group: t.group, dark: t.dark, family: t.family }))
   })
 });
