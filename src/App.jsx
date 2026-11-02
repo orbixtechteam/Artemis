@@ -116,6 +116,9 @@ export default function App() {
   const [spW, setSpW] = useState(() => loadWidth('zero.spW', 460));
   const [sbW, setSbW] = useState(() => loadWidth('zero.sbW', 280));
   const dragPanel = (e) => { setWide(false); startDrag(e, (x) => setSpW(clamp(window.innerWidth - x, 320, Math.round(window.innerWidth * 0.85))), () => setSpW((w) => { saveWidth('zero.spW', w); return w; })); };
+  // Split view: the second pane's share of the split area, in percent
+  const [splitPct, setSplitPct] = useState(() => loadWidth('zero.splitPct', 50));
+  const dragSplit = (e) => { const r = e.currentTarget.parentElement.getBoundingClientRect(); startDrag(e, (x) => setSplitPct(clamp(((r.right - x) / r.width) * 100, 20, 80)), () => setSplitPct((p) => { saveWidth('zero.splitPct', p); return p; })); };
   const dragSidebar = (e) => startDrag(e, (x) => setSbW(clamp(x, 200, 520)), () => setSbW((w) => { saveWidth('zero.sbW', w); return w; }));
   const [browser, setBrowser] = useState({ open: false, url: 'https://www.google.com' });
   const [browserAgent, setBrowserAgent] = useState(null); // { requestId, tool, who?, team? } while a chat run (or a team member) drives the browser
@@ -1997,7 +2000,7 @@ export default function App() {
           />
         )}
         {(chatView || noteView || primaryPage) && (
-          <div className="split-wrap">
+          <div className="split-wrap" style={{ '--split2': splitPct + '%' }}>
           {primaryPage && <div className="pane"><ErrorBoundary name={primaryPage} resetKey={primaryPage}>{renderPage(primaryPage, false)}</ErrorBoundary></div>}
           {noteView && <div className="pane"><ErrorBoundary name="the note editor" resetKey={notePath}><NoteEditor key={notePath + ':' + noteRev} path={notePath} {...noteProps} onOpenNote={(p, how) => noteActions.open(p, how || 'here')} /></ErrorBoundary></div>}
           {chatView && <div className={`pane chat-pane ${chat.messages.length === 0 ? 'is-empty' : ''}`} data-find-scope="chat">
@@ -2036,6 +2039,7 @@ export default function App() {
             </ErrorBoundary>
             <Composer key={chat.id} chatId={chat.id} perm={chat.perm === 'auto' ? 'auto' : chat.perm ? 'ask' : (settings.autoApproveEdits ? 'auto' : 'ask')} onPerm={(v) => updateChat(chat.id, { perm: v })} agents={chat.agents || (settings.delegateEnabled === false ? 'off' : 'on')} onAgents={(v) => updateChat(chat.id, { agents: v })} tools={chat.tools || (settings.toolsEnabled === false ? 'off' : 'on')} onTools={(v) => updateChat(chat.id, { tools: v })} streaming={chatBusy} {...queueFor(chat)} onSend={send} onStop={() => stop()} model={chat.model} onModel={(m) => updateChat(chat.id, { model: m })} groups={groups} projectId={chat.projectId} projects={projects} onProject={(id) => updateChat(chat.id, { projectId: id })} incognito={chat.incognito} settings={settings} onUsageDetails={() => setModal('usage')} onOpenSettings={(t) => { setSettingsTab(t || 'general'); setModal('settings'); }} brains={brains} brain={brainOf(chat)} onBrain={(v) => { const b = brains.find((x) => x.slug === v); updateChat(chat.id, { brain: v, ...(b?.model ? { model: b.model } : {}), councilPick: null }); }} councilPick={chat.councilPick} onRevote={() => updateChat(chat.id, { councilPick: null })} sentinel={sent.state} onSentinel={toggleSentinel} onCompact={compactChat} canCompact={canCompact(chat)} compacting={compacting} />
           </div>}
+          {(showSplit || showPageSplit || showNoteSplit) && <div className="split-grip" onMouseDown={dragSplit} onDoubleClick={() => { setSplitPct(50); saveWidth('zero.splitPct', 50); }} title="Drag to resize · double-click to reset" />}
           {showSplit && (
             <ErrorBoundary name="the split view" resetKey={chat2.id}>
             <SplitPane chat={chat2} msgH={msgH} busy={isRunning(chat2.id)} settings={settings} projects={projects} brains={brains} brain={brainOf(chat2)} groups={modelGroups(chat2.model, providers, clis)}
