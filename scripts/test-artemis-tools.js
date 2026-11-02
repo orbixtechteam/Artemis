@@ -138,3 +138,56 @@ const post = (port, body, { token = 'tok', host, origin, method = 'POST', path =
   assert.deepStrictEqual(keys, ['fs:read']); assert.deepStrictEqual(asked, ['Let an outside app read files on your computer?']);
   console.log('artemis fs tools ok');
 })().catch((e) => { console.error('FAILED', e); process.exit(1); });
+
+// ---- agents and teams through MCP (real tools.js handlers, an in-memory teams store) ----
+(async () => {
+  const tools = require('../electron/tools');
+  const { buildArtemisTools } = require('../electron/artemis-tools');
+  const agents = [{ name: 'Athena', role: 'Researcher', tools: ['read', 'web'], builtin: true, description: 'Finds facts' }];
+  const teams = []; const said = []; const stopped = []; const keys = []; let answer = 'once';
+  const teamsTools = {
+    agents: () => agents, projects: () => [], models: () => [{ id: 'prov:p:m', name: 'm', provider: 'P' }],
+    saveAgent: (a) => { agents.push({ name: a.name, role: a.role, tools: a.tools, body: a.body }); return { ok: true, name: a.name }; },
+    list: async () => teams, get: async (id) => teams.find((x) => x.id === id || x.name.toLowerCase() === String(id).toLowerCase()) || null,
+    save: async (d) => { const tm = { ...d, id: d.id || 't' + (teams.length + 1), run: { status: 'idle', tasks: [], messages: [] } }; teams.push(tm); return tm; },
+    start: async (id) => { const tm = teams.find((x) => x.id === id); tm.run = { status: 'running', tasks: [{ title: 'Search boards', assignee: 'Athena', status: 'doing', result: '' }], messages: [{ from: 'Artemis', kind: 'msg', text: 'Plan ready' }] }; },
+    remove: async (id) => { teams.splice(teams.findIndex((x) => x.id === id), 1); }
+  };
+  const t = buildArtemisTools({
+    getSettings: () => ({}), control: {}, applySettings() {}, notes: {}, term: {}, skills: () => [],
+    confirm: async (a) => { keys.push(a.key); return answer; },
+    teams: {
+      defs: () => tools.definitions({ teamsEnabled: true }),
+      run: (n, a, o) => tools.run(n, a, { teams: teamsTools, approve: o.approve, session: new Set(), autoApprove: false }),
+      get: (id) => teamsTools.get(id), say: async (id, text) => said.push([id, text]), stop: async (id) => stopped.push(id)
+    }
+  });
+  const by = (n) => t.find((x) => x.name === 'artemis_' + n);
+  for (const n of ['agent_list', 'agent_save', 'model_list', 'agent_set_model', 'team_list', 'team_save', 'team_start', 'team_delete', 'team_room', 'team_say', 'team_stop']) assert.ok(by(n), n + ' is listed');
+  assert.ok(!t.some((x) => /artemis_(read_file|run_command|delegate)$/.test(x.name)), 'only the team tools come from the chat definitions');
+  assert.ok(by('team_list').annotations && by('team_list').annotations.readOnlyHint, 'lists are read-only');
+  assert.ok(!/Requires approval/.test(by('team_save').description), 'descriptions speak about the confirm dialog');
+  // reads never ask
+  assert.ok(String(await by('agent_list').run({})).includes('Athena')); assert.strictEqual(keys.length, 0);
+  // writes ask, and a refusal changes nothing
+  answer = false;
+  await assert.rejects(() => by('agent_save').run({ name: 'Scout', role: 'Job scout', instructions: 'Find jobs', tools: ['web'] }), /declined/);
+  assert.strictEqual(agents.length, 1);
+  answer = 'once';
+  assert.ok(String(await by('agent_save').run({ name: 'Scout', role: 'Job scout', instructions: 'Find jobs', tools: ['web'] })).includes('Scout'));
+  await assert.rejects(() => by('team_save').run({ name: 'Job Hunt', goal: 'Find jobs', members: [{ name: 'Ghost' }] }), /do not exist/);
+  const made = await by('team_save').run({ name: 'Job Hunt', goal: 'Find jobs', members: [{ name: 'Athena' }, { name: 'Scout' }] });
+  assert.ok(String(made).includes('Job Hunt') && teams.length === 1);
+  assert.ok(keys.every((k) => k === 'teams'), 'saves use the teams prompt');
+  await by('team_start').run({ id: 'Job Hunt' });
+  const room = await by('team_room').run({ id: 'job hunt' });
+  assert.strictEqual(room.status, 'running'); assert.strictEqual(room.tasks[0].assignee, 'Athena'); assert.strictEqual(room.messages[0].text, 'Plan ready');
+  await assert.rejects(() => by('team_room').run({ id: 'nope' }), /No team/);
+  await by('team_say').run({ id: 't1', text: 'Remote only, please' }); assert.deepStrictEqual(said, [['t1', 'Remote only, please']]);
+  await by('team_stop').run({ id: 'Job Hunt' }); assert.deepStrictEqual(stopped, ['t1']);
+  // deleting asks every time, under a key that is never granted for 10 minutes
+  keys.length = 0; answer = 'grant';
+  await by('team_delete').run({ id: 't1' });
+  assert.ok(keys.length === 1 && keys[0].startsWith('teams:delete:') && teams.length === 0);
+  console.log('artemis team tools ok');
+})().catch((e) => { console.error('FAILED', e); process.exit(1); });
