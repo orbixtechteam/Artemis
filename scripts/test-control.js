@@ -40,6 +40,23 @@ const ch = createChannel(async ({ session, send }) => { seen.push(session); send
   for (let i = 0; i < 4; i++) g.check('000000', code, rotate);
   code = '333333'; for (let i = 0; i < 4; i++) assert.strictEqual(g.check('000000', code, rotate).result, 'wrong');
 }
+// a desktop chat continued from the phone runs on its own model; /model then changes only that chat
+{
+  const { createRemote } = require('../electron/remote');
+  const st = { model: 'a/one', remoteModel: 'openai/gpt-6-astra', remoteLinkedChatId: 'c1' };
+  const saved = { id: 'c1', title: 'T', model: 'anthropic/claude-opus-5.5', updatedAt: Date.now() };
+  const r = createRemote({
+    getSettings: () => st, saveSettings: (p) => Object.assign(st, p), getSecret: () => '', setSecret: () => {},
+    models: [['anthropic/claude-opus-5.5', 'Claude Opus 5.5'], ['openai/gpt-6-astra', 'GPT-6 Astra'], ['openai/gpt-6.1-sol', 'GPT-6.1 Sol']],
+    chatsApi: { recent: () => [], search: () => [], get: (id) => (id === 'c1' ? saved : null), turns: () => [] },
+    runChat: async () => {}, abort: () => {}
+  });
+  assert.strictEqual(r.linked().id, 'c1');
+  assert.strictEqual(r.control.currentModel(), 'anthropic/claude-opus-5.5', 'linked chat model wins');
+  saved.model = 'openai/gpt-6.1-sol'; assert.strictEqual(r.control.currentModel(), 'openai/gpt-6.1-sol', 'follows a change in the app');
+  assert(r.control.setModel('astra').ok && r.control.currentModel() === 'openai/gpt-6-astra');
+  st.remoteModel = 'a/one'; assert(r.control.setModel('sol').ok && st.remoteModel === 'a/one', '/model on a linked chat leaves the phone default alone');
+}
 (async () => {
   await ch.ask('hi', () => {}); ch.reset(); await new Promise((r) => setTimeout(r, 2)); await ch.ask('hi', () => {});
   assert(seen[0] && seen[0] !== seen[1] || true);

@@ -241,6 +241,7 @@ const DEFAULT_SETTINGS = {
   shellEnabled: true,
   computerEnabled: true,
   browserTools: true, // the agent can drive the integrated browser
+  browserShowAgent: false, // false: the agent uses the browser hidden, a pill in the top bar opens it
   telegramEnabled: false,
   telegramChatId: '',
   remoteFolder: '',
@@ -464,6 +465,7 @@ const browser = createBrowser({
   session, getWebContentsView: () => require('electron').WebContentsView, getWin: () => win, isDev: IS_DEV,
   downloadsDir: () => { try { return app.getPath('downloads'); } catch { return ''; } },
   emit: (ch, p) => { try { if (win && !win.isDestroyed()) win.webContents.send(ch, p); } catch {} },
+  showForAgent: () => getSettings().browserShowAgent === true,
   log: { warn: (area, m) => { try { logger.warn(area, m); } catch {} } }
 });
 function createWindow() {

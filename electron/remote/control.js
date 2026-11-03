@@ -16,7 +16,10 @@ function createControl(deps) {
   const settings = () => deps.getSettings();
   // The model picked from the phone, as long as it is still in the list (its provider may have been switched off since);
   // otherwise the Default model from Settings.
+  // A desktop chat continued from the phone keeps its own model.
   const currentModel = () => {
+    const lm = deps.linkedModel && deps.linkedModel();
+    if (lm) return typeof deps.liveModel === 'function' ? deps.liveModel(lm) : lm;
     const st = settings(); const r = st.remoteModel;
     const ids = models().map((x) => x.id);
     const pick = r && (ids.includes(r) || /^[\w.\-]+\/[\w.\-:]+$/.test(r) && !/^prov:/.test(r)) ? r : st.model;
@@ -32,20 +35,21 @@ function createControl(deps) {
   }
 
   function setModel(query) {
+    const save = (id) => { if (deps.linkedModel && deps.linkedModel()) deps.setLinkedModel(id); else deps.saveSettings({ remoteModel: id }); };
     const q = String(query || '').trim();
     if (!q) return { ok: false, error: 'Tell me which model.' };
     const list = models();
     if (/^\d+$/.test(q)) {
       const m = list[Number(q) - 1];
-      if (m) { deps.saveSettings({ remoteModel: m.id }); return { ok: true, model: m.id, name: m.name }; }
+      if (m) { save(m.id); return { ok: true, model: m.id, name: m.name }; }
     }
     const lower = q.toLowerCase();
     const exact = list.find((m) => m.id.toLowerCase() === lower);
-    if (exact) { deps.saveSettings({ remoteModel: exact.id }); return { ok: true, model: exact.id, name: exact.name }; }
+    if (exact) { save(exact.id); return { ok: true, model: exact.id, name: exact.name }; }
     const hits = list.filter((m) => m.id.toLowerCase().includes(lower) || m.name.toLowerCase().includes(lower));
-    if (hits.length === 1) { deps.saveSettings({ remoteModel: hits[0].id }); return { ok: true, model: hits[0].id, name: hits[0].name }; }
+    if (hits.length === 1) { save(hits[0].id); return { ok: true, model: hits[0].id, name: hits[0].name }; }
     if (hits.length > 1) return { ok: false, error: `Several models match "${q}": ${hits.map((m) => m.id).join(', ')}`, matches: hits };
-    if (/^[\w.\-]+\/[\w.\-:]+$/.test(q)) { deps.saveSettings({ remoteModel: q }); return { ok: true, model: q, name: q, custom: true }; }
+    if (/^[\w.\-]+\/[\w.\-:]+$/.test(q)) { save(q); return { ok: true, model: q, name: q, custom: true }; }
     return { ok: false, error: `No model matches "${q}". Send /model to see the list.` };
   }
 
