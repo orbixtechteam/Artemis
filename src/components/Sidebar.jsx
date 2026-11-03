@@ -5,7 +5,6 @@ const asButton = (fn) => ({ role: 'button', tabIndex: 0, onKeyDown: (e) => { if 
 import { dayGroup } from '../lib/history.js';
 import { Icon } from './Icons.jsx';
 import ProjectLogo from './ProjectLogo.jsx';
-import NotesSection from './NotesSection.jsx';
 import TitleText from './TitleText.jsx';
 import { ContextMenu } from './TabBar.jsx';
 import { useSentinelKey } from '../lib/sentinelKey.js';
@@ -49,7 +48,7 @@ function SideHead({ label, open, onToggle }) {
 
 export default function Sidebar({
   chats, projects = [], currentId, view, statusOf, onNewChat, onNewIncognito, onSelect, onRename, onPinChat, onPinProject, onOpenProject,
-  onHome, onFiles, onOpenFile, onProjects, onConnectors, onSettings, onMemory, onUsage, onBrowser, onTerminal, notes, onSchedule, onSkills, onAgents, onAutomations, onSentinel, sentinel = 'off', onLogs, agentCount = 0, onPermissions, onProfile, profile = {}, view_, memoryCount, connectorCount, hidden, onResizeStart
+  onHome, onFiles, onOpenFile, onProjects, onConnectors, onSettings, onMemory, onUsage, onBrowser, onTerminal, notes, onNotes, notesActive, onSchedule, onSkills, onAgents, onAutomations, onSentinel, sentinel = 'off', onLogs, agentCount = 0, onPermissions, onProfile, profile = {}, view_, memoryCount, connectorCount, hidden, onResizeStart
 }) {
   const sKey = useSentinelKey();
   const [q, setQ] = useState('');
@@ -98,19 +97,6 @@ export default function Sidebar({
 
   const rows = [];
   const pinnedChats = visible.filter((c) => c.pinned);
-  const pinnedProjects = ql ? [] : projects.filter((p) => p.pinned);
-  if (pinnedProjects.length) {
-    rows.push(<SideHead key="pinned-projects" label="Pinned projects" open={secOpen('pinnedProjects')} onToggle={() => toggleSec('pinnedProjects')} />);
-    for (const p of secOpen('pinnedProjects') ? pinnedProjects : []) {
-      rows.push(
-        <div key={'p' + p.id} className="chat-item" data-project={p.id} onClick={() => onOpenProject(p.id)} {...asButton(() => onOpenProject(p.id))}>
-          <ProjectLogo logo={p.logo} size={15} />
-          <span className="t">{p.name}</span>
-          <button className="x pin on" title="Unpin" aria-label={`Unpin ${p.name}`} onClick={(e) => { e.stopPropagation(); onPinProject(p.id); }}><Icon name="pin" size={14} /></button>
-        </div>
-      );
-    }
-  }
   if (pinnedChats.length) {
     rows.push(<SideHead key="pinned" label="Pinned chats" open={secOpen('pinnedChats')} onToggle={() => toggleSec('pinnedChats')} />);
     for (const c of secOpen('pinnedChats') ? pinnedChats : []) {
@@ -121,7 +107,11 @@ export default function Sidebar({
     }
   }
   const unassigned = visible.filter((x) => !x.pinned && !x.projectId);
-  const projectList = projects.filter((p) => visible.some((c) => !c.pinned && c.projectId === p.id));
+  // one Projects section: pinned projects first (shown even without chats), then the others that have chats
+  const projectList = [
+    ...(ql ? [] : projects.filter((p) => p.pinned)),
+    ...projects.filter((p) => (ql || !p.pinned) && visible.some((c) => !c.pinned && c.projectId === p.id))
+  ];
   if (projectList.length) {
     rows.push(<SideHead key="projects-head" label="Projects" open={secOpen('projects')} onToggle={() => toggleSec('projects')} />);
   }
@@ -135,9 +125,10 @@ export default function Sidebar({
           <Icon name={isOpen ? 'chevronDown' : 'chevronRight'} size={13} className="project-chevron" />
           <ProjectLogo logo={p.logo} size={15} />
           <span className="t" onDoubleClick={(e) => { e.stopPropagation(); onOpenProject(p.id); }}>{p.name}</span>
+          {onPinProject && <button className={`x pin ${p.pinned ? 'on' : ''}`} title={p.pinned ? 'Unpin' : 'Pin'} aria-label={p.pinned ? `Unpin ${p.name}` : `Pin ${p.name}`} onClick={(e) => { e.stopPropagation(); onPinProject(p.id); }}><Icon name="pin" size={13} /></button>}
           <button className="project-open" title="Open project" aria-label={`Open project ${p.name}`} onClick={(e) => { e.stopPropagation(); onOpenProject(p.id); }}><Icon name="external" size={13} /></button>
         </div>
-        {isOpen && <div className="project-submenu">
+        {isOpen && items.length > 0 && <div className="project-submenu">
           {items.map((c) => <ChatRow key={c.id} c={c} active={view === 'chat' && c.id === currentId} status={statusOf(c)} inProject
             onSelect={onSelect} onRename={onRename} onPin={onPinChat} />)}
         </div>}
@@ -164,6 +155,7 @@ export default function Sidebar({
       <nav className="side-nav" aria-label="Main">
         <button className="nav-item" data-nav="home" onClick={onHome}><Icon name="home" size={16} /> Home</button>
         <button className="nav-item" data-nav="projects" onClick={onProjects}><Icon name="folders" size={16} /> Projects</button>
+        {onNotes && <button className={`nav-item ${notesActive ? 'active' : ''}`} data-nav="notes" onClick={onNotes}><Icon name="file" size={16} /> Notes</button>}
         {onFiles && <button className="nav-item" data-nav="files" onClick={onFiles}><Icon name="folder" size={16} /> Files</button>}
         <button className="nav-item" data-nav="schedule" onClick={onSchedule}><Icon name="clock" size={16} /> Scheduled</button>
         <SideHead label="Workspace" open={work} onToggle={toggleWork} />
@@ -189,7 +181,6 @@ export default function Sidebar({
             {found.files.map((h) => <div key={h.path} className="chat-item" title={h.snippet || h.path} onClick={() => onOpenFile && onOpenFile(h.path)} {...asButton(() => onOpenFile && onOpenFile(h.path))}><Icon name={h.kind === 'image' ? 'image' : 'file'} size={15} className="row-icon" /><span className="t">{h.name}</span></div>)}
           </div>
         )}
-        {notes && <NotesSection {...notes} />}
         {rows.length ? rows : <div className="muted pad">No chats</div>}
       </div>
       <div className="side-foot">

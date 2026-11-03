@@ -50,6 +50,7 @@ import { modelGroups, defaultModel } from './lib/models.js';
 import { setExtraPrices, costOf } from './lib/cost.js';
 import { TerminalDock } from './components/Terminal.jsx';
 import NoteEditor from './components/NoteEditor.jsx';
+import NotesSection from './components/NotesSection.jsx';
 import FilesView from './components/FilesView.jsx';
 import NoteGraph from './components/NoteGraph.jsx';
 import { promptName } from './lib/prompt.js';
@@ -289,7 +290,7 @@ export default function App() {
   useEffect(() => { // first start: restore the tabs of the last session
     if (!loaded || tabs || !currentId) return;
     let saved = null; try { saved = JSON.parse(localStorage.getItem('artemis.tabs') || 'null'); } catch {}
-    const ok = saved && Array.isArray(saved.tabs) ? saved.tabs.filter((t) => t && t.id && t.s && t.s.view !== 'notes' && (t.s.view !== 'note' || typeof t.s.notePath === 'string') && (t.s.view !== 'chat' || chatsRef.current.some((c) => c.id === t.s.chatId))) : [];
+    const ok = saved && Array.isArray(saved.tabs) ? saved.tabs.filter((t) => t && t.id && t.s && (t.s.view !== 'note' || typeof t.s.notePath === 'string') && (t.s.view !== 'chat' || chatsRef.current.some((c) => c.id === t.s.chatId))) : [];
     if (ok.length) { const act = ok.find((t) => t.id === saved.active) || ok[0]; setTabs(ok); setActiveTab(act.id); applySnap(act.s); }
     else { const t = mkTab(snapNow()); setTabs([t]); setActiveTab(t.id); }
   }, [loaded, currentId, tabs]);
@@ -487,7 +488,8 @@ export default function App() {
       if (!ev) return;
       if (ev.active) {
         setBrowserAgent((a) => { const same = a && a.requestId === ev.requestId; return { requestId: ev.requestId, tool: ev.tool || (same ? a.tool : ''), who: ev.who || (same ? a.who : ''), team: ev.team || (same ? a.team : '') }; });
-        showBrowserRef.current();
+        // background mode (the default): the browser works hidden and a pill in the top bar opens it
+        if ((settingsRef.current || {}).browserShowAgent === true) showBrowserRef.current();
       }
       else setBrowserAgent((a) => (a && a.requestId === ev.requestId ? null : a));
     });
@@ -496,7 +498,7 @@ export default function App() {
   // right-click menus: sidebar pages and chats, and ⌘-click to open in a new tab
   const NAV = {
     home: { view: 'home' }, projects: { view: 'projects' }, schedule: { view: 'schedule' }, skills: { view: 'skills' }, agents: { view: 'agents' }, automations: { view: 'automations' },
-    logs: { view: 'logs' }, terminal: { view: 'terminal' }, browser: { view: 'browser' }, graph: { view: 'graph' }, files: { view: 'files' },
+    logs: { view: 'logs' }, terminal: { view: 'terminal' }, browser: { view: 'browser' }, graph: { view: 'graph' }, notes: { view: 'notes' }, files: { view: 'files' },
     memory: { modal: 'memory' }, usage: { modal: 'usage' }, connectors: { modal: 'connectors' }, settings: { modal: 'settings' }
   };
   const navSnap = (k) => ({ view: 'chat', chatId: currentRef.current, modal: null, settingsTab: 'general', ...NAV[k] });
@@ -1780,6 +1782,8 @@ export default function App() {
   const pageModal = TAB_MODALS.includes(modal) ? modal : null;
   const chatView = view === 'chat' && !pageModal;
   const noteView = view === 'note' && !!notePath && !pageModal;
+  const notesHome = view === 'notes' && !pageModal; // the Notes page with no note open yet
+  const notesTree = { items: notes.items, root: notes.root, active: view === 'note' ? notePath : null, onOpen: noteActions.open, onNew: (f) => noteActions.create(f), onNewFolder: noteActions.createFolder, onRename: noteActions.rename, onDelete: noteActions.remove, onMove: noteActions.move, onPickRoot: noteActions.pickRoot, onReveal: noteActions.reveal, onGraph: () => navView('graph'), graphActive: view === 'graph' };
   const primaryPage = pageModal || (PAGE_VIEWS.includes(view) ? view : null);
   const primaryKind = pageModal || (view && view.project ? 'project' : view);
   const chatBusy = isRunning(chat.id);
@@ -1817,7 +1821,7 @@ export default function App() {
     go: (sn) => { if (sn.view) setView(sn.view); },
     goNav: (k) => { const sn = NAV[k]; if (!sn) return; if (k === 'terminal' && !termRef.current.tabs.length) newTermTab(); if (sn.view) { setModal(null); setView(sn.view); } if (sn.modal) { if (sn.modal === 'settings') setSettingsTab('general'); setModal(sn.modal); } }
   };
-  const VIEW_INFO = { home: ['Home', 'home'], projects: ['Projects', 'folders'], schedule: ['Scheduled', 'clock'], skills: ['Skills', 'sparkle'], agents: ['Agents', 'layers'], automations: ['Automations', 'bolt'], logs: ['Logs', 'code'], graph: ['Graph', 'graph'], files: ['Files', 'folder'], terminal: ['Terminal', 'terminal'], browser: ['Browser', 'globe'] };
+  const VIEW_INFO = { home: ['Home', 'home'], projects: ['Projects', 'folders'], schedule: ['Scheduled', 'clock'], skills: ['Skills', 'sparkle'], agents: ['Agents', 'layers'], automations: ['Automations', 'bolt'], logs: ['Logs', 'code'], graph: ['Graph', 'graph'], notes: ['Notes', 'file'], files: ['Files', 'folder'], terminal: ['Terminal', 'terminal'], browser: ['Browser', 'globe'] };
   const MODAL_INFO = { settings: ['Settings', 'sliders'], memory: ['Memory', 'bulb'], usage: ['Usage', 'chart'], connectors: ['Connectors', 'plug'] };
   const tabInfo = (t) => {
     const sn = t.s;
@@ -1863,6 +1867,11 @@ export default function App() {
       <button className="icon-btn nodrag" title="Forward" aria-label="Forward" disabled={!navCan.fwd} onClick={() => navGo(1)}><Icon name="chevronRight" size={18} /></button>
       {tabsBar || <div className="chat-title">{chatView ? <TitleText text={chat.title} /> : ''}</div>}
       {!tabsBar && <span style={{ flex: 1 }} />}
+      {browserAgent && !browserShown && (
+        <button className="browser-pill nodrag" onClick={() => showBrowserRef.current()} title="Artemis is using the browser in the background. Click to watch." aria-label="Browser working in the background. Show it">
+          <span className="dot" /><Icon name="globe" size={14} /> {browserAgent.who ? `${browserAgent.who} · Browser` : 'Browser working'}
+        </button>
+      )}
       {chatView && (
         <>
           {project?.folder && <button className="icon-btn nodrag" title={`Open folder: ${project.folder}`} aria-label={`Open folder: ${project.folder}`} onClick={() => api.openPath(project.folder)}><Icon name="external" size={16} /></button>}
@@ -1973,7 +1982,7 @@ export default function App() {
         onHome={() => navView('home')} onProjects={() => navView('projects')} onSchedule={() => navView('schedule')} onFiles={() => navView('files')} onOpenFile={openLibFile} onSkills={() => navView('skills')} onAgents={() => navView('agents')} onAutomations={() => navView('automations')} onSentinel={toggleSentinel} sentinel={sent.state} onLogs={() => navView('logs')} agentCount={liveAgents(chats, runningIds).length} onPermissions={() => setModal('permissions')} onConnectors={() => setModal('connectors')}
         onSettings={() => { setSettingsTab('general'); setModal('settings'); }} onMemory={() => setModal('memory')} onUsage={() => setModal('usage')}
         onTerminal={() => { if (!termRef.current.tabs.length) newTermTab(); navView('terminal'); }}
-        notes={{ items: notes.items, root: notes.root, active: view === 'note' ? notePath : null, onOpen: noteActions.open, onNew: (f) => noteActions.create(f), onNewFolder: noteActions.createFolder, onRename: noteActions.rename, onDelete: noteActions.remove, onMove: noteActions.move, onPickRoot: noteActions.pickRoot, onReveal: noteActions.reveal, onGraph: () => navView('graph'), graphActive: view === 'graph' }}
+        notes={notesTree} onNotes={() => (notePath && notes.items.some((i) => i.path === notePath) ? noteActions.open(notePath, 'here') : navView('notes'))} notesActive={!pageModal && (view === 'note' || view === 'notes')}
         onBrowser={() => navView('browser')}
         memoryCount={settings.memoryEnabled ? memory.length : 0} connectorCount={connectorCount}
       />
@@ -1999,10 +2008,16 @@ export default function App() {
             onOpenTeam={(id) => { agentsIntent.room(id); setView('agents'); }} onNewTeam={() => { agentsIntent.newTeam(viewProject.id); setView('agents'); }}
           />
         )}
-        {(chatView || noteView || primaryPage) && (
+        {(chatView || noteView || notesHome || primaryPage) && (
           <div className="split-wrap" style={{ '--split2': splitPct + '%' }}>
           {primaryPage && <div className="pane"><ErrorBoundary name={primaryPage} resetKey={primaryPage}>{renderPage(primaryPage, false)}</ErrorBoundary></div>}
-          {noteView && <div className="pane"><ErrorBoundary name="the note editor" resetKey={notePath}><NoteEditor key={notePath + ':' + noteRev} path={notePath} {...noteProps} onOpenNote={(p, how) => noteActions.open(p, how || 'here')} /></ErrorBoundary></div>}
+          {(noteView || notesHome) && <div className="pane notes-page">
+            <aside className="notes-page-tree"><NotesSection {...notesTree} page /></aside>
+            <div className="notes-page-main">
+              {noteView ? <ErrorBoundary name="the note editor" resetKey={notePath}><NoteEditor key={notePath + ':' + noteRev} path={notePath} {...noteProps} onOpenNote={(p, how) => noteActions.open(p, how || 'here')} /></ErrorBoundary>
+                : <div className="notes-page-empty muted"><Icon name="file" size={28} /><div>Pick a note on the left, or create one.</div><button onClick={() => noteActions.create('')}>New note</button></div>}
+            </div>
+          </div>}
           {chatView && <div className={`pane chat-pane ${chat.messages.length === 0 ? 'is-empty' : ''}`} data-find-scope="chat">
             <FindBar key={chat.id} targetRef={listRef} />
             {chat.messages.length > 0 && <ChatHead key={'h' + chat.id} chat={chat} projectName={chat.projectId ? (projects.find((p) => p.id === chat.projectId) || {}).name : ''}

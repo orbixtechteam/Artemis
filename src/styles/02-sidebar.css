@@ -30,7 +30,7 @@
 .nav-item .state.on { color: var(--ok); }
 
 /* section headers: Workspace, Notes, Pinned, Projects, and the day groups of the chat list */
-.group-label, .side-head { padding: 16px 9px 5px; font-size: 11px; font-weight: 600; line-height: 1.2; letter-spacing: .01em; color: var(--muted); }
+.group-label, .side-head { padding: 18px 9px 6px; font-size: 11px; font-weight: 600; line-height: 1.2; letter-spacing: .01em; color: var(--muted); }
 .side-head { display: flex; align-items: center; gap: 4px; cursor: pointer; user-select: none; }
 .side-head > svg { order: 2; width: 11px; height: 11px; opacity: 0; transition: opacity .12s; }
 .side-head:hover { color: var(--text-2); }
@@ -38,8 +38,8 @@
 .chat-list > .side-head:first-child, .chat-list > .notes-sec:first-child > .side-head { padding-top: 6px; }
 
 .chat-list { flex: 1 1 140px; min-height: 120px; display: flex; flex-direction: column; gap: 1px; margin-top: 2px; padding-right: 2px; overflow-y: auto; }
-.chat-item { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 9px; border-radius: var(--r-sm); color: var(--text-2); font-size: var(--fs-ui); cursor: pointer; }
-.chat-item > svg.row-icon { width: 14px; height: 14px; flex: none; }
+.chat-item { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 9px; border-radius: var(--r-sm); color: var(--text); font-size: var(--fs-ui); cursor: pointer; }
+.chat-item > svg.row-icon { width: 14px; height: 14px; flex: none; color: var(--text-2); }
 .chat-item:hover { background: var(--fill); }
 .chat-item.active { background: var(--fill-2); color: var(--text); }
 .chat-item .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -55,7 +55,7 @@
 .project-group-head .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-chevron { flex: none; color: var(--muted); }
 .project-open { visibility: hidden; display: inline-flex; padding: 2px 4px; border: none; border-radius: 5px; background: none; color: var(--muted); }
-.project-group-head:hover .project-open { visibility: visible; }
+.project-group-head:hover .project-open, .project-group-head:hover .x { visibility: visible; }
 .project-open:hover { color: var(--text); background: var(--fill-2); }
 .project-submenu { display: flex; flex-direction: column; gap: 1px; margin-left: 15px; padding-left: 6px; border-left: 1px solid var(--line); }
 

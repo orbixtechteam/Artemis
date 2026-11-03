@@ -461,6 +461,7 @@ export function SettingsModal({ settings, groups = [], projects = [], providers 
                 <SwitchRow label="Terminal commands" description="Asks once per task." checked={!!s.shellEnabled} onChange={put('shellEnabled')} />
                 <SwitchRow label="Computer control (macOS)" description="Screen, mouse and keyboard. Asks once per task. Emergency stop: ⌘⇧Esc." checked={!!s.computerEnabled} onChange={put('computerEnabled')} />
                 <SwitchRow label="Browser control" description="Artemis can open pages, click, type and fill forms in the integrated browser while you watch. Asks once per site per task; it never runs in scheduled or phone tasks." checked={s.browserTools !== false} onChange={put('browserTools')} />
+                <SwitchRow label="Show the browser while Artemis uses it" description="Off: the browser works in the background and a small Browser pill in the top bar opens it. On: it opens next to the chat." checked={s.browserShowAgent === true} onChange={put('browserShowAgent')} />
                 <SwitchRow label="Connectors (MCP servers)" checked={s.connectorsEnabled !== false} onChange={put('connectorsEnabled')} />
                 <SwitchRow label="Full file access" description="The assistant can reach files anywhere on this computer, not only in the project folder. It asks first: once per outside folder for reading, every time for keys and credentials, and for every change." checked={s.fullFileAccess !== false} onChange={put('fullFileAccess')} />
               </Group>

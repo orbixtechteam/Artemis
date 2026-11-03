@@ -658,6 +658,7 @@ function createBrowser(deps) {
   }
   async function ensureShown(requestId, signal) {
     if (shown && !covered) return true;
+    if (deps.showForAgent && !deps.showForAgent()) return false; // background mode: the panel is not opened for the agent
     emit('browser:agent', { active: true, requestId, show: true });
     for (let i = 0; i < 20 && !(shown && !covered); i++) await sleep(100, signal);
     return shown && !covered;
