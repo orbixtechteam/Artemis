@@ -26,8 +26,10 @@ function createChannel(runChat, abortFn, onTurn, autoLink, onLink) {
     busy: () => !!running,
     reset: () => { history = []; linked = null; session = Date.now().toString(36); note(); },
     /** Continue a saved desktop chat: its text turns become the history, new turns are written back to it. */
-    link: (chat, turns) => { if (running) throw new Error('busy'); linked = { id: chat.id, title: chat.title || 'Untitled' }; history = (turns || []).slice(-30); session = Date.now().toString(36); note(); },
+    link: (chat, turns) => { if (running) throw new Error('busy'); linked = { id: chat.id, title: chat.title || 'Untitled', model: chat.model || '' }; history = (turns || []).slice(-30); session = Date.now().toString(36); note(); },
     linked: () => linked,
+    /** /model while continuing a desktop chat changes only that chat's model. */
+    setLinkedModel: (m) => { if (linked) linked = { ...linked, phoneModel: m }; },
     getHistory: () => history.slice(),
     setHistory: (h) => { history = h; },
     /** A turn that happened in the desktop app: keep the phone's history in step. */
@@ -38,7 +40,7 @@ function createChannel(runChat, abortFn, onTurn, autoLink, onLink) {
       // not linked to a chat yet: carry on in the desktop chat used most recently instead of starting a stray new one
       if (!linked && !history.length && autoLink) {
         const found = (() => { try { return autoLink(); } catch { return null; } })();
-        if (found) { linked = { id: found.chat.id, title: found.chat.title || 'Untitled' }; history = (found.turns || []).slice(-30); note(); }
+        if (found) { linked = { id: found.chat.id, title: found.chat.title || 'Untitled', model: found.chat.model || '' }; history = (found.turns || []).slice(-30); note(); }
       }
       const requestId = `phone-${Date.now().toString(36)}`;
       running = requestId;
@@ -77,6 +79,12 @@ function createRemote(deps) {
   const control = createControl({
     getSettings: deps.getSettings, saveSettings: deps.saveSettings, models: deps.models || [], readStore: deps.readStore || (() => []),
     providers: deps.providersApi || null, liveModel: deps.liveModel,
+    linkedModel: () => { // picked with /model on the phone, else the chat's current model in the app
+      const l = channel.linked(); if (!l) return '';
+      if (l.phoneModel) return l.phoneModel;
+      const c = deps.chatsApi ? (() => { try { return deps.chatsApi.get(l.id); } catch { return null; } })() : null;
+      return (c && c.model) || l.model || '';
+    }, setLinkedModel: (m) => channel.setLinkedModel(m),
     mcpStatus: deps.mcpStatus || (() => []), memory: deps.memory || { list: () => [], add: () => ({}), remove: () => false }, isBusy: () => channel.busy()
   });
   let tg = null, pairCode = '', tgError = '', tgRetry = null, tgRetrying = false;
