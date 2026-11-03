@@ -12,8 +12,9 @@ const DRAG = 'text/artemis-note';
  * The "Notes" block at the top of the sidebar: a collapsible tree of folders and notes that looks like the chat list.
  * onOpen(path, how) with how = 'here' | 'tab' | 'split'.
  */
-export default function NotesSection({ items, root, active, onOpen, onNew, onNewFolder, onRename, onDelete, onMove, onPickRoot, onReveal, onGraph, graphActive }) {
-  const [open, setOpen] = useState(() => lsGet('artemis-notes-open', false)); // folded by default; chats come first
+export default function NotesSection({ items, root, active, onOpen, onNew, onNewFolder, onRename, onDelete, onMove, onPickRoot, onReveal, onGraph, graphActive, page = false }) {
+  const [openPref, setOpen] = useState(() => lsGet('artemis-notes-open', false)); // folded by default; chats come first
+  const open = page || openPref; // on the Notes page the tree is always shown
   const [closed, setClosed] = useState(() => new Set(lsGet('artemis-notes-closed', [])));
   const [folder, setFolder] = useState('');      // where "new note" goes
   const [searching, setSearching] = useState(false);
@@ -25,7 +26,7 @@ export default function NotesSection({ items, root, active, onOpen, onNew, onNew
   const [dragging, setDragging] = useState(false);
   const [renaming, setRenaming] = useState(null); // { path, value } while a name is being edited in place
 
-  useEffect(() => lsSet('artemis-notes-open', open), [open]);
+  useEffect(() => lsSet('artemis-notes-open', openPref), [openPref]);
   useEffect(() => lsSet('artemis-notes-closed', [...closed]), [closed]);
   useEffect(() => {
     if (!q.trim()) { setHits(null); return undefined; }
@@ -80,9 +81,9 @@ export default function NotesSection({ items, root, active, onOpen, onNew, onNew
   });
 
   return (
-    <div className="notes-sec">
-      <div className="side-head notes-head" onClick={() => setOpen((o) => !o)}>
-        <Icon name={open ? 'chevronDown' : 'chevronRight'} size={12} />
+    <div className={'notes-sec' + (page ? ' page' : '')}>
+      <div className="side-head notes-head" onClick={() => { if (!page) setOpen((o) => !o); }}>
+        {!page && <Icon name={open ? 'chevronDown' : 'chevronRight'} size={12} />}
         <span className="notes-head-t">Notes</span>
         <span style={{ flex: 1 }} />
         <button title="New note" aria-label="New note" onClick={(e) => { e.stopPropagation(); setOpen(true); onNew(folder); }}><Icon name="plus" size={14} /></button>
