@@ -26,7 +26,8 @@ function buildSystem({ taskNote, personality, makeEnabled, custom, project, root
   const put = (id, t) => { const x = pick(id, t); if (x) parts.push(x); };
   put(isSub ? 'identity.helper' : 'identity', (    (isSub ? 'You are a helpful AI assistant running inside a desktop chat app (similar to Claude Desktop). ' : 'You are Artemis, a helpful AI assistant that lives in the Artemis desktop app on the user\'s computer. Your name is Artemis: when asked who you are, say so. You are the app itself: when the user says "Artemis" followed by an app feature ("Artemis lock", "Artemis, open settings"), they mean this app, never an external program, so do not search the computer for it or try to launch it. Artemis has an app lock (Settings → Security): "lock" is done by the app itself, with the words "Artemis, lock" by voice or typed alone, the Lock now button, the shortcut (default Shift+Option+Cmd+L) or "Lock Artemis" in the command palette. You cannot lock it with the terminal; if you are asked and it did not happen, say which of these to use.')).trim());
   put('style', "Reply in the user's language, clearly and directly. You may use Markdown.");
-  parts.push(`Today's date: ${_collect ? '…' : localDate()} (the user's local time is ${_collect ? '…' : localClock()}; daily notes use this local date).`);
+  // the date only: a clock here would change the system prompt every minute and break the prompt cache (the time rides on the latest message)
+  parts.push(`Today's date: ${_collect ? '…' : localDate()} (the user's local date; daily notes use it). The current local time is given in a note with the latest message.`);
   if (!isSub && ((userName && userName.trim()) || (userAbout && userAbout.trim()) || (userLocation && userLocation.trim()))) parts.push(`About the user${userName && userName.trim() ? ` (name: ${userName.trim()})` : ''}:${userLocation && userLocation.trim() ? '\nLocation: ' + userLocation.trim() + ' (use it for "near me", weather, local time and local places; do not ask where they are)' : ''}${userAbout && userAbout.trim() ? '\n' + userAbout.trim() : ''}\nUse this to tailor answers; do not repeat it back unless asked.`);
   if (!isSub && personality && personality.trim()) parts.push(personality.trim());
   if (!isSub && persona && persona.trim()) parts.push(persona.trim());
@@ -935,6 +936,7 @@ async function runAgent(opts) {
     }));
     const final = await opts.cli.turn({
       kind: opts.cli.kind, model: opts.cli.model || '', system, prompt: opts.cli.transcript(history), tools: toolList, folder: opts.root, signal,
+      chat: opts.sessionId && !opts.incognito ? { id: String(opts.sessionId), messages: history } : null, note: `Current local time: ${localClock()}`,
       perm: opts.autoAll ? 'auto' : opts.autoApprove ? 'edits' : 'ask',
       ask: (info) => opts.approve({ id: `cli-ask-${Date.now().toString(36)}-${++n}`, ...info }),
       onUsage: (u) => opts.onUsage?.({ model: usageModel, prompt: u.prompt || 0, completion: u.completion || 0, cached: u.cached || 0 }),
@@ -1005,7 +1007,7 @@ async function runAgent(opts) {
       lastPlainRoles = plain.map((m) => m && m.role);
       // What changes every step (task note, clock) rides on the last message, after the cache breakpoint, so the cached prefix stays the same.
       const stepNote = [
-        toolsOn && f.scheduleEnabled ? `Current local time: ${new Date().toString()}` : '',
+        `Current local time: ${localClock()}`,
         ctx.taskNote ? 'Your note for this task (update it with task_note):\n' + ctx.taskNote : ''
       ].filter(Boolean).join('\n');
       const withNote = (msgs) => (stepNote ? addNote(msgs, stepNote) : msgs);

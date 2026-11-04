@@ -351,13 +351,51 @@ const { pruneImages } = require('../electron/agent');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lib-'));
   const lib = createLibrary({ getRoot: () => dir, files });
   fs.writeFileSync(path.join(dir, 'e.csv'), 'id,lcp\n' + Array.from({ length: 5000 }, (_, i) => `${i},${i % 7 === 0 ? '\\N' : i}`).join('\n'));
-  const q = lib.readLines('e.csv', { query: '\\N', limit: 5 });
+  const q = await lib.readLines('e.csv', { query: '\\N', limit: 5 });
   assert(q.total === 5001 && q.hits === 5 && q.more && /^\d+: /.test(q.text), 'query returns matching lines with numbers');
-  const sl = lib.readLines('e.csv', { from: 1, to: 3 });
+  const sl = await lib.readLines('e.csv', { from: 1, to: 3 });
   assert.strictEqual(sl.text, '1: id,lcp\n2: 0,\\N\n3: 1,1');
   const tools = require('../electron/tools');
   const out = await tools.run('library_read', { path: 'e.csv', query: '\\N' }, { library: lib, root: dir, approve: async () => true });
   assert(out.ok && out.text.length < 25000 && out.text.includes('matching'), 'library_read query is bounded');
+  // library_read extracts PDF / Word / Excel / PowerPoint text and pages through long ones
+  {
+    const JSZip = require('jszip'), XLSX = require('xlsx');
+    const xmlZip = async (entries) => { const z = new JSZip(); for (const [n, t] of Object.entries(entries)) z.file(n, t); return z.generateAsync({ type: 'nodebuffer' }); };
+    const para = (t) => `<w:p><w:r><w:t>${t}</w:t></w:r></w:p>`;
+    fs.writeFileSync(path.join(dir, 'q.docx'), await xmlZip({
+      '[Content_Types].xml': '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
+      '_rels/.rels': '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>',
+      'word/document.xml': `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${Array.from({ length: 6000 }, (_, i) => para(`Section ${i + 1} text`)).join('')}${para('Part 4: success criteria')}</w:body></w:document>`
+    }));
+    let d = await tools.run('library_read', { path: 'q.docx' }, { library: lib, root: dir, approve: async () => true });
+    assert(d.ok && d.text.includes('Section 1 text') && /continue with from_line=\d+/.test(d.text), 'docx: start of a long doc with a continue hint: ' + JSON.stringify(d).slice(0, 300));
+    d = await tools.run('library_read', { path: 'q.docx', query: 'success criteria' }, { library: lib, root: dir, approve: async () => true });
+    assert(d.ok && d.text.includes('Part 4: success criteria'), 'docx: the end is found with query: ' + d.text.slice(0, 200));
+    fs.writeFileSync(path.join(dir, 's.pptx'), await xmlZip({
+      'ppt/slides/slide2.xml': '<p:sld><a:p><a:r><a:t>Second &amp; last</a:t></a:r></a:p></p:sld>',
+      'ppt/slides/slide1.xml': '<p:sld><a:p><a:r><a:t>Pilot </a:t></a:r><a:r><a:t>scope</a:t></a:r></a:p></p:sld>',
+      'ppt/notesSlides/notesSlide1.xml': '<p:notes><a:p><a:r><a:t>Say hello</a:t></a:r></a:p></p:notes>'
+    }));
+    d = await tools.run('library_read', { path: 's.pptx' }, { library: lib, root: dir, approve: async () => true });
+    assert(d.ok && /2 slides/.test(d.text) && /Slide 1 ---\nPilot scope\n\[Notes\] Say hello[\s\S]*Slide 2 ---\nSecond & last/.test(d.text), 'pptx slides in order: ' + d.text);
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['name', 'price'], ['Kit', 49]]), 'Prices');
+    fs.writeFileSync(path.join(dir, 'p.xlsx'), XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
+    d = await tools.run('library_read', { path: 'p.xlsx' }, { library: lib, root: dir, approve: async () => true });
+    assert(d.ok && d.text.includes('Kit,49') && d.text.includes('Prices'), 'xlsx read as CSV: ' + d.text);
+    // PDF: the library uses files.readContent (pdf-parse); a stub keeps the test independent of hand-built PDF bytes
+    const plib = createLibrary({ getRoot: () => dir, files: { ...files, readContent: async () => ({ kind: 'pdf', text: 'Part 1\nPart 2\nPart 3: limits\nPart 4: success', pages: 5 }) } });
+    fs.writeFileSync(path.join(dir, 'f.pdf'), '%PDF-1.4');
+    d = await tools.run('library_read', { path: 'f.pdf' }, { library: plib, root: dir, approve: async () => true });
+    assert(d.ok && /5 pages/.test(d.text) && d.text.includes('Part 4: success'), 'pdf text: ' + d.text);
+    d = await tools.run('library_read', { path: 'f.pdf', from_line: 3, to_line: 4 }, { library: plib, root: dir, approve: async () => true });
+    assert(d.ok && d.text.includes('3: Part 3: limits') && d.text.includes('4: Part 4: success'), 'pdf slice: ' + d.text);
+    fs.writeFileSync(path.join(dir, 'clip.mp4'), Buffer.from([0, 0, 0, 24, 102, 116, 121, 112]));
+    d = await tools.run('library_read', { path: 'clip.mp4' }, { library: lib, root: dir, approve: async () => true });
+    assert(!d.ok && /no readable text/.test(d.text), d.text);
+    d = await tools.run('library_edit', { path: 'f.pdf', old_text: 'a', new_text: 'b' }, { library: plib, root: dir, approve: async () => true });
+    assert(!d.ok && /cannot be edited/.test(d.text), d.text);
+  }
   // OpenRouter: /images, no response_format
   const media = require('../electron/media');
   const seen = []; const realFetch = global.fetch;
