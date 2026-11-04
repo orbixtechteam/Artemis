@@ -49,15 +49,56 @@
 .mem-item button { visibility: hidden; width: 24px; height: 24px; display: grid; place-items: center; padding: 0; border-radius: 6px; }
 .mem-item:hover button, .mem-item:focus-within button { visibility: visible; }
 
-/* Connectors */
-.modal.page .conn { margin: 0 0 10px; padding: 12px 14px; gap: 12px; border-radius: 12px; background: var(--pref-card); }
-.modal.page .conn-name { font-weight: 500; }
-.modal.page .conn-name .small { margin-left: 4px; }
-.modal.page .conn-sub { margin-top: 2px; }
-.modal.page .conn-form { border-radius: 12px; background: var(--pref-card); padding: 14px; }
-.modal.page .preset-row { margin-top: 16px; }
-.modal.page .preset-row button { height: 28px; padding: 0 12px; }
-.modal.page > .error { margin-top: 10px; }
+/* Connectors: a Claude-style table (Connector / Type / Status), an Add menu, and the add / import forms in dialogs */
+.page-host > .modal.page.conn-page { max-width: 980px; }
+.conn-toolbar { display: flex; align-items: center; gap: 10px; }
+.conn-search { display: flex; align-items: center; gap: 8px; width: 300px; height: 32px; padding: 0 10px; border: .5px solid var(--line-2); border-radius: var(--r-sm); background: var(--field-bg); color: var(--muted); }
+.conn-search:focus-within { border-color: var(--accent); box-shadow: var(--ring); }
+.conn-search input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; background: none; box-shadow: none; color: var(--text); font-size: var(--fs-ui); outline: none; }
+.conn-add { position: relative; }
+.conn-add-btn { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border: 0; border-radius: var(--r-sm); background: var(--text); color: var(--bg); font-size: var(--fs-ui); font-weight: 500; }
+.conn-add-btn:hover { filter: brightness(.92); }
+.conn-add-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; min-width: 220px; display: flex; flex-direction: column; }
+.conn-add-menu .ctx-item { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: none; color: var(--text); text-align: left; }
+.conn-add-menu .ctx-item svg { color: var(--muted); }
+.conn-menu-sep { height: .5px; margin: 4px 6px; background: var(--line); }
+.conn-menu-head { padding: 4px 9px 2px; color: var(--muted); font-size: 11.5px; font-weight: 600; }
+
+.conn-table { display: flex; flex-direction: column; }
+.conn-row { display: grid; grid-template-columns: minmax(0, 1fr) 150px 170px 130px; align-items: center; gap: 12px; min-height: 52px; padding: 0 8px; border-bottom: .5px solid var(--line); cursor: default; }
+.conn-row:not(.conn-head):hover { background: var(--fill); }
+.conn-row.connected { cursor: pointer; }
+.conn-head { min-height: 34px; color: var(--muted); font-size: var(--fs-ui); }
+.conn-cell-name { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.conn-logo { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 7px; background: var(--fill-2); box-shadow: inset 0 0 0 .5px var(--line-2); color: var(--text-2); font-size: 13px; font-weight: 600; }
+.conn-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.conn-row.off .conn-title, .conn-row.off .conn-logo { opacity: .55; }
+.conn-count { flex: none; color: var(--muted); font-size: var(--fs-sm); }
+.conn-badge { flex: none; padding: 0 7px; border: .5px solid var(--line-2); border-radius: var(--r-full); color: var(--text-2); font-size: 11px; line-height: 18px; }
+.conn-cell-type { color: var(--text-2); }
+.conn-cell-status { display: flex; align-items: center; gap: 10px; }
+.conn-ok { color: var(--text-2); }
+.conn-warn { color: var(--warn); }
+.conn-err { color: var(--danger); }
+.conn-reconnect { height: 28px; padding: 0 12px; border: 0; border-radius: var(--r-sm); background: var(--text); color: var(--bg); font-size: var(--fs-ui); font-weight: 500; }
+.conn-cell-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.conn-cell-actions .icon-btn { visibility: hidden; }
+.conn-row:hover .conn-cell-actions .icon-btn, .conn-cell-actions:focus-within .icon-btn { visibility: visible; }
+.conn-detail { padding: 10px 8px 14px 48px; border-bottom: .5px solid var(--line); }
+.conn-detail .conn-tools { margin-top: 6px; }
+.conn-empty { padding: 18px 8px; }
+.modal.page.conn-page > .error { margin-top: 10px; }
+
+.modal.conn-dialog { width: 560px; gap: 12px; }
+.conn-dialog-head { display: flex; align-items: center; justify-content: space-between; }
+.conn-dialog-head h2 { margin: 0; font-size: 16px; font-weight: 600; }
+.conn-dialog-sub, .conn-dialog-note { margin: 0; color: var(--text-2); font-size: var(--fs-ui); line-height: 1.5; }
+.conn-dialog-note { margin-top: 4px; }
+.conn-type-seg { align-self: flex-start; }
+.conn-adv summary { cursor: pointer; color: var(--text-2); font-size: var(--fs-ui); }
+.conn-adv[open] { display: flex; flex-direction: column; gap: 10px; }
+.conn-json { width: 100%; min-height: 200px; font: 12.5px/1.5 var(--font-mono); resize: vertical; }
+.conn-dialog .actions-row { margin-top: 4px; }
 
 /* Agents */
 .agents-idle { padding: 13px 14px; border-radius: 12px; background: var(--pref-card); color: var(--muted); }

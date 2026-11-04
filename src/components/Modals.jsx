@@ -302,37 +302,67 @@ const PRESETS = [
 
 const FULL_ACCESS_KEYS = ['toolsEnabled', 'shellEnabled', 'computerEnabled', 'webEnabled', 'notesAi', 'memoryEnabled', 'connectorsEnabled', 'skillsEnabled', 'delegateEnabled', 'browserTools'];
 
-/** Artemis's own tools, listed like a connector, with one switch that gives them full access. */
-function ArtemisBuiltin({ settings, onApply }) {
+/** Artemis's own tools, listed as the first row of the connectors table, with one switch that gives them full access. */
+function ArtemisBuiltin({ settings, onApply, open, onToggleOpen }) {
   const [tools, setTools] = useState([]);
-  const [show, setShow] = useState(false);
   useEffect(() => { window.api.artemisTools().then(setTools).catch(() => {}); }, []);
   const s = settings || {};
   const full = FULL_ACCESS_KEYS.every((k) => s[k] !== false && !!s[k]) && !!s.autoApproveEdits;
   const toggle = () => onApply?.(full ? { autoApproveEdits: false } : { ...Object.fromEntries(FULL_ACCESS_KEYS.map((k) => [k, true])), autoApproveEdits: true });
   return (
-    <div className="conn connected">
-      <Icon name="check" size={16} className="conn-state" />
-      <div className="conn-main">
-        <div className="conn-name">Artemis <span className="muted small">built-in</span></div>
-        <div className="muted small conn-sub">
-          {tools.length} tool{tools.length === 1 ? '' : 's'}{show ? '' : ': ' + tools.slice(0, 6).map((t) => t.name).join(', ') + (tools.length > 6 ? '…' : '')}
-          {tools.length > 0 && <> · <button type="button" className="text-link" onClick={() => setShow(!show)}>{show ? 'Hide tools' : 'Show all tools'}</button></>}
+    <>
+      <div className="conn-row" onClick={onToggleOpen}>
+        <div className="conn-cell-name">
+          <span className="conn-logo">A</span>
+          <span className="conn-title">Artemis</span>
+          <span className="conn-badge">Included</span>
         </div>
-        <div className="muted small conn-sub">Full access: every Artemis tool (files, terminal, computer control, web, notes, memory, connectors) is on and runs without asking. Deleting files still asks. Turn it off to go back to "ask every time".</div>
-        {show && (
+        <div className="conn-cell-type">Built-in</div>
+        <div className="conn-cell-status"><Icon name="check" size={16} className="conn-ok" /></div>
+        <div className="conn-cell-actions" onClick={(e) => e.stopPropagation()}>
+          <span className="muted small">Full access</span>
+          <Switch checked={full} onChange={toggle} label="Full access" />
+        </div>
+      </div>
+      {open && (
+        <div className="conn-detail">
+          <div className="muted small">Full access: every Artemis tool (files, terminal, computer control, web, notes, memory, connectors) is on and runs without asking. Deleting files still asks.</div>
           <div className="conn-tools">
             {tools.map((t) => (
               <div key={t.name} className="conn-tool"><code>{t.name}</code>{t.description ? <span className="muted small">{t.description}</span> : null}</div>
             ))}
           </div>
-        )}
+        </div>
+      )}
+    </>
+  );
+}
+
+/** A centred dialog over the connectors page (also when the page itself is a tab, where Modal would render as a page). */
+function ConnDialog({ title, onClose, children }) {
+  useEffect(() => {
+    const h = (e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } };
+    window.addEventListener('keydown', h, true);
+    return () => window.removeEventListener('keydown', h, true);
+  }, [onClose]);
+  return (
+    <div className="overlay dialog-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="modal conn-dialog" role="dialog" aria-modal="true">
+        <div className="conn-dialog-head">
+          <h2>{title}</h2>
+          <button className="icon-btn" aria-label="Close" onClick={onClose}><Icon name="x" size={16} /></button>
+        </div>
+        {children}
       </div>
-      <span className="muted small">Full access</span>
-      <Switch checked={full} onChange={toggle} label="Full access" />
     </div>
   );
 }
+
+const Chevron = () => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+);
+
+const EMPTY_FORM = { name: '', type: 'http', command: '', args: '', env: '', url: '', headers: '', authType: 'none', authToken: '' };
 
 export function ConnectorsModal({ onClose, onChanged, settings, onApply }) {
   const page = useContext(PageContext);
@@ -344,6 +374,9 @@ export function ConnectorsModal({ onClose, onChanged, settings, onApply }) {
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState({}); // connector id -> its tool list is expanded
+  const [q, setQ] = useState('');
+  const [menu, setMenu] = useState(false);
+  const menuRef = React.useRef(null);
 
   const refresh = async () => {
     const st = await window.api.mcpStatus();
@@ -356,6 +389,12 @@ export function ConnectorsModal({ onClose, onChanged, settings, onApply }) {
     const t = setInterval(refresh, 2000);
     return () => clearInterval(t);
   }, []);
+  useEffect(() => {
+    if (!menu) return undefined;
+    const h = (e) => { if (!menuRef.current?.contains(e.target)) setMenu(false); };
+    window.addEventListener('mousedown', h);
+    return () => window.removeEventListener('mousedown', h);
+  }, [menu]);
 
   const persist = async (next) => {
     setBusy(true); setList(next);
@@ -390,6 +429,7 @@ export function ConnectorsModal({ onClose, onChanged, settings, onApply }) {
     const authToken = authType === 'bearer' ? headers.Authorization.slice(7) : authType === 'apiKey' ? headers['X-API-Key'] : '';
     const visibleHeaders = { ...headers };
     delete visibleHeaders.Authorization; delete visibleHeaders['X-API-Key'];
+    setErr('');
     setForm({ id: c.id, name: c.name, type: c.type, command: c.command || '', args: (c.args || []).map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(' '), env: dumpLines(c.env, '='), url: c.url || '', headers: dumpLines(visibleHeaders, ': '), authType, authToken, authorizationUrl: c.authorizationUrl || '', tokenUrl: c.tokenUrl || '', clientId: c.clientId || '', clientSecret: c.clientSecret || '', scope: c.scope || '', resource: c.resource || '', dcr: !!c.dcr, oauthAccessToken: c.oauth?.accessToken || '', oauthRefreshToken: c.oauth?.refreshToken || '', oauthExpiresAt: c.oauth?.expiresAt || 0 });
   };
   const signIn = async (c) => {
@@ -410,6 +450,7 @@ export function ConnectorsModal({ onClose, onChanged, settings, onApply }) {
     setErr(''); setShowImport(false); setImportText('');
     await persist([...list, ...r.servers]);
   };
+  const remove = (c) => askConfirm({ title: 'Remove connector', message: `Remove "${c.name}"?`, confirmLabel: 'Remove', danger: true }).then((ok) => ok && persist(list.filter((x) => x.id !== c.id)));
   const f = form;
   const setF = (k) => (e) => setForm({ ...f, [k]: e.target.value });
   const setUrl = (e) => {
@@ -421,104 +462,147 @@ export function ConnectorsModal({ onClose, onChanged, settings, onApply }) {
       ...(google && !f.scope ? { scope: 'https://www.googleapis.com/auth/drive.readonly' } : {})
     });
   };
+  const startAdd = (preset) => { setMenu(false); setErr(''); setForm(preset ? { ...EMPTY_FORM, ...preset } : { ...EMPTY_FORM }); };
+  const startImport = () => { setMenu(false); setErr(''); setShowImport(true); };
+  const closeForm = () => { setForm(null); setErr(''); };
+  const closeImport = () => { setShowImport(false); setErr(''); };
+
+  const needle = q.trim().toLowerCase();
+  const shown = needle ? list.filter((c) => c.name.toLowerCase().includes(needle)) : list;
+  const showBuiltin = !needle || 'artemis'.includes(needle);
 
   return (
-    <Modal title="Connectors" sub="Connect MCP servers so the assistant can use their tools (databases, GitHub, Notion, browsers, files…). Each connector asks for approval once per task, unless its tool is read-only." onClose={onClose} wide>
-      <ArtemisBuiltin settings={settings} onApply={onApply} />
-      {list.length === 0 && !f && <div className="empty-card small-card"><Icon name="plug" size={24} /><span>No connectors yet.</span></div>}
-      {list.map((c) => {
-        const st = stOf(c.id);
-        const state = !c.enabled ? 'off' : st?.state || 'connecting';
-        const icon = state === 'connected' ? 'check' : state === 'error' ? 'warning' : state === 'off' ? 'x' : 'spinner';
-        return (
-          <div key={c.id} className={`conn ${state}`}>
-            <Icon name={icon} size={16} className="conn-state" />
-            <div className="conn-main">
-              <div className="conn-name">{c.name} <span className="muted small">{c.type === 'http' ? 'remote' : 'local'}</span></div>
-              <div className="muted small conn-sub">
-                {state === 'connected' ? `${st.tools.length} tool${st.tools.length === 1 ? '' : 's'}${open[c.id] ? '' : ': ' + st.tools.slice(0, 6).join(', ') + (st.tools.length > 6 ? '…' : '')}` : state === 'error' ? st.error : state === 'off' ? 'Disabled' : 'Connecting…'}
-                {state === 'connected' && st.tools.length > 0 && <> · <button type="button" className="text-link" onClick={() => setOpen({ ...open, [c.id]: !open[c.id] })}>{open[c.id] ? 'Hide tools' : 'Show all tools'}</button></>}
+    <Modal title="Connectors" sub="Connect MCP servers so the assistant can use their tools. Each connector asks for approval once per task, unless its tool is read-only." onClose={onClose} wide cls="conn-page">
+      <div className="conn-toolbar">
+        <div className="conn-search">
+          <Icon name="search" size={14} />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search" />
+        </div>
+        {busy && <span className="muted small">Connecting…</span>}
+        <span style={{ flex: 1 }} />
+        <div className="conn-add" ref={menuRef}>
+          <button className="conn-add-btn" onClick={() => setMenu(!menu)} aria-haspopup="menu" aria-expanded={menu}>
+            <Icon name="plus" size={14} /> Add <Chevron />
+          </button>
+          {menu && (
+            <div className="ctx-menu conn-add-menu" role="menu">
+              <button className="ctx-item" onClick={() => startAdd()}><Icon name="plug" size={14} /> Add custom connector</button>
+              <button className="ctx-item" onClick={startImport}><Icon name="upload" size={14} /> Import JSON</button>
+              <div className="conn-menu-sep" />
+              <div className="conn-menu-head">Quick add</div>
+              {PRESETS.map((p) => <button key={p.label} className="ctx-item" onClick={() => startAdd(p)}><Icon name="plus" size={14} /> {p.label}</button>)}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="conn-table">
+        <div className="conn-row conn-head">
+          <div className="conn-cell-name">Connector</div>
+          <div className="conn-cell-type">Type</div>
+          <div className="conn-cell-status">Status</div>
+          <div className="conn-cell-actions" />
+        </div>
+        {showBuiltin && <ArtemisBuiltin settings={settings} onApply={onApply} open={!!open.__artemis} onToggleOpen={() => setOpen({ ...open, __artemis: !open.__artemis })} />}
+        {shown.map((c) => {
+          const st = stOf(c.id);
+          const state = !c.enabled ? 'off' : st?.state || 'connecting';
+          return (
+            <React.Fragment key={c.id}>
+              <div className={`conn-row ${state}`} onClick={() => state === 'connected' && setOpen({ ...open, [c.id]: !open[c.id] })} title={state === 'connected' ? `${st.tools.length} tool${st.tools.length === 1 ? '' : 's'}` : undefined}>
+                <div className="conn-cell-name">
+                  <span className="conn-logo">{(c.name || '?').trim().charAt(0).toUpperCase()}</span>
+                  <span className="conn-title">{c.name}</span>
+                  {state === 'connected' && <span className="conn-count">{st.tools.length} tools</span>}
+                </div>
+                <div className="conn-cell-type">{c.type === 'http' ? 'Remote' : 'Local'}</div>
+                <div className="conn-cell-status" onClick={(e) => e.stopPropagation()}>
+                  {state === 'connected' && <Icon name="check" size={16} className="conn-ok" />}
+                  {state === 'connecting' && <Icon name="spinner" size={15} className="muted" />}
+                  {state === 'off' && <span className="muted small">Off</span>}
+                  {state === 'error' && (
+                    <>
+                      <span title={st?.error || ''}><Icon name="warning" size={16} className="conn-warn" /></span>
+                      {c.type === 'http' ? <button className="conn-reconnect" onClick={() => signIn(c)}>Reconnect</button> : <span className="conn-err small" title={st?.error || ''}>Error</span>}
+                    </>
+                  )}
+                </div>
+                <div className="conn-cell-actions" onClick={(e) => e.stopPropagation()}>
+                  <Switch checked={c.enabled !== false} label={'Enable ' + c.name} onChange={() => persist(list.map((x) => (x.id === c.id ? { ...x, enabled: !(x.enabled !== false) } : x)))} />
+                  <button className="icon-btn" title="Edit" aria-label="Edit" onClick={() => edit(c)}><Icon name="pencil" size={15} /></button>
+                  <button className="icon-btn" title="Remove" aria-label="Remove" onClick={() => remove(c)}><Icon name="trash" size={15} /></button>
+                </div>
               </div>
+              {state === 'error' && st?.error && c.type !== 'http' && <div className="conn-detail conn-err small">{st.error}</div>}
               {state === 'connected' && open[c.id] && (
-                <div className="conn-tools">
-                  {(st.toolInfo || st.tools.map((n) => ({ name: n }))).map((t) => (
-                    <div key={t.name} className="conn-tool">
-                      <code>{t.name}</code>{t.readOnly ? <span className="conn-ro">read-only</span> : null}
-                      {t.description ? <span className="muted small">{t.description}</span> : null}
-                    </div>
-                  ))}
+                <div className="conn-detail">
+                  <div className="conn-tools">
+                    {(st.toolInfo || st.tools.map((n) => ({ name: n }))).map((t) => (
+                      <div key={t.name} className="conn-tool">
+                        <code>{t.name}</code>{t.readOnly ? <span className="conn-ro">read-only</span> : null}
+                        {t.description ? <span className="muted small">{t.description}</span> : null}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
-            </div>
-            {state === 'error' && c.type === 'http' && <button type="button" onClick={() => signIn(c)}>Sign in</button>}
-            <Switch checked={c.enabled !== false} label={'Enable ' + c.name} onChange={() => persist(list.map((x) => (x.id === c.id ? { ...x, enabled: !(x.enabled !== false) } : x)))} />
-            <button className="icon-btn" title="Edit" aria-label="Edit" onClick={() => edit(c)}><Icon name="pencil" size={15} /></button>
-            <button className="icon-btn" title="Remove" aria-label="Remove" onClick={() => askConfirm({ title: 'Remove connector', message: `Remove "${c.name}"?`, confirmLabel: 'Remove', danger: true }).then((ok) => ok && persist(list.filter((x) => x.id !== c.id)))}><Icon name="trash" size={15} /></button>
-          </div>
-        );
-      })}
+            </React.Fragment>
+          );
+        })}
+        {list.length === 0 && <div className="conn-empty muted small">No connectors yet. Use Add to connect an MCP server or import a JSON config.</div>}
+        {list.length > 0 && shown.length === 0 && !showBuiltin && <div className="conn-empty muted small">No connectors match "{q}".</div>}
+      </div>
+      {err && !f && !showImport && <div className="error">{err}</div>}
 
       {f && (
-        <div className="conn-form">
-          <div className="row">
-            <Field label="Name"><input autoFocus value={f.name} onChange={setF('name')} placeholder="e.g. GitHub" /></Field>
-            <Field label="Type">
-              <Select value={f.type} onChange={setF('type')}><option value="stdio">Local (command)</option><option value="http">Remote (URL)</option></Select>
-            </Field>
+        <ConnDialog title={f.id ? `Edit ${f.name || 'connector'}` : 'Add custom connector'} onClose={closeForm}>
+          <p className="conn-dialog-sub">Connect Artemis to your data and tools through an MCP server, either a remote URL or a local command.</p>
+          <div className="seg conn-type-seg">
+            <button className={f.type === 'http' ? 'on' : ''} onClick={() => setForm({ ...f, type: 'http' })}>Remote (URL)</button>
+            <button className={f.type === 'stdio' ? 'on' : ''} onClick={() => setForm({ ...f, type: 'stdio' })}>Local (command)</button>
           </div>
+          <Field label="Name" hint="Shown in the connectors list."><input autoFocus value={f.name} onChange={setF('name')} placeholder="e.g. GitHub" /></Field>
           {f.type === 'stdio' ? (
             <>
-              <div className="row">
-                <Field label="Command"><input value={f.command} onChange={setF('command')} placeholder="npx" /></Field>
-                <Field label="Arguments"><input value={f.args} onChange={setF('args')} placeholder="-y @modelcontextprotocol/server-github" /></Field>
-              </div>
-              <Field label="Environment variables" hint="One per line: KEY=value (e.g. GITHUB_PERSONAL_ACCESS_TOKEN=…). Stored on this computer."><textarea rows={3} value={f.env} onChange={setF('env')} /></Field>
+              <Field label="Command"><input value={f.command} onChange={setF('command')} placeholder="npx" /></Field>
+              <Field label="Arguments"><input value={f.args} onChange={setF('args')} placeholder="-y @modelcontextprotocol/server-github" /></Field>
+              <Field label="Environment variables" hint="One per line: KEY=value. Stored encrypted on this computer."><textarea rows={3} value={f.env} onChange={setF('env')} /></Field>
             </>
           ) : (
             <>
-              <Field label="Server URL" hint="The address where the server accepts MCP requests, not the site's admin page."><input value={f.url} onChange={setUrl} placeholder="https://example.com/mcp" /></Field>
-              <div className="row">
-                <Field label="Authentication">
-                  <Select value={f.authType || 'none'} onChange={setF('authType')}>
-                    <option value="none">None</option><option value="bearer">Bearer token</option><option value="apiKey">API key (X-API-Key)</option>
-                  </Select>
-                </Field>
-                {(f.authType && f.authType !== 'none') && <Field label={f.authType === 'bearer' ? 'Bearer token' : 'API key'} hint="Stored locally with the connector settings."><input type="password" autoComplete="off" value={f.authToken || ''} onChange={setF('authToken')} placeholder="Paste token…" /></Field>}
-              </div>
-              <Field label="Additional headers" hint="One per line: Header: value."><textarea rows={3} value={f.headers} onChange={setF('headers')} /></Field>
-              <div className="row"><button type="button" onClick={signInForm}>Sign in with browser</button>{f.oauthAccessToken && <small className="hint">OAuth connected</small>}</div>
-              <details className="group"><summary>Advanced OAuth settings</summary>
+              <Field label="MCP server URL" hint="The HTTPS address where the server accepts MCP requests, for example https://mcp.example.com/mcp."><input value={f.url} onChange={setUrl} placeholder="https://mcp.example.com/mcp" /></Field>
+              <details className="group conn-adv"><summary>Authentication and advanced settings</summary>
+                <div className="row">
+                  <Field label="Authentication">
+                    <Select value={f.authType || 'none'} onChange={setF('authType')}>
+                      <option value="none">None</option><option value="bearer">Bearer token</option><option value="apiKey">API key (X-API-Key)</option>
+                    </Select>
+                  </Field>
+                  {(f.authType && f.authType !== 'none') && <Field label={f.authType === 'bearer' ? 'Bearer token' : 'API key'}><input type="password" autoComplete="off" value={f.authToken || ''} onChange={setF('authToken')} placeholder="Paste token…" /></Field>}
+                </div>
+                <Field label="Additional headers" hint="One per line: Header: value."><textarea rows={2} value={f.headers} onChange={setF('headers')} /></Field>
+                <div className="row"><button type="button" onClick={signInForm}>Sign in with browser</button>{f.oauthAccessToken && <small className="hint">OAuth connected</small>}</div>
                 <div className="row"><Field label="Authorization URL"><input value={f.authorizationUrl || ''} onChange={setF('authorizationUrl')} placeholder="https://provider/authorize" /></Field><Field label="Token URL"><input value={f.tokenUrl || ''} onChange={setF('tokenUrl')} placeholder="https://provider/token" /></Field></div>
-                <div className="row"><Field label="Client ID"><input value={f.clientId || ''} onChange={(e) => setForm({ ...f, clientId: e.target.value, dcr: false })} /></Field><Field label="Client secret (optional)" hint="Google OAuth client secret is required for this flow."><input type="password" autoComplete="off" value={f.clientSecret || ''} onChange={setF('clientSecret')} /></Field></div>
+                <div className="row"><Field label="Client ID"><input value={f.clientId || ''} onChange={(e) => setForm({ ...f, clientId: e.target.value, dcr: false })} /></Field><Field label="Client secret (optional)"><input type="password" autoComplete="off" value={f.clientSecret || ''} onChange={setF('clientSecret')} /></Field></div>
                 <Field label="Scope"><input value={f.scope || ''} onChange={setF('scope')} placeholder="https://www.googleapis.com/auth/drive.readonly" /></Field>
               </details>
             </>
           )}
-          <div className="actions-row"><button onClick={() => { setForm(null); setErr(''); }}>Cancel</button><button className="primary" onClick={saveForm}>{f.id ? 'Save' : 'Add connector'}</button></div>
-        </div>
+          <p className="conn-dialog-note">Only use connectors from developers you trust. Artemis does not control which tools a server makes available and cannot verify that they work as intended or won't change.</p>
+          {err && <div className="error">{err}</div>}
+          <div className="actions-row"><span style={{ flex: 1 }} /><button onClick={closeForm}>Cancel</button><button className="primary" disabled={!f.name.trim() || (f.type === 'http' ? !f.url.trim() : !f.command.trim())} onClick={saveForm}>{f.id ? 'Save' : 'Continue'}</button></div>
+        </ConnDialog>
       )}
 
       {showImport && (
-        <div className="conn-form">
-          <Field label="Paste JSON" hint='Claude Desktop format: {"mcpServers": {"name": {"command": "npx", "args": [...]}}}'>
-            <textarea rows={6} value={importText} onChange={(e) => setImportText(e.target.value)} />
-          </Field>
-          <div className="actions-row"><button onClick={() => { setShowImport(false); setErr(''); }}>Cancel</button><button className="primary" disabled={!importText.trim()} onClick={doImport}>Import</button></div>
-        </div>
+        <ConnDialog title="Import JSON" onClose={closeImport}>
+          <p className="conn-dialog-sub">Paste an MCP config from Claude Desktop, Claude Code, Cursor or a server's README. Every server in it is added.</p>
+          <textarea className="conn-json" rows={10} autoFocus spellCheck={false} value={importText} onChange={(e) => setImportText(e.target.value)} placeholder={'{\n  "mcpServers": {\n    "github": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"] },\n    "notion": { "url": "https://mcp.notion.com/mcp" }\n  }\n}'} />
+          {err && <div className="error">{err}</div>}
+          <div className="actions-row"><span style={{ flex: 1 }} /><button onClick={closeImport}>Cancel</button><button className="primary" disabled={!importText.trim()} onClick={doImport}>Import</button></div>
+        </ConnDialog>
       )}
 
-      {err && <div className="error">{err}</div>}
-      {!f && !showImport && (
-        <>
-          <div className="preset-row">
-            <button className="primary" onClick={() => setForm({ name: '', type: 'stdio', command: '', args: '', env: '', url: '', headers: '', authType: 'none', authToken: '' })}><Icon name="plus" size={14} /> Add connector</button>
-            <button onClick={() => setShowImport(true)}><Icon name="upload" size={14} /> Import JSON</button>
-            <span className="muted small">Quick add:</span>
-            {PRESETS.map((p) => <button key={p.label} onClick={() => setForm({ ...p, env: '', url: '', headers: '', authType: 'none', authToken: '' })}>{p.label}</button>)}
-          </div>
-          {busy && <small className="hint">Connecting…</small>}
-        </>
-      )}
       {!page && <div className="actions-row"><span style={{ flex: 1 }} /><button className="primary" onClick={onClose}>Done</button></div>}
     </Modal>
   );
