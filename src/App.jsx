@@ -115,12 +115,12 @@ export default function App() {
   useEffect(() => { try { localStorage.setItem('artemis-chatbar-open', showProgress ? '1' : '0'); } catch {} }, [showProgress]);
   const [wide, setWide] = useState(false);
   const [spW, setSpW] = useState(() => loadWidth('zero.spW', 460));
-  const [sbW, setSbW] = useState(() => loadWidth('zero.sbW', 280));
+  const [sbW, setSbW] = useState(() => Math.max(240, loadWidth('zero.sbW', 288)));
   const dragPanel = (e) => { setWide(false); startDrag(e, (x) => setSpW(clamp(window.innerWidth - x, 320, Math.round(window.innerWidth * 0.85))), () => setSpW((w) => { saveWidth('zero.spW', w); return w; })); };
   // Split view: the second pane's share of the split area, in percent
   const [splitPct, setSplitPct] = useState(() => loadWidth('zero.splitPct', 50));
   const dragSplit = (e) => { const r = e.currentTarget.parentElement.getBoundingClientRect(); startDrag(e, (x) => setSplitPct(clamp(((r.right - x) / r.width) * 100, 20, 80)), () => setSplitPct((p) => { saveWidth('zero.splitPct', p); return p; })); };
-  const dragSidebar = (e) => startDrag(e, (x) => setSbW(clamp(x, 200, 520)), () => setSbW((w) => { saveWidth('zero.sbW', w); return w; }));
+  const dragSidebar = (e) => startDrag(e, (x) => setSbW(clamp(x, 240, 520)), () => setSbW((w) => { saveWidth('zero.sbW', w); return w; }));
   const [browser, setBrowser] = useState({ open: false, url: 'https://www.google.com' });
   const [browserAgent, setBrowserAgent] = useState(null); // { requestId, tool, who?, team? } while a chat run (or a team member) drives the browser
   const [term, setTerm] = useState({ open: false, tabs: [], active: null, height: 280 });
@@ -1043,6 +1043,13 @@ export default function App() {
       case 'agent:chunk': patch((m) => patchAgent(m, ev.parent, ev.idx, (a) => ({ ...a, text: ((a.text || '') + ev.text).slice(-600) }))); break;
       case 'agent:usage': patch((m) => patchAgent(m, ev.parent, ev.idx, (a) => ({ ...a, prompt: ev.prompt, completion: ev.completion }))); break;
       case 'agent:done': patch((m) => patchAgent(m, ev.parent, ev.idx, (a) => ({ ...a, status: ev.ok ? 'done' : 'error', error: ev.error, prompt: ev.prompt ?? a.prompt, completion: ev.completion ?? a.completion, tools: a.tools.map((x) => (x.status === 'running' ? { ...x, status: ev.ok ? 'done' : 'cancelled' } : x)) }))); break;
+      case 'tool:question': patch((m) => {
+        const set = (t) => ({ ...t, status: 'question', questions: ev.questions });
+        if (m.steps.some((x) => x.toolCalls.some((t) => t.id === ev.id))) return patchTool(m, ev.id, set);
+        return lastStep(m, (x) => ({ ...x, toolCalls: [...x.toolCalls, set({ id: ev.id, name: 'ask_user', args: {}, startedAt: now })] })); // Claude Code's AskUserQuestion has its own id
+      }); break;
+      case 'tool:answered': patch((m) => patchTool(m, ev.id, (t) => (t.status !== 'question' ? t : { ...t, status: ev.answers ? 'done' : 'cancelled', endedAt: Date.now(),
+        result: ev.answers ? Object.entries(ev.answers).map(([q, a]) => `${q} -> ${a}`).join('\n') : 'Not answered.' }))); break;
       case 'tool:approval': patch((m) => patchTool(m, ev.id, (t) => ({ ...t, status: 'awaiting', session: ev.session, category: ev.category, agent: ev.agent, summary: ev.summary }))); actionsRef.current.askVoiceApproval?.(ev, st.chatId); break;
       case 'tool:result': if (voiceApproval.current && voiceApproval.current.id === ev.id) voiceApproval.current = null; patch((m) => patchTool(m, ev.id, (t) => ({ ...t, status: ev.denied ? 'denied' : ev.ok ? 'done' : 'error', result: ev.text, image: ev.image, endedAt: now }))); break;
       case 'artifact':
@@ -1065,7 +1072,7 @@ export default function App() {
         patch((m) => {
           let steps = m.steps.map((s) => ({
             ...s, toolCalls: s.toolCalls.map((t) => {
-              const t2 = t.status === 'running' || t.status === 'awaiting' ? { ...t, status: 'cancelled' } : t;
+              const t2 = t.status === 'running' || t.status === 'awaiting' || t.status === 'question' ? { ...t, status: 'cancelled' } : t;
               return t2.agents ? { ...t2, agents: t2.agents.map((a) => (a && a.status === 'running' ? { ...a, status: 'cancelled', tools: a.tools.map((x) => (x.status === 'running' || x.status === 'awaiting' ? { ...x, status: 'cancelled' } : x)) } : a)) } : t2;
             })
           }));
@@ -1638,7 +1645,7 @@ export default function App() {
       if (!streamsRef.current[rid]) return;
       delete streamsRef.current[rid];
       setRunningIds((ids) => ids.filter((id) => id !== st.chatId));
-      setChats((cs) => cs.map((x) => (x.id !== st.chatId ? x : { ...x, messages: x.messages.map((m) => (m.id !== st.msgId ? m : { ...m, steps: (m.steps || []).map((s) => ({ ...s, toolCalls: (s.toolCalls || []).map((t) => (t.status === 'running' || t.status === 'awaiting' ? { ...t, status: 'cancelled' } : t)) })) })) })));
+      setChats((cs) => cs.map((x) => (x.id !== st.chatId ? x : { ...x, messages: x.messages.map((m) => (m.id !== st.msgId ? m : { ...m, steps: (m.steps || []).map((s) => ({ ...s, toolCalls: (s.toolCalls || []).map((t) => (t.status === 'running' || t.status === 'awaiting' || t.status === 'question' ? { ...t, status: 'cancelled' } : t)) })) })) })));
     }, 2500);
   };
 

@@ -91,7 +91,7 @@ const tools = require('../electron/tools');
   r = await tools.run('mcp__echoserver__echo', { text: 'typo' }, ctx); assert(r.ok && r.text === 'echo: typo', r.text);
   assert.strictEqual(mgr.info('mcp__clokc__time').server, 'clock');
   assert.strictEqual(mgr.info('mcp__clock__nothing'), null);
-  assert(tools.definitions({ hasFolder: false }).every((d) => ['create_artifact', 'compact_chat', 'lock_app'].includes(d.function.name)));
+  assert(tools.definitions({ hasFolder: false }).every((d) => ['create_artifact', 'compact_chat', 'ask_user', 'lock_app'].includes(d.function.name)));
 
   // tool names are made valid and unique, and calls are routed by the table
   assert.strictEqual(safeToolName('mcp__a__b.c d'), 'mcp__a__b_c_d');
