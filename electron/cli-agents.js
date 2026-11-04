@@ -116,14 +116,16 @@ function codexReader(onStep, onUsage) {
 }
 
 /** The command line for one turn. The prompt goes on stdin (Claude Code) or as the last argument (Codex). */
-function argsFor(kind, { mcp, askWrites, system, folder, model, server = 'team', permissionMode }) {
+function argsFor(kind, { mcp, askWrites, system, folder, model, server = 'team', permissionMode, session }) {
   if (!mcp) { // a plain text answer for a background job (title, summary, memory): no tools, no MCP server
     if (kind === 'claude') return ['-p', '--output-format', 'stream-json', '--verbose', '--no-session-persistence', '--strict-mcp-config', '--tools', '', ...(system ? ['--system-prompt', system] : []), ...(model ? ['--model', model] : [])];
     return ['exec', '--json', '--ephemeral', '--skip-git-repo-check', '--sandbox', 'read-only', '-C', folder, ...(model ? ['-m', model] : [])];
   }
   if (kind === 'claude') {
     return [
-      '-p', '--output-format', 'stream-json', '--verbose', '--no-session-persistence',
+      '-p', '--output-format', 'stream-json', '--verbose',
+      // a chat keeps one Claude Code session (as Claude Desktop does): later turns resume it and hit the prompt cache
+      ...(session && session.id ? (session.resume ? ['--resume', session.id] : ['--session-id', session.id]) : ['--no-session-persistence']),
       '--strict-mcp-config', '--mcp-config', JSON.stringify({ mcpServers: { [server]: { type: 'http', url: mcp.url, headers: { Authorization: `Bearer ${mcp.token}` } } } }),
       '--allowedTools', `mcp__${server}`, // our tools never ask here (Artemis asks itself when a tool needs it); Claude Code's own tools follow the permission mode
       '--permission-prompt-tool', `mcp__${server}__${server}_permission`,
@@ -297,9 +299,9 @@ function transcript(messages, maxChars = 60000) {
  * Claude Code / Codex as the model of a normal chat, on the user's own plan login. Artemis's tools (browser, Make,
  * connectors, memory, scheduling …) reach the CLI over a local MCP server named "artemis", with a token for this turn.
  * Claude Code's permission prompts come back through artemis_permission.
- * deps: { cli (createCliAgents), createMcpServer, isLocked?, log? }
+ * deps: { cli (createCliAgents), createMcpServer, isLocked?, log?, store? (createCliSessions) }
  */
-function createCliChat({ cli, createMcpServer, isLocked = () => false, log = () => {} }) {
+function createCliChat({ cli, createMcpServer, isLocked = () => false, log = () => {}, store = null }) {
   const sessions = new Map();
   let server = null;
   async function url() {
@@ -325,15 +327,69 @@ function createCliChat({ cli, createMcpServer, isLocked = () => false, log = () 
       }
     });
     sessions.set(token, tools);
+    const go = async (prompt, session) => cli.run({
+      kind: o.kind, model: o.model || '', prompt: o.note ? `${prompt}\n\n(${o.note})` : prompt, system: o.system, folder: o.folder, signal: o.signal, server: 'artemis', session,
+      askWrites: o.perm === 'ask', permissionMode: o.kind === 'claude' ? (o.perm === 'ask' ? 'default' : 'acceptEdits') : undefined,
+      mcp: { url: await url(), token }, onStep: o.onStep, onUsage: o.onUsage
+    });
     try {
-      return await cli.run({
-        kind: o.kind, model: o.model || '', prompt: o.prompt, system: o.system, folder: o.folder, signal: o.signal, server: 'artemis',
-        askWrites: o.perm === 'ask', permissionMode: o.kind === 'claude' ? (o.perm === 'ask' ? 'default' : 'acceptEdits') : undefined,
-        mcp: { url: await url(), token }, onStep: o.onStep, onUsage: o.onUsage
-      });
+      const plan = o.chat && o.kind === 'claude' && store ? store.plan(o.chat.id, o.chat.messages, o.folder) : null;
+      if (!plan) return await go(o.prompt || transcript(o.chat && o.chat.messages), null);
+      try {
+        const out = await go(plan.prompt, plan.session);
+        store.done(o.chat.id, plan);
+        return out;
+      } catch (e) {
+        store.drop(o.chat.id); // a half-finished turn would leave the session and the chat out of step
+        if (plan.session.resume && e.name !== 'AbortError' && /no conversation found|session/i.test(String(e.message))) {
+          log('info', `claude: could not resume the session of chat ${o.chat.id}, starting a new one (${e.message})`);
+          const fresh = store.plan(o.chat.id, o.chat.messages, o.folder);
+          const out = await go(fresh.prompt, fresh.session);
+          store.done(o.chat.id, fresh);
+          return out;
+        }
+        throw e;
+      }
     } finally { sessions.delete(token); }
   }
   return { turn, available: () => cli.available(), stop: () => (server ? server.stop() : Promise.resolve()) };
 }
 
-module.exports = { createCliAgents, createCliTeamTurn, createCliChat, transcript, kindOf, modelOf, argsFor, claudeReader, codexReader, claudeAsk, claudeStep, unwrapShell, cliError, KEY_VARS, KINDS, PREFIX };
+/**
+ * Which Claude Code session each chat runs in, kept in a small JSON file. A chat resumes its session only while the
+ * chat and the session agree: one answer and one new message of yours since the last turn, the same earlier message,
+ * the same folder. Anything else (an edited or regenerated message, a new folder, a failed turn) starts a new session with
+ * the chat so far as a transcript.
+ */
+function createCliSessions({ file, max = 400 }) {
+  let map = {};
+  try { const j = JSON.parse(fs.readFileSync(file, 'utf8')); if (j && typeof j === 'object') map = j; } catch {}
+  const save = () => {
+    const ids = Object.keys(map);
+    if (ids.length > max) for (const id of ids.sort((a, b) => (map[a].t || 0) - (map[b].t || 0)).slice(0, ids.length - max)) delete map[id];
+    try { fs.writeFileSync(file, JSON.stringify(map)); } catch {}
+  };
+  const textOf = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.map((p) => (p && p.type === 'text' ? p.text : '')).join('\n') : '');
+  const hash = (m) => crypto.createHash('sha1').update(textOf(m && m.content).trim()).digest('hex').slice(0, 16);
+  const chatMsgs = (messages) => (messages || []).filter((m) => m && (m.role === 'user' || m.role === 'assistant'));
+  return {
+    plan(id, messages, folder) {
+      if (!id) return null;
+      const msgs = chatMsgs(messages);
+      const last = msgs[msgs.length - 1];
+      if (!last || last.role !== 'user') return null;
+      // an answer is saved as one message per step, so only the user's messages are counted
+      const users = msgs.filter((m) => m.role === 'user');
+      const r = map[id];
+      const answered = msgs.length > 1 && msgs[msgs.length - 2].role === 'assistant';
+      if (r && r.folder === folder && answered && users.length === r.u + 1 && hash(users[users.length - 2]) === r.user) {
+        return { prompt: textOf(last.content).trim(), session: { id: r.sid, resume: true }, u: users.length, user: hash(last), folder };
+      }
+      return { prompt: transcript(msgs), session: { id: crypto.randomUUID(), resume: false }, u: users.length, user: hash(last), folder };
+    },
+    done(id, p) { map[id] = { sid: p.session.id, u: p.u, user: p.user, folder: p.folder, t: Date.now() }; save(); },
+    drop(id) { if (map[id]) { delete map[id]; save(); } }
+  };
+}
+
+module.exports = { createCliAgents, createCliTeamTurn, createCliChat, createCliSessions, transcript, kindOf, modelOf, argsFor, claudeReader, codexReader, claudeAsk, claudeStep, unwrapShell, cliError, KEY_VARS, KINDS, PREFIX };

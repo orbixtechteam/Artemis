@@ -162,7 +162,7 @@ const titlesLib = require('./titles');
 const { createSkills } = require('./skills');
 const { createAgents, toolNames } = require('./subagents');
 const { createTeams } = require('./teams');
-const { createCliAgents, createCliTeamTurn, createCliChat, kindOf: cliKindOf, modelOf: cliModelOf, transcript: cliTranscript, KINDS: CLI_KINDS } = require('./cli-agents');
+const { createCliAgents, createCliTeamTurn, createCliChat, createCliSessions, kindOf: cliKindOf, modelOf: cliModelOf, transcript: cliTranscript, KINDS: CLI_KINDS } = require('./cli-agents');
 const { createMake, ZONES: MAKE_ZONES, cleanZone: cleanMakeZone, validZone: validMakeZone } = require('./make');
 const chatSearch = require('./chatsearch');
 const { createScheduler } = require('./scheduler');
@@ -496,6 +496,8 @@ function createWindow() {
   win.on('closed', () => { browser.destroy(); win = null; });
   // push-to-talk is a global shortcut only while the window is not in front (hold-to-talk in the window needs the key events)
   win.on('focus', () => syncPttShortcut()); win.on('blur', () => syncPttShortcut());
+  // Opening Artemis means you have seen what it told you (as Claude Desktop does): the Dock number clears, the list stays.
+  win.on('focus', () => { try { if (notifications().state().unread) notifications().readAll(); } catch {} });
   for (const ev of ['focus', 'blur', 'show', 'hide', 'minimize', 'restore']) win.on(ev, syncSentinelSoon);
 
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -1050,7 +1052,7 @@ const teams = createTeams({
 // where each turn's token sees only that turn's tools (core/teamrun.js hands those turns to cliTeam).
 const cliAgents = createCliAgents({ spawn: require('child_process').spawn, execFile: require('child_process').execFile, log: (m) => logger.warn('teams', m) });
 // the same CLIs as the model of a normal chat ("Claude Code · your login" / "Codex · your login" in the model picker)
-const cliChat = createCliChat({ cli: cliAgents, createMcpServer: require('./mcp-server').createMcpServer, isLocked: () => lock.isLocked(), log: (lv, m) => (logger[lv] || logger.info)('chat', m) });
+const cliChat = createCliChat({ cli: cliAgents, createMcpServer: require('./mcp-server').createMcpServer, isLocked: () => lock.isLocked(), log: (lv, m) => (logger[lv] || logger.info)('chat', m), store: createCliSessions({ file: path.join(app.getPath('userData'), 'cli-sessions.json') }) });
 const cliTeam = createCliTeamTurn({ cli: cliAgents, createMcpServer: require('./mcp-server').createMcpServer, isLocked: () => lock.isLocked(), log: (lv, m) => (logger[lv] || logger.info)('teams', m) });
 
 /** One turn of one team member (or the lead): core/teamrun.js with what the app has (Make, the browser, connectors, the

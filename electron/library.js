@@ -75,22 +75,46 @@ function createLibrary({ getRoot, files }) {
     return describe(dest);
   }
 
-  function read(rel, { max = 200000 } = {}) {
+  // Text extracted from PDF / Word / Excel / PowerPoint, kept per file version so paging through a long one parses it once.
+  const docCache = new Map();
+  const DOC_KINDS = new Set(['pdf', 'docx', 'sheet', 'pptx']);
+  async function extract(abs, info) {
+    if (!DOC_KINDS.has(info.kind)) throw new Error(`"${info.name}" has no readable text. It can be opened in the viewer or attached to a chat.`);
+    const key = `${abs}|${info.size}|${info.mtime}`;
+    if (docCache.has(key)) return docCache.get(key);
+    const r = await files.readContent(abs);
+    const doc = { text: String(r.text || '').replace(/\r\n?/g, '\n'), pages: r.pages, sheets: r.sheets };
+    if (!doc.text.trim()) throw new Error(`"${info.name}" contains no extractable text${info.kind === 'pdf' ? ' (probably a scanned PDF: only images)' : ''}.`);
+    if (docCache.size >= 8) docCache.delete(docCache.keys().next().value);
+    docCache.set(key, doc);
+    return doc;
+  }
+  function openFile(rel) {
     const abs = safe(rel);
     if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) throw new Error('File not found: ' + rel);
-    const info = describe(abs);
-    if (!info.text) throw new Error(`"${info.name}" is not a plain text file. It can be opened in the viewer or attached to a chat.`);
+    return { abs, info: describe(abs) };
+  }
+
+  /** The whole text of a file. Documents (PDF, Word, Excel, PowerPoint) come back as extracted text (extracted: true), cut at whole lines. */
+  async function read(rel, { max = 200000 } = {}) {
+    const { abs, info } = openFile(rel);
+    if (!info.text) {
+      const doc = await extract(abs, info);
+      const lines = doc.text.split('\n');
+      let n = 0, chars = 0;
+      while (n < lines.length && chars + lines[n].length + 1 <= max) chars += lines[n++].length + 1;
+      if (!n) n = 1;
+      const text = n < lines.length ? lines.slice(0, n).join('\n') : doc.text;
+      return { ...info, extracted: true, pages: doc.pages, sheets: doc.sheets, text: text.slice(0, max), truncated: n < lines.length, length: doc.text.length, lines: lines.length, shownLines: n };
+    }
     const text = fs.readFileSync(abs, 'utf8');
     return { ...info, text: text.length > max ? text.slice(0, max) : text, truncated: text.length > max, length: text.length };
   }
 
-  /** A slice of a text file without loading it into the chat: lines from..to, or only the lines that contain `query` (case-insensitive, or a regex). */
-  function readLines(rel, { from = 1, to = 0, query = '', regex = false, limit = 100, maxChars = 20000 } = {}) {
-    const abs = safe(rel);
-    if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) throw new Error('File not found: ' + rel);
-    const info = describe(abs);
-    if (!info.text) throw new Error(`"${info.name}" is not a plain text file.`);
-    const lines = fs.readFileSync(abs, 'utf8').split(/\r?\n/);
+  /** A slice of a file without loading it into the chat: lines from..to, or only the lines that contain `query` (case-insensitive, or a regex). Documents are read as their extracted text. */
+  async function readLines(rel, { from = 1, to = 0, query = '', regex = false, limit = 100, maxChars = 20000 } = {}) {
+    const { abs, info } = openFile(rel);
+    const lines = (info.text ? fs.readFileSync(abs, 'utf8') : (await extract(abs, info)).text).split(/\r?\n/);
     let re = null;
     if (query) { try { re = new RegExp(regex ? String(query) : String(query).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'); } catch { throw new Error('Invalid search pattern.'); } }
     const out = []; let chars = 0, hits = 0, more = false;
@@ -101,7 +125,7 @@ function createLibrary({ getRoot, files }) {
       if (++hits > limit || chars + line.length > maxChars) { more = true; break; }
       chars += line.length + 1; out.push(line);
     }
-    return { ...info, total: lines.length, hits: out.length, more, text: out.join('\n') };
+    return { ...info, extracted: !info.text, total: lines.length, hits: out.length, more, text: out.join('\n') };
   }
 
   function write(rel, text) {

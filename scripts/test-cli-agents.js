@@ -6,7 +6,7 @@ const os = require('os');
 const path = require('path');
 const { EventEmitter } = require('events');
 const { PassThrough } = require('stream');
-const { createCliAgents, createCliTeamTurn, createCliChat, transcript, kindOf, modelOf, argsFor, claudeReader, codexReader, claudeAsk, unwrapShell, cliError } = require('../electron/cli-agents');
+const { createCliAgents, createCliTeamTurn, createCliChat, createCliSessions, transcript, kindOf, modelOf, argsFor, claudeReader, codexReader, claudeAsk, unwrapShell, cliError } = require('../electron/cli-agents');
 const { createMcpServer } = require('../electron/mcp-server');
 
 const CLAUDE = [
@@ -299,6 +299,41 @@ function fakeSpawn(lines, { code = 0, hang = false, stderr = '' } = {}) {
     assert.strictEqual(seen.server, 'artemis'); assert.strictEqual(seen.permissionMode, 'default'); assert.strictEqual(seen.askWrites, true);
     await chat.stop();
     console.log('cli-agents: chat turn ok');
+  }
+  {
+    // a chat keeps one Claude Code session: the next message resumes it, an edit or a regenerate starts a new one
+    const a = argsFor('claude', { mcp: { url: 'u', token: 't' }, server: 'artemis', session: { id: 'S1', resume: true } });
+    assert.ok(a.includes('--resume') && a.includes('S1') && !a.includes('--no-session-persistence'));
+    const b = argsFor('claude', { mcp: { url: 'u', token: 't' }, server: 'artemis', session: { id: 'S2', resume: false } });
+    assert.ok(b.includes('--session-id') && b.includes('S2') && !b.includes('--resume'));
+    assert.ok(argsFor('claude', { mcp: { url: 'u', token: 't' } }).includes('--no-session-persistence'));
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cli-sess-')), 's.json');
+    const runs = [];
+    let fail = null;
+    const fakeCli = { available: async () => ({ claude: true }), run: async (o) => { runs.push({ prompt: o.prompt, session: o.session }); if (fail) { const e = new Error(fail); fail = null; throw e; } return 'ok'; } };
+    const fakeServer = () => ({ running: () => true, start: async () => {}, port: () => 1, stop: async () => {} });
+    const chat = createCliChat({ cli: fakeCli, createMcpServer: fakeServer, store: createCliSessions({ file }) });
+    const U = (t) => ({ role: 'user', content: t }), A = (t) => ({ role: 'assistant', content: t });
+    const say = (messages) => chat.turn({ kind: 'claude', system: 's', folder: os.tmpdir(), perm: 'auto', chat: { id: 'c1', messages }, note: 'Current local time: 10:00' });
+    await say([U('hi')]);
+    assert.strictEqual(runs[0].session.resume, false); assert.strictEqual(runs[0].prompt, 'hi\n\n(Current local time: 10:00)');
+    await say([U('hi'), A('step one'), A('step two'), U('next')]);
+    assert.strictEqual(runs[1].session.resume, true); assert.strictEqual(runs[1].session.id, runs[0].session.id);
+    assert.ok(runs[1].prompt.startsWith('next') && !runs[1].prompt.includes('hi'), 'only the new message is sent');
+    await say([U('hi'), A('x'), U('next'), A('y'), U('third')]);
+    assert.strictEqual(runs[2].session.resume, true);
+    await say([U('hi'), A('x'), U('next'), A('y'), U('third, edited')]); // regenerate/edit: same number of messages
+    assert.strictEqual(runs[3].session.resume, false); assert.notStrictEqual(runs[3].session.id, runs[0].session.id);
+    assert.ok(runs[3].prompt.includes('The conversation so far'));
+    fail = 'No conversation found with session ID';
+    await say([U('hi'), A('x'), U('next'), A('y'), U('third, edited'), A('z'), U('four')]);
+    assert.strictEqual(runs[4].session.resume, true); assert.strictEqual(runs[5].session.resume, false, 'a lost session starts again');
+    assert.strictEqual(JSON.parse(fs.readFileSync(file, 'utf8')).c1.sid, runs[5].session.id);
+    await say([U('hi'), A('x'), U('next'), A('y'), U('third, edited'), A('z'), U('four'), A('w'), U('five')]);
+    assert.strictEqual(runs[6].session.resume, true); assert.strictEqual(runs[6].session.id, runs[5].session.id);
+    await chat.turn({ kind: 'claude', system: 's', folder: os.tmpdir(), perm: 'auto', prompt: 'plain' }); // no chat id (team, incognito): no session
+    assert.strictEqual(runs[7].session, null); assert.strictEqual(runs[7].prompt, 'plain');
+    console.log('cli-agents: chat sessions ok');
   }
   console.log('cli-agents: all tests passed');
 })().catch((e) => { console.error('FAILED:', e); process.exit(1); });
