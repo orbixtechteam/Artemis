@@ -469,6 +469,22 @@ export function SettingsModal({ settings, groups = [], projects = [], providers 
                 <SwitchRow label="Switch heavy tools on only when needed" description="Computer control, browser control, terminal, media, phone, scheduling, helper agents and Make are sent only after the assistant asks for them. Files, web, memory and notes are always on." checked={s.toolsLazy !== false} onChange={put('toolsLazy')} />
                 <SwitchRow label="Switch connectors on only when needed" description="Connector tools are sent only after the assistant asks for that app." checked={s.connectorsLazy !== false} onChange={put('connectorsLazy')} />
               </Group>
+              <Group title="Compact">
+                <SwitchRow label="Compact long chats automatically" description="When a chat fills most of the model's context window, the earlier messages are summarized once into a card in the chat and the latest messages stay as they are. Later messages build on that card, so the summary is not rewritten every turn. Works with every model." checked={s.autoCompact !== false} onChange={put('autoCompact')} />
+                {s.autoCompact !== false && (
+                  <Row label="Compact at" description="How full the model's context window gets before the chat is compacted.">
+                    <Select value={String(s.compactAt || 80)} onChange={(e) => put('compactAt')(Number(e.target.value))}>
+                      {[50, 60, 70, 80, 90].map((v) => <option key={v} value={v}>{v}%</option>)}
+                    </Select>
+                  </Row>
+                )}
+                <Row label="Summary model" description="Writes the summary for the Compact button, automatic compact and long tasks. A small, cheap model is enough.">
+                  <Select value={s.compactModel || ''} onChange={set('compactModel')}>
+                    <option value="">Automatic (a small, cheap model)</option>
+                    {modelOptions}
+                  </Select>
+                </Row>
+              </Group>
               <Group title="Skills and learning">
                 <SwitchRow label="Skills" description="Artemis can load your saved instructions for tasks you repeat." checked={s.skillsEnabled !== false} onChange={put('skillsEnabled')} />
                 <SwitchRow label="Let Artemis learn by itself" description="It saves a skill after a task you are likely to repeat and improves skills when you correct it. Off = it asks before saving. Not used in incognito chats or scheduled tasks." checked={s.autoLearn !== false} onChange={put('autoLearn')} />

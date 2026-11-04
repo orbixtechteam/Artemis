@@ -290,6 +290,8 @@ const DEFAULT_SETTINGS = {
   chatSearchEnabled: true,
   autoTitles: true, // name chats from their topic after the first reply (and again as the topic drifts)
   titleModel: '', // empty = the chat's own model
+  compactModel: '', // model that writes compact summaries; empty = a small, cheap model
+  autoCompact: true, compactAt: 80, // compact once when a chat fills this % of the model's context window
   scheduleModel: '', // model for scheduled tasks that have none of their own; empty = the default model
   disabledSkills: [],
   sandbox: '', sandboxImage: 'node:22-bookworm', sandboxNetwork: true, sandboxMemory: '2g', sandboxCpus: '2', sandboxSshHost: '', sandboxSshDir: '', sandboxWritable: '', // run_command in Docker, over SSH or in the OS sandbox (native) instead of straight on this computer
@@ -1195,7 +1197,7 @@ async function executeRun({ requestId, model: model0, messages, project, system,
     }
     await runAgent({
       persona, sessionId: chatId || undefined, userData: app.getPath('userData'), mentions: Array.isArray(mentions) ? mentions.slice(0, 20) : [],
-      baseUrl: runRoute.baseUrl, key: runRoute.key, model: runRoute.model, noToolCalls: !!runRoute.noTools, messages: runRoute.noTools || runRoute.cli ? stashImages(messages) : messages,
+      summarizer: compactRoute(settings), baseUrl: runRoute.baseUrl, key: runRoute.key, model: runRoute.model, noToolCalls: !!runRoute.noTools, messages: runRoute.noTools || runRoute.cli ? stashImages(messages) : messages,
       cli: runRoute.cli ? { kind: runRoute.cli, model: cliModelOf(runRoute.model), turn: cliChat.turn, transcript: cliTranscript } : null, maxTokens: maxTokens || settings.maxTokens, reasoningEffort: effort === 'auto' ? '' : (effort || settings.reasoningEffort || ''),
       custom: system, personality: require('./personality').text(settings), userName: settings.profileName || '', userAbout: settings.profileAbout || '', userLocation: settings.profileLocation || '', project, root: fileRoot, defaultRoot: !root,
       // with a sandbox, run_command never touches this computer, so it is also allowed in phone/gateway (restricted) and scheduled tasks
@@ -1310,10 +1312,19 @@ ipcMain.handle('chat:run', (e, { requestId, model, messages, project, system, ma
   return executeRun({ requestId, model, messages, project, system, maxTokens, send, incognito: !!incognito, permMode, chatId, brain, brainPick, revote, agentsMode, toolsMode, effort, mentions, shellMode });
 });
 ipcMain.handle('chat:compact', (_e, o = {}) => compactSummary(o));
+/** The compact model from Settings as a provider route for summaries inside a run (a CLI model or none: the run uses its own model). */
+function compactRoute(settings) {
+  const m = settings.compactModel ? liveModel(settings.compactModel) : '';
+  if (!m || cliKindOf(m)) return undefined;
+  const r = providersLib.resolve(m, readProviders(), getProviderKey);
+  return r.error ? undefined : { url: providersLib.joinUrl(r.baseUrl, 'chat/completions'), key: r.key, model: r.model, usageModel: m };
+}
 async function compactSummary({ model, messages, chatId, incognito } = {}) {
   try {
     const settings = getSettings();
-    const m = liveModel(model || settings.model);
+    const own = liveModel(model || settings.model);
+    // the summary model from Settings; else a Claude Code / Codex chat uses its own CLI (a small model there), others a small, cheap provider model
+    const m = settings.compactModel ? liveModel(settings.compactModel) : cliKindOf(own) ? `cli:${cliKindOf(own)}` : cheapModel(own);
     const complete = cliComplete(m, { signal: AbortSignal.timeout(180000), source: 'compact', chatId });
     const route = complete ? {} : providersLib.resolve(m, readProviders(), getProviderKey);
     if (route.error) return { ok: false, error: route.error };
