@@ -38,6 +38,7 @@ import Message, { CompactingCard } from './components/Message.jsx';
 import Composer from './components/Composer.jsx';
 import { SettingsModal } from './components/Settings.jsx';
 import SkillsView from './components/SkillsView.jsx';
+import ArtifactsView from './components/ArtifactsView.jsx';
 import AgentsView, { agentsIntent } from './components/AgentsView.jsx';
 import { progressOf } from './lib/outputs.js';
 import LogsView from './components/LogsView.jsx';
@@ -113,10 +114,27 @@ export default function App() {
   // the right bar (chat controls + progress) starts closed so the chat gets the room; the toolbar's Chat button opens it
   const [showProgress, setShowProgress] = useState(() => { try { return localStorage.getItem('artemis-chatbar-open') === '1'; } catch { return false; } });
   useEffect(() => { try { localStorage.setItem('artemis-chatbar-open', showProgress ? '1' : '0'); } catch {} }, [showProgress]);
+  // A link clicked in an artifact frame (the sandbox blocks popups): open it in the default browser
+  useEffect(() => {
+    const onMsg = (e) => {
+      const d = e.data;
+      if (!d || d.__artemis !== 'open' || !/^https?:\/\//i.test(String(d.url || ''))) return;
+      const frame = [...document.querySelectorAll('iframe')].find((f) => f.contentWindow === e.source);
+      if (frame && String(frame.src).startsWith('artifact:')) api.openExternalUrl(String(d.url));
+    };
+    window.addEventListener('message', onMsg);
+    return () => window.removeEventListener('message', onMsg);
+  }, []);
   const [wide, setWide] = useState(false);
+  useEffect(() => { setWide(false); }, [panel ? panel.type : null]); // expanding is per panel: a closed artifact does not leave the chat panel full-size
   const [spW, setSpW] = useState(() => loadWidth('zero.spW', 460));
+  // The chat/progress panel keeps its own (narrow) width, so closing a wide artifact does not leave it stretched
+  const [pgW, setPgW] = useState(() => loadWidth('zero.pgW', 360));
   const [sbW, setSbW] = useState(() => Math.max(240, loadWidth('zero.sbW', 288)));
-  const dragPanel = (e) => { setWide(false); startDrag(e, (x) => setSpW(clamp(window.innerWidth - x, 320, Math.round(window.innerWidth * 0.85))), () => setSpW((w) => { saveWidth('zero.spW', w); return w; })); };
+  const dragPanel = (e, progress) => {
+    const [set, key] = progress ? [setPgW, 'zero.pgW'] : [setSpW, 'zero.spW'];
+    setWide(false); startDrag(e, (x) => set(clamp(window.innerWidth - x, 320, Math.round(window.innerWidth * 0.85))), () => set((w) => { saveWidth(key, w); return w; }));
+  };
   // Split view: the second pane's share of the split area, in percent
   const [splitPct, setSplitPct] = useState(() => loadWidth('zero.splitPct', 50));
   const dragSplit = (e) => { const r = e.currentTarget.parentElement.getBoundingClientRect(); startDrag(e, (x) => setSplitPct(clamp(((r.right - x) / r.width) * 100, 20, 80)), () => setSplitPct((p) => { saveWidth('zero.splitPct', p); return p; })); };
@@ -182,7 +200,7 @@ export default function App() {
   // A tab remembers what it shows: a page (chat, notes, terminal, browser, …), which chat, and an open Settings / Memory / Usage / Connectors window.
   // The live state (view, currentId, modal) always belongs to the active tab, and is copied back into it on every change.
   const TAB_MODALS = ['settings', 'memory', 'usage', 'connectors']; // these open as pages in a tab
-  const PAGE_VIEWS = ['home', 'browser', 'schedule', 'skills', 'logs', 'automations', 'agents', 'graph', 'files'];
+  const PAGE_VIEWS = ['home', 'browser', 'schedule', 'skills', 'logs', 'automations', 'agents', 'graph', 'files', 'artifacts'];
   const SPLIT_KINDS = ['chat', 'note', ...TAB_MODALS, ...PAGE_VIEWS]; // anything in here can sit in the second half of a split view
   const kindOf = (sn) => (sn.modal && TAB_MODALS.includes(sn.modal) ? sn.modal : sn.view);
   const [tabs, setTabs] = useState(null);
@@ -391,7 +409,9 @@ export default function App() {
             { label: c.pinned ? 'Unpin' : 'Pin', onClick: () => a.pinChat(i.chat) }, { label: 'Delete', danger: true, onClick: () => a.deleteChat(i.chat) }
           ];
         } else if (i.proj) {
-          items = [{ label: 'Open', onClick: () => a.go({ view: { project: i.proj } }) }, { label: 'Open in new tab', hint: '⌘-click', onClick: () => a.open({ view: { project: i.proj } }) }];
+          const p = (a.projects || []).find((x) => x.id === i.proj);
+          items = [{ label: 'Open', onClick: () => a.go({ view: { project: i.proj } }) }, { label: 'Open in new tab', hint: '⌘-click', onClick: () => a.open({ view: { project: i.proj } }) }, { sep: true },
+            { label: p && p.sideHidden ? 'Show in sidebar' : 'Hide from sidebar', onClick: () => a.hideProject(i.proj) }];
         } else {
           items = [{ label: 'Open', onClick: () => a.goNav(i.nav) }, { label: 'Open in new tab', hint: '⌘-click', onClick: () => a.open(a.navSnap(i.nav)) }];
         }
@@ -500,7 +520,7 @@ export default function App() {
   // right-click menus: sidebar pages and chats, and ⌘-click to open in a new tab
   const NAV = {
     home: { view: 'home' }, projects: { view: 'projects' }, schedule: { view: 'schedule' }, skills: { view: 'skills' }, agents: { view: 'agents' }, automations: { view: 'automations' },
-    logs: { view: 'logs' }, terminal: { view: 'terminal' }, browser: { view: 'browser' }, graph: { view: 'graph' }, notes: { view: 'notes' }, files: { view: 'files' },
+    logs: { view: 'logs' }, terminal: { view: 'terminal' }, browser: { view: 'browser' }, graph: { view: 'graph' }, notes: { view: 'notes' }, files: { view: 'files' }, artifacts: { view: 'artifacts' },
     memory: { modal: 'memory' }, usage: { modal: 'usage' }, connectors: { modal: 'connectors' }, settings: { modal: 'settings' }
   };
   const navSnap = (k) => ({ view: 'chat', chatId: currentRef.current, modal: null, settingsTab: 'general', ...NAV[k] });
@@ -883,7 +903,8 @@ export default function App() {
   window.__speakerId = (settings && settings.speakerDeviceId) || '';
   window.__tts = ttsConfig(settings);
   window.__wakeWord = wakeLabel(settings && settings.sentinelWake); // shown in the Sentinel pill and tooltips
-  useEffect(() => { setPanel(null); }, [currentId]);
+  const nextPanel = useRef(null); // a panel to show once the chat switch lands (Artifacts page → chat with the artifact open)
+  useEffect(() => { setPanel(nextPanel.current); nextPanel.current = null; }, [currentId]);
   useEffect(() => {
     // http(s) links open straight in the in-app browser (⌘/Ctrl-click in a message opens the system browser instead, see Markdown.jsx)
     const request = (url) => {
@@ -1840,7 +1861,8 @@ export default function App() {
   const fillComposer = (text) => window.dispatchEvent(new CustomEvent('artemis:composer-fill', { detail: { chatId: chat.id, text } }));
 
   sideApi.current = {
-    select, deleteChat, navSnap,
+    select, deleteChat, navSnap, projects,
+    hideProject: (id) => setProjects((ps) => ps.map((p) => (p.id === id ? { ...p, sideHidden: !p.sideHidden } : p))),
     pinChat: (id) => setChats((cs) => cs.map((c) => (c.id === id ? { ...c, pinned: !c.pinned } : c))),
     open: (sn) => { if (sn.view === 'terminal' && !termRef.current.tabs.length) newTermTab(); openTab({ view: 'chat', chatId: currentRef.current, modal: null, settingsTab: 'general', ...sn }); },
     splitChat, regen: (m, c) => regenerate(m, c), deleteMsg: (cid, mid) => deleteMessage(cid, mid), isRunning,
@@ -1849,7 +1871,7 @@ export default function App() {
     go: (sn) => { if (sn.view) setView(sn.view); },
     goNav: (k) => { const sn = NAV[k]; if (!sn) return; if (k === 'terminal' && !termRef.current.tabs.length) newTermTab(); if (sn.view) { setModal(null); setView(sn.view); } if (sn.modal) { if (sn.modal === 'settings') setSettingsTab('general'); setModal(sn.modal); } }
   };
-  const VIEW_INFO = { home: ['Home', 'home'], projects: ['Projects', 'folders'], schedule: ['Scheduled', 'clock'], skills: ['Skills', 'sparkle'], agents: ['Agents', 'layers'], automations: ['Automations', 'bolt'], logs: ['Logs', 'code'], graph: ['Graph', 'graph'], notes: ['Notes', 'file'], files: ['Files', 'folder'], terminal: ['Terminal', 'terminal'], browser: ['Browser', 'globe'] };
+  const VIEW_INFO = { home: ['Home', 'home'], projects: ['Projects', 'folders'], schedule: ['Scheduled', 'clock'], skills: ['Skills', 'sparkle'], agents: ['Agents', 'layers'], automations: ['Automations', 'bolt'], logs: ['Logs', 'code'], graph: ['Graph', 'graph'], notes: ['Notes', 'file'], files: ['Files', 'folder'], artifacts: ['Artifacts', 'artifact'], terminal: ['Terminal', 'terminal'], browser: ['Browser', 'globe'] };
   const MODAL_INFO = { settings: ['Settings', 'sliders'], memory: ['Memory', 'bulb'], usage: ['Usage', 'chart'], connectors: ['Connectors', 'plug'] };
   const tabInfo = (t) => {
     const sn = t.s;
@@ -1943,6 +1965,9 @@ export default function App() {
     if (kind === 'browser') return <BrowserPanel full url={browser.url} onUrl={(u) => setBrowser((b) => ({ ...b, url: u }))} onClose={split ? close : () => setView('chat')} agent={browserAgent} onStopAgent={() => { if (browserAgent) api.abort(browserAgent.requestId); }} />;
     if (kind === 'schedule') return <SchedulesView projects={projects} models={groups} />;
     if (kind === 'skills') return <SkillsView projects={projects} />;
+    if (kind === 'artifacts') return <ArtifactsView chats={chats}
+      onDelete={(cid, id) => { setChats((cs) => cs.map((c) => { if (c.id !== cid || !c.artifacts || !c.artifacts[id]) return c; const { [id]: _gone, ...rest } = c.artifacts; return { ...c, artifacts: rest }; })); setPanel((p) => (p && p.type === 'artifact' && p.id === id ? null : p)); }}
+      onOpen={(cid, id) => { const p = { type: 'artifact', id, chatId: cid }; if (cid === currentRef.current) setPanel(p); else nextPanel.current = p; select(cid); }} />;
     if (kind === 'logs') return <LogsView />;
     if (kind === 'files') return <FilesView onOpen={openLibFile} onUse={useLibFile} />;
     if (kind === 'graph') return <NoteGraph rev={notes.items} onOpen={noteActions.open} onCreate={(name) => noteActions.create('', name)} />;
@@ -1972,6 +1997,7 @@ export default function App() {
     { id: 'sidebar', group: 'Tabs', label: 'Toggle sidebar', icon: 'sidebar', hint: '⌘\\', run: () => setSidebarHidden((v) => !v) },
     { id: 'projects', group: 'Go to', label: 'Projects', icon: 'folder', run: () => setView('projects') },
     { id: 'sched', group: 'Go to', label: 'Scheduled tasks', icon: 'clock', run: () => setView('schedule') },
+    { id: 'artifacts', group: 'Go to', label: 'Artifacts', icon: 'artifact', run: () => setView('artifacts') },
     { id: 'skills', group: 'Go to', label: 'Skills', icon: 'sparkle', run: () => setView('skills') },
     { id: 'agents', group: 'Go to', label: 'Agents', icon: 'layers', run: () => setView('agents') },
     { id: 'automations', group: 'Go to', label: 'Automations', icon: 'bolt', run: () => setView('automations') },
@@ -2007,7 +2033,7 @@ export default function App() {
         onOpenProject={(id) => navView({ project: id })} currentId={currentId} view={chatView ? 'chat' : 'other'} statusOf={statusOf}
         onNewChat={() => newChat()} onNewIncognito={newIncognito} onSelect={select}
         onRename={(id, title) => updateChat(id, { title, titleManual: true })}
-        onHome={() => navView('home')} onProjects={() => navView('projects')} onSchedule={() => navView('schedule')} onFiles={() => navView('files')} onOpenFile={openLibFile} onSkills={() => navView('skills')} onAgents={() => navView('agents')} onAutomations={() => navView('automations')} onSentinel={toggleSentinel} sentinel={sent.state} onLogs={() => navView('logs')} agentCount={liveAgents(chats, runningIds).length} onPermissions={() => setModal('permissions')} onConnectors={() => setModal('connectors')}
+        onHome={() => navView('home')} onProjects={() => navView('projects')} onSchedule={() => navView('schedule')} onFiles={() => navView('files')} onOpenFile={openLibFile} onSkills={() => navView('skills')} onArtifacts={() => navView('artifacts')} onAgents={() => navView('agents')} onAutomations={() => navView('automations')} onSentinel={toggleSentinel} sentinel={sent.state} onLogs={() => navView('logs')} agentCount={liveAgents(chats, runningIds).length} onPermissions={() => setModal('permissions')} onConnectors={() => setModal('connectors')}
         onSettings={() => { setSettingsTab('general'); setModal('settings'); }} onMemory={() => setModal('memory')} onUsage={() => setModal('usage')}
         onTerminal={() => { if (!termRef.current.tabs.length) newTermTab(); navView('terminal'); }}
         notes={notesTree} onNotes={() => (notePath && notes.items.some((i) => i.path === notePath) ? noteActions.open(notePath, 'here') : navView('notes'))} notesActive={!pageModal && (view === 'note' || view === 'notes')}
@@ -2021,7 +2047,7 @@ export default function App() {
         onOpenChatTab={(id) => { const o = (tabsRef.current || []).find((t) => t.s.view === 'chat' && t.s.chatId === id); if (o) activateTab(o.id); else openTab({ view: 'chat', chatId: id, modal: null, settingsTab: 'general' }); }}
         onOpenNoteTab={(p) => noteActions.open(p, 'tab')} actions={paletteActions} />
 
-      <main className="main" style={wide && panel && panel.type === 'file' ? { display: 'none' } : undefined}>
+      <main className="main" style={wide && panel && (panel.type === 'file' || (chatView && panel.type === 'artifact')) ? { display: 'none' } : undefined}>
         {topbar}
         {view === 'projects' && !pageModal && (
           <ProjectsList onPin={(id) => setProjects((ps) => ps.map((p) => (p.id === id ? { ...p, pinned: !p.pinned } : p)))} projects={projects} chats={chats} onOpen={(id) => setView({ project: id })} onNew={() => setModal({ project: 'new' })} />
@@ -2127,9 +2153,9 @@ export default function App() {
       </main>
 
       {((chatView && (panel || showProgress)) || (!chatView && panel && panel.type === 'file')) && (
-        <aside data-find-scope="panel" className={`side-panel ${wide ? 'wide' : ''} ${wide && panel && panel.type === 'file' ? 'full' : ''}`} style={wide ? undefined : { width: spW }}>
+        <aside data-find-scope="panel" className={`side-panel ${wide ? 'wide' : ''} ${wide && panel && panel.type === 'file' ? 'full' : ''} ${wide && chatView && panel && panel.type === 'artifact' ? 'full art' : ''}`} style={wide ? undefined : { width: chatView && !panel ? pgW : spW }}>
           <ErrorBoundary name="the side panel" resetKey={panel ? panel.type + (panel.id || '') : 'progress'}>
-          <div className="resize-grip left" onMouseDown={dragPanel} onDoubleClick={() => { setSpW(460); saveWidth('zero.spW', 460); }} title="Drag to resize · double-click to reset" />
+          <div className="resize-grip left" onMouseDown={(e) => dragPanel(e, chatView && !panel)} onDoubleClick={() => { if (chatView && !panel) { setPgW(360); saveWidth('zero.pgW', 360); } else { setSpW(460); saveWidth('zero.spW', 460); } }} title="Drag to resize · double-click to reset" />
           {panel && panel.type === 'file' && <FilePanel file={panel.file} onClose={() => setPanel(null)} expanded={wide} onExpand={() => setWide(!wide)} />}
           {chatView && panel && panel.type === 'artifact' && <ArtifactPanel artifact={(() => { const c = (panel.chatId && chats.find((x) => x.id === panel.chatId)) || chat; return c.artifacts && c.artifacts[panel.id]; })()} onClose={() => setPanel(null)} expanded={wide} onExpand={() => setWide(!wide)} />}
           {chatView && !panel && <ProgressPanel controls={chatControls} chat={chat} onClose={() => setShowProgress(false)} expanded={wide} onExpand={() => setWide(!wide)} onOpenArtifact={(id) => setPanel({ type: 'artifact', id })} />}
