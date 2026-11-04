@@ -120,6 +120,9 @@
 .side-panel.wide.full .sp-body { max-width: 980px; width: 100%; margin-left: auto; margin-right: auto; }
 .side-panel.wide.full .fp-head { padding-left: max(12px, calc((100% - 980px) / 2)); padding-right: max(12px, calc((100% - 980px) / 2)); }
 .side-panel.wide.full .resize-grip { display: none; }
+/* an expanded artifact (web page, dashboard) uses the full width */
+.side-panel.wide.full.art .sp-body { max-width: none; }
+.side-panel.wide.full.art .fp-head { padding-left: 12px; padding-right: 12px; }
 /* slimmer Copy split button */
 .fp-split { border: 0; background: var(--hover); border-radius: 8px; }
 .fp-split button { height: 26px; padding: 0 9px; font-size: 12.5px; border: 0 !important; border-radius: 0; background: transparent; line-height: 1; }

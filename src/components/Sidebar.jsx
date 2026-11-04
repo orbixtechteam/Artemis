@@ -50,7 +50,7 @@ function SideHead({ label, open, onToggle }) {
 
 export default function Sidebar({
   chats, projects = [], currentId, view, statusOf, onNewChat, onNewIncognito, onSelect, onRename, onPinChat, onPinProject, onOpenProject,
-  onHome, onFiles, onOpenFile, onProjects, onConnectors, onSettings, onMemory, onUsage, onBrowser, onTerminal, notes, onNotes, notesActive, onSchedule, onSkills, onAgents, onAutomations, onSentinel, sentinel = 'off', onLogs, agentCount = 0, onPermissions, onProfile, profile = {}, view_, memoryCount, connectorCount, hidden, onResizeStart
+  onHome, onFiles, onOpenFile, onProjects, onConnectors, onSettings, onMemory, onUsage, onBrowser, onTerminal, notes, onNotes, notesActive, onSchedule, onSkills, onArtifacts, onAgents, onAutomations, onSentinel, sentinel = 'off', onLogs, agentCount = 0, onPermissions, onProfile, profile = {}, view_, memoryCount, connectorCount, hidden, onResizeStart
 }) {
   const sKey = useSentinelKey();
   const [q, setQ] = useState('');
@@ -99,25 +99,14 @@ export default function Sidebar({
 
   const rows = [];
   const pinnedChats = visible.filter((c) => c.pinned);
-  if (pinnedChats.length) {
-    rows.push(<SideHead key="pinned" label="Pinned chats" open={secOpen('pinnedChats')} onToggle={() => toggleSec('pinnedChats')} />);
-    for (const c of secOpen('pinnedChats') ? pinnedChats : []) {
-      rows.push(
-        <ChatRow key={c.id} c={c} active={view === 'chat' && c.id === currentId} status={statusOf(c)} inProject={!!c.projectId}
-          onSelect={onSelect} onRename={onRename} onPin={onPinChat} />
-      );
-    }
-  }
   const unassigned = visible.filter((x) => !x.pinned && !x.projectId);
-  // one Projects section: pinned projects first (shown even without chats), then the others that have chats
-  const projectList = [
-    ...(ql ? [] : projects.filter((p) => p.pinned)),
-    ...projects.filter((p) => (ql || !p.pinned) && visible.some((c) => !c.pinned && c.projectId === p.id))
-  ];
-  if (projectList.length) {
-    rows.push(<SideHead key="projects-head" label="Projects" open={secOpen('projects')} onToggle={() => toggleSec('projects')} />);
+  // one Pinned section like Claude Desktop: every project (pinned ones first) with its chats nested, then pinned chats; a search keeps only projects with a hit
+  const projectList = [...projects.filter((p) => p.pinned), ...projects.filter((p) => !p.pinned)].filter((p) => !p.sideHidden) // hidden with right-click → Hide from sidebar
+    .filter((p) => !ql || visible.some((c) => !c.pinned && c.projectId === p.id));
+  if (projectList.length || pinnedChats.length) {
+    rows.push(<SideHead key="pinned" label="Pinned" open={secOpen('pinned')} onToggle={() => toggleSec('pinned')} />);
   }
-  for (const p of secOpen('projects') ? projectList : []) {
+  for (const p of secOpen('pinned') ? projectList : []) {
     const items = visible.filter((c) => !c.pinned && c.projectId === p.id);
     const isOpen = ql || openProjects[p.id] !== false;
     // the latest few (plus the open chat or one that is working), the rest is behind "View all" like Claude Desktop
@@ -140,6 +129,12 @@ export default function Sidebar({
       </div>
     );
   }
+  for (const c of secOpen('pinned') ? pinnedChats : []) {
+    rows.push(
+      <ChatRow key={c.id} c={c} active={view === 'chat' && c.id === currentId} status={statusOf(c)} inProject={!!c.projectId}
+        onSelect={onSelect} onRename={onRename} onPin={onPinChat} />
+    );
+  }
   let last = '';
   for (const c of unassigned) {
     const g = dayGroup(c.updatedAt);
@@ -156,20 +151,20 @@ export default function Sidebar({
         <button className="side-ib nodrag" onClick={onNewIncognito} title="New incognito chat: not saved, no memory" aria-label="New incognito chat: not saved, no memory"><Icon name="ghost" size={16} /></button>
         <button className="side-ib nodrag" onClick={onNewChat} title="New chat (⌘N)" aria-label="New chat"><Icon name="edit" size={16} /></button>
       </div>
-      <div className="side-search"><Icon name="search" size={14} /><input type="search" placeholder="Search" aria-label="Search chats, notes and files" value={q} onChange={(e) => setQ(e.target.value)} /></div>
       <nav className="side-nav" aria-label="Main">
-        <button className="nav-item" data-nav="home" onClick={onHome}><Icon name="home" size={16} /> Home</button>
-        <button className="nav-item" data-nav="projects" onClick={onProjects}><Icon name="folders" size={16} /> Projects</button>
-        {onNotes && <button className={`nav-item ${notesActive ? 'active' : ''}`} data-nav="notes" onClick={onNotes}><Icon name="file" size={16} /> Notes</button>}
-        {onFiles && <button className="nav-item" data-nav="files" onClick={onFiles}><Icon name="folder" size={16} /> Files</button>}
+        <button className="nav-item" data-nav="search" onClick={() => window.api.quickSearch()} title="Search (⌘⇧Space)"><Icon name="search" size={16} /> Search</button>
+        <button className="nav-item" data-nav="agents" onClick={onAgents}><Icon name="user" size={16} /> Agents{agentCount ? <span className="count" title={agentCount + ' running'}>{agentCount}</span> : null}</button>
         <button className="nav-item" data-nav="schedule" onClick={onSchedule}><Icon name="clock" size={16} /> Scheduled</button>
+        {onArtifacts && <button className="nav-item" data-nav="artifacts" onClick={onArtifacts}><Icon name="artifact" size={16} /> Artifacts</button>}
+        <button className="nav-item" data-nav="connectors" onClick={onConnectors}><Icon name="plug" size={16} /> Connectors{connectorCount ? <span className="count">{connectorCount}</span> : null}</button>
         <SideHead label="Workspace" open={work} onToggle={toggleWork} />
         {work && (
           <div className="nav-more">
-            <button className="nav-item" data-nav="agents" onClick={onAgents}><Icon name="user" size={16} /> Agents{agentCount ? <span className="count" title={agentCount + ' running'}>{agentCount}</span> : null}</button>
+            <button className="nav-item" data-nav="projects" onClick={onProjects}><Icon name="folders" size={16} /> Projects</button>
+            {onNotes && <button className={`nav-item ${notesActive ? 'active' : ''}`} data-nav="notes" onClick={onNotes}><Icon name="file" size={16} /> Notes</button>}
+            {onFiles && <button className="nav-item" data-nav="files" onClick={onFiles}><Icon name="folder" size={16} /> Files</button>}
             <button className="nav-item" data-nav="skills" onClick={onSkills}><Icon name="sparkle" size={16} /> Skills</button>
             {onAutomations && <button className="nav-item" data-nav="automations" onClick={onAutomations}><Icon name="bolt" size={16} /> Automations</button>}
-            <button className="nav-item" data-nav="connectors" onClick={onConnectors}><Icon name="plug" size={16} /> Connectors{connectorCount ? <span className="count">{connectorCount}</span> : null}</button>
             <button className="nav-item" data-nav="memory" onClick={onMemory}><Icon name="bulb" size={16} /> Memory{memoryCount ? <span className="count">{memoryCount}</span> : null}</button>
             {onSentinel && <button className={`nav-item ${sentinel !== 'off' ? 'on' : ''}`} onClick={onSentinel} title={`Talk to Artemis hands-free${sKey}`}><Icon name="mic" size={16} /> Sentinel<span className={`state ${sentinel !== 'off' ? 'on' : ''}`}>{sentinel === 'off' ? 'Off' : 'On'}</span></button>}
           </div>
