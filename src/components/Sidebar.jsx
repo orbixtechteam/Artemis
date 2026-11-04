@@ -9,6 +9,8 @@ import TitleText from './TitleText.jsx';
 import { ContextMenu } from './TabBar.jsx';
 import { useSentinelKey } from '../lib/sentinelKey.js';
 
+const PROJECT_ROWS = 4; // chats shown under each project before "View all"
+
 function ChatRow({ c, active, status, inProject, onSelect, onRename, onPin }) {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState(c.title);
@@ -16,7 +18,7 @@ function ChatRow({ c, active, status, inProject, onSelect, onRename, onPin }) {
     setEditing(false);
     if (ok && val.trim()) onRename(c.id, val.trim().slice(0, 80));
   };
-  const icon = status === 'running' ? 'spinner' : status === 'awaiting' ? 'warning' : c.incognito ? 'ghost' : c.sentinel ? 'mic' : inProject ? 'folder' : c.source === 'phone' ? 'phone' : c.source === 'schedule' ? 'clock' : 'chat';
+  const icon = status === 'running' ? 'spinner' : status === 'awaiting' ? 'warning' : c.incognito ? 'ghost' : c.sentinel ? 'mic' : c.source === 'phone' ? 'phone' : c.source === 'schedule' ? 'clock' : 'chat';
   return (
     <div className={`chat-item ${active ? 'active' : ''} ${status || ''}`} data-chat={c.id} onClick={() => onSelect(c.id)} {...asButton(() => onSelect(c.id))} aria-current={active ? 'page' : undefined}>
       {icon !== 'chat' && <Icon name={icon} size={14} className="row-icon" title={status === 'running' ? 'Running' : status === 'awaiting' ? 'Needs your approval' : undefined} />}
@@ -118,19 +120,22 @@ export default function Sidebar({
   for (const p of secOpen('projects') ? projectList : []) {
     const items = visible.filter((c) => !c.pinned && c.projectId === p.id);
     const isOpen = ql || openProjects[p.id] !== false;
+    // the latest few (plus the open chat or one that is working), the rest is behind "View all" like Claude Desktop
+    const shown = ql ? items : items.filter((c, i) => i < PROJECT_ROWS || (view === 'chat' && c.id === currentId) || statusOf(c));
 
     rows.push(
       <div key={'pg' + p.id} className={`project-group ${isOpen ? 'open' : 'closed'}`}>
         <div className="project-group-head" data-project={p.id} onClick={() => toggleProject(p.id)} {...asButton(() => toggleProject(p.id))} aria-expanded={!!isOpen}>
-          <Icon name={isOpen ? 'chevronDown' : 'chevronRight'} size={13} className="project-chevron" />
-          <ProjectLogo logo={p.logo} size={15} />
+          <ProjectLogo logo={p.logo} size={18} />
           <span className="t" onDoubleClick={(e) => { e.stopPropagation(); onOpenProject(p.id); }}>{p.name}</span>
+          <Icon name={isOpen ? 'chevronDown' : 'chevronRight'} size={13} className="project-chevron" />
           {onPinProject && <button className={`x pin ${p.pinned ? 'on' : ''}`} title={p.pinned ? 'Unpin' : 'Pin'} aria-label={p.pinned ? `Unpin ${p.name}` : `Pin ${p.name}`} onClick={(e) => { e.stopPropagation(); onPinProject(p.id); }}><Icon name="pin" size={13} /></button>}
           <button className="project-open" title="Open project" aria-label={`Open project ${p.name}`} onClick={(e) => { e.stopPropagation(); onOpenProject(p.id); }}><Icon name="external" size={13} /></button>
         </div>
         {isOpen && items.length > 0 && <div className="project-submenu">
-          {items.map((c) => <ChatRow key={c.id} c={c} active={view === 'chat' && c.id === currentId} status={statusOf(c)} inProject
+          {shown.map((c) => <ChatRow key={c.id} c={c} active={view === 'chat' && c.id === currentId} status={statusOf(c)} inProject
             onSelect={onSelect} onRename={onRename} onPin={onPinChat} />)}
+          {shown.length < items.length && <div className="chat-item view-all" onClick={() => onOpenProject(p.id)} {...asButton(() => onOpenProject(p.id))}><span className="t">View all</span></div>}
         </div>}
       </div>
     );

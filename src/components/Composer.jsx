@@ -275,8 +275,13 @@ export default function Composer({ streaming, onSend, onStop, queue = [], queueH
   useLayoutEffect(() => {
     const el = ta.current;
     if (!el) return;
+    // Collapsing to 'auto' for a moment grows the message list above, which clamps its scrollTop and leaves the chat scrolled up.
+    // Keep the list's distance from its bottom across the resize.
+    const list = el.closest('.chat-pane')?.querySelector('.messages');
+    const fromEnd = list ? list.scrollHeight - list.scrollTop - list.clientHeight : 0;
     el.style.height = 'auto';
     el.style.height = Math.min(el.scrollHeight, 220) + 'px';
+    if (list) list.scrollTop = list.scrollHeight - list.clientHeight - fromEnd;
     syncMirror();
   }, [text, mentions]);
 

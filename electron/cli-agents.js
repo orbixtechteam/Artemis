@@ -314,7 +314,7 @@ function createCliChat({ cli, createMcpServer, isLocked = () => false, log = () 
     if (!server.running()) await server.start(0);
     return `http://127.0.0.1:${server.port()}/mcp`;
   }
-  /** o: { kind, model, system, prompt, tools: [{ name, description, inputSchema, run }], folder, perm: 'ask'|'edits'|'auto', ask(info) -> Promise<bool>, signal, onStep, onUsage } */
+  /** o: { kind, model, system, prompt, tools: [{ name, description, inputSchema, run }], folder, perm: 'ask'|'edits'|'auto', ask(info) -> Promise<bool>, askUser(questions) -> Promise<{ [question]: answer } | null>, signal, onStep, onUsage } */
   async function turn(o) {
     const token = crypto.randomBytes(24).toString('hex');
     const tools = [...(o.tools || [])];
@@ -322,6 +322,13 @@ function createCliChat({ cli, createMcpServer, isLocked = () => false, log = () 
       name: 'artemis_permission', description: 'Asks the user whether a tool call may run.',
       inputSchema: { type: 'object', properties: { tool_name: { type: 'string' }, input: { type: 'object' }, tool_use_id: { type: 'string' } }, required: ['tool_name'] },
       run: async (a) => {
+        // AskUserQuestion has no terminal here: its questions go to a card in the chat and the answers ride back in updatedInput
+        if (a.tool_name === 'AskUserQuestion') {
+          const input = a.input || {};
+          const answers = o.askUser ? await o.askUser(input.questions) : null;
+          if (!answers) return JSON.stringify({ behavior: 'deny', message: 'The user did not answer. Pick the most sensible option yourself and say which one you chose.' });
+          return JSON.stringify({ behavior: 'allow', updatedInput: { ...input, answers } });
+        }
         const ok = o.perm === 'auto' ? true : await o.ask({ name: a.tool_name, category: /^(Bash)$/.test(a.tool_name) ? 'shell' : 'write', summary: claudeAsk(a.tool_name, a.input) });
         return JSON.stringify(ok ? { behavior: 'allow', updatedInput: a.input || {} } : { behavior: 'deny', message: 'The user declined this.' });
       }

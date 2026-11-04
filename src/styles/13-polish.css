@@ -91,6 +91,27 @@ button.primary kbd { background: transparent; border-color: rgba(255,255,255,.4)
 .approve-actions button { display: inline-flex; align-items: center; gap: 8px; }
 .approve-actions button.secondary { background: var(--panel); }
 .approve-actions button.ghost { border-color: transparent; color: var(--muted); }
+.ask { display: flex; flex-direction: column; gap: 14px; padding: 4px 2px 2px; }
+.ask-item { display: flex; flex-direction: column; gap: 6px; }
+.ask-head { font-size: var(--fs-xs); font-weight: 600; letter-spacing: .02em; color: var(--muted); }
+.ask-q { font-size: var(--fs-body); font-weight: 500; line-height: 1.4; color: var(--text); }
+.ask-multi { font-weight: 400; color: var(--muted); }
+.ask-opts { display: flex; flex-direction: column; gap: 4px; }
+.ask-opt { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 8px 10px; border: .5px solid var(--line-2); border-radius: var(--r-md); background: var(--elev); text-align: left; }
+.ask-opt:hover { background: var(--fill); }
+.ask-opt.on { border-color: var(--accent); box-shadow: var(--ring); }
+.ask-mark { flex: none; display: grid; place-items: center; width: 16px; height: 16px; margin-top: 1px; border: 1px solid var(--line-2); color: var(--bg); }
+.ask-mark.dot { border-radius: 50%; } .ask-mark.box { border-radius: 4px; }
+.ask-opt.on .ask-mark { background: var(--accent); border-color: var(--accent); }
+.ask-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ask-label { font-size: var(--fs-ui); font-weight: 500; color: var(--text); }
+.ask-desc { font-size: var(--fs-sm); line-height: 1.4; color: var(--muted); }
+.ask-other { height: 34px; padding: 0 10px; border: .5px solid var(--line-2); border-radius: var(--r-md); background: var(--field-bg); color: var(--text); font-size: var(--fs-ui); outline: none; }
+.ask-other:focus { box-shadow: var(--ring); }
+.ask.done { gap: 6px; }
+.ask-done-row { display: flex; flex-direction: column; gap: 2px; }
+.ask-done-row .ask-q { font-size: var(--fs-ui); color: var(--muted); font-weight: 400; }
+.ask-a, .ask-note { font-size: var(--fs-ui); color: var(--text); }
 .hint-more { font-size: var(--fs-sm); color: var(--muted); }
 .hint-more summary { cursor: pointer; }
 .udiff { margin: 0; max-height: 300px; overflow: auto; font: var(--fs-sm)/1.5 var(--font-mono); background: var(--code); border: .5px solid var(--line-2); border-radius: var(--r-sm); padding: 4px 0; }
