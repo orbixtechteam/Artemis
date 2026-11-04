@@ -107,6 +107,19 @@ export function Thinking({ since }) {
   return <div className="thinking-shimmer" role="status" aria-live="polite"><span className="shimmer-text">Thinking…</span>{secs >= 1 && <span className="thinking-secs">{secs}s</span>}</div>;
 }
 
+/** Shown under the messages while the older part of the chat is being summarized. */
+export function CompactingCard() {
+  const [now, setNow] = useState(() => Date.now());
+  const t0 = useRef(Date.now());
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
+  const secs = Math.max(0, Math.floor((now - t0.current) / 1000));
+  return (
+    <div className="msg compacted compacting" role="status" aria-live="polite">
+      <Icon name="spinner" size={14} className="spin" /><span className="shimmer-text">Compacting conversation…</span>{secs >= 1 && <span className="thinking-secs">{secs}s</span>}
+    </div>
+  );
+}
+
 export const thinkMode = () => { try { return document.documentElement.dataset.thinking || 'collapsed'; } catch { return 'collapsed'; } };
 
 /**

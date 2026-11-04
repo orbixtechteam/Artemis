@@ -34,7 +34,7 @@ import { ProjectsList, ProjectPage } from './components/ProjectsView.jsx';
 import HomeView from './components/HomeView.jsx';
 import Logo from './components/Logo.jsx';
 import { Icon } from './components/Icons.jsx';
-import Message from './components/Message.jsx';
+import Message, { CompactingCard } from './components/Message.jsx';
 import Composer from './components/Composer.jsx';
 import { SettingsModal } from './components/Settings.jsx';
 import SkillsView from './components/SkillsView.jsx';
@@ -127,7 +127,9 @@ export default function App() {
   const [palette, setPalette] = useState(false);
   // changes made from the phone (Telegram): switches, providers, compact
   useEffect(() => api.onAppChanged && api.onAppChanged(() => { api.getSettings().then((s) => setSettings(s)).catch(() => {}); api.providersList().then(applyProviders).catch(() => {}); }), []);
-  useEffect(() => api.onRemoteCompact && api.onRemoteCompact(({ chatId }) => { const c = chatsRef.current.find((x) => x.id === chatId); if (c) actionsRef.current.compact && actionsRef.current.compact(c); }), []);
+  const compactLater = useRef(new Set()); const [compactTick, setCompactTick] = useState(0);
+  // from the phone or the model's compact_chat tool: compacts as soon as the chat's current answer has ended
+  useEffect(() => api.onRemoteCompact && api.onRemoteCompact(({ chatId }) => { compactLater.current.add(chatId); setCompactTick((t) => t + 1); }), []);
   // Notes live in the sidebar and open like chats: in the current tab, a new tab, or next to the current one (split view).
   const [notePath, setNotePath] = useState(null);
   const notePathRef = useRef(null); notePathRef.current = notePath;
@@ -1233,6 +1235,8 @@ export default function App() {
     const user = { id: uid(), role: 'user', content: text, attachments: atts, createdAt: Date.now(), ...(opts && opts.mentions && opts.mentions.length ? { mentions: opts.mentions } : {}) };
     if (!c.messages.length && !c.incognito) updateChat(c.id, { title: (text || atts[0]?.name || 'New chat').replace(/\s+/g, ' ').slice(0, 48) });
     if (needsCompact(c)) {
+      // show the message right away; the "Compacting conversation…" card sits under it until the summary is ready
+      setChats((cs) => cs.map((x) => (x.id === c.id ? { ...x, messages: [...x.messages, user] } : x)));
       compactChat(c, true).then((m) => startStream({ ...c, messages: m || c.messages }, [...(m || c.messages), user], opts));
       return true;
     }
@@ -1285,14 +1289,14 @@ export default function App() {
     }
   }, [queues, runningIds, chats, held]);
   // Compact button: summarize the older messages into one card and keep the last few as they are.
-  const [compacting, setCompacting] = useState(false);
+  const [compacting, setCompacting] = useState(''); // id of the chat being compacted
   const compactTail = (c) => { let i = Math.max(0, c.messages.length - 4); while (i > 0 && c.messages[i].role !== 'user') i--; return i; };
   const canCompact = (c) => !!c && !isRunning(c.id) && !compacting && compactTail(c) >= 2;
   // Returns the compacted message list (or null), so an automatic compact can send the next message on top of it.
   const compactChat = async (target, auto) => {
     const c = target && target.messages ? target : chat; if (!canCompact(c)) return null;
     const at = compactTail(c); const older = c.messages.slice(0, at);
-    setCompacting(true);
+    setCompacting(c.id); stick.current = true;
     try {
       const r = await api.compact({ model: c.model, messages: toApiMessages(older), chatId: c.id, incognito: !!c.incognito });
       if (!r.ok) { if (!auto) flashSent(r.error); return null; }
@@ -1301,11 +1305,20 @@ export default function App() {
       setChats((cs) => cs.map((x) => (x.id === c.id ? { ...x, messages: [card, ...x.messages.slice(at)], updatedAt: Date.now() } : x)));
       return next;
     } catch (e) { if (!auto) flashSent((e && e.message) || String(e)); return null; }
-    finally { setCompacting(false); }
+    finally { setCompacting(''); }
   };
   // Automatic compact (like Claude Code): once, before a message is sent, when the chat fills ~80% of the model's window. The summary stays in the chat as a card, so later turns reuse it.
   const needsCompact = (c) => settings.autoCompact !== false && canCompact(c) && chatTokens(c.messages) > Number(settings.compactAt || 80) / 100 * contextWindowOf(c.model || settings.model);
   actionsRef.current.compact = compactChat;
+  useEffect(() => {
+    if (compacting) return;
+    for (const id of compactLater.current) {
+      if (isRunning(id)) continue;
+      compactLater.current.delete(id);
+      const c = chatsRef.current.find((x) => x.id === id);
+      if (c) { compactChat(c); break; }
+    }
+  }, [compactTick, runningIds, compacting]);
   // Sentinel keeps one chat. The first time it needs one it takes the chat open on screen (or starts a new one when no suitable
   // chat is open: a page like Settings or Home, a phone / scheduled-task chat), and from then on every turn goes there, even after
   // Sentinel or the app restarts. Opening another chat does not move it; "new chat" or a voice "go to" does.
@@ -2057,10 +2070,11 @@ export default function App() {
                   return <Message key={m.id} m={m} live={live} chatId={chat.id} h={msgH} canDelete={!live} artifacts={chat.artifacts} />;
                 })
               )}
+              {compacting === chat.id && <CompactingCard />}
             </section>
             {follow.unseen && <div className="jump-anchor"><button type="button" className="jump-latest" onClick={follow.jump} aria-label="Jump to latest message"><Icon name="arrowUp" size={14} className="flip" /> Jump to latest</button></div>}
             </ErrorBoundary>
-            <Composer key={chat.id} chatId={chat.id} perm={chat.perm === 'auto' ? 'auto' : chat.perm ? 'ask' : (settings.autoApproveEdits ? 'auto' : 'ask')} onPerm={(v) => updateChat(chat.id, { perm: v })} agents={chat.agents || (settings.delegateEnabled === false ? 'off' : 'on')} onAgents={(v) => updateChat(chat.id, { agents: v })} tools={chat.tools || (settings.toolsEnabled === false ? 'off' : 'on')} onTools={(v) => updateChat(chat.id, { tools: v })} streaming={chatBusy} {...queueFor(chat)} onSend={send} onStop={() => stop()} model={chat.model} onModel={(m) => updateChat(chat.id, { model: m })} groups={groups} projectId={chat.projectId} projects={projects} onProject={(id) => updateChat(chat.id, { projectId: id })} incognito={chat.incognito} settings={settings} onUsageDetails={() => setModal('usage')} onOpenSettings={(t) => { setSettingsTab(t || 'general'); setModal('settings'); }} brains={brains} brain={brainOf(chat)} onBrain={(v) => { const b = brains.find((x) => x.slug === v); updateChat(chat.id, { brain: v, ...(b?.model ? { model: b.model } : {}), councilPick: null }); }} councilPick={chat.councilPick} onRevote={() => updateChat(chat.id, { councilPick: null })} sentinel={sent.state} onSentinel={toggleSentinel} onCompact={compactChat} canCompact={canCompact(chat)} compacting={compacting} />
+            <Composer key={chat.id} chatId={chat.id} perm={chat.perm === 'auto' ? 'auto' : chat.perm ? 'ask' : (settings.autoApproveEdits ? 'auto' : 'ask')} onPerm={(v) => updateChat(chat.id, { perm: v })} agents={chat.agents || (settings.delegateEnabled === false ? 'off' : 'on')} onAgents={(v) => updateChat(chat.id, { agents: v })} tools={chat.tools || (settings.toolsEnabled === false ? 'off' : 'on')} onTools={(v) => updateChat(chat.id, { tools: v })} streaming={chatBusy} {...queueFor(chat)} onSend={send} onStop={() => stop()} model={chat.model} onModel={(m) => updateChat(chat.id, { model: m })} groups={groups} projectId={chat.projectId} projects={projects} onProject={(id) => updateChat(chat.id, { projectId: id })} incognito={chat.incognito} settings={settings} onUsageDetails={() => setModal('usage')} onOpenSettings={(t) => { setSettingsTab(t || 'general'); setModal('settings'); }} brains={brains} brain={brainOf(chat)} onBrain={(v) => { const b = brains.find((x) => x.slug === v); updateChat(chat.id, { brain: v, ...(b?.model ? { model: b.model } : {}), councilPick: null }); }} councilPick={chat.councilPick} onRevote={() => updateChat(chat.id, { councilPick: null })} sentinel={sent.state} onSentinel={toggleSentinel} onCompact={compactChat} canCompact={canCompact(chat)} compacting={compacting === chat.id} />
           </div>}
           {(showSplit || showPageSplit || showNoteSplit) && <div className="split-grip" onMouseDown={dragSplit} onDoubleClick={() => { setSplitPct(50); saveWidth('zero.splitPct', 50); }} title="Drag to resize · double-click to reset" />}
           {showSplit && (
@@ -2070,7 +2084,7 @@ export default function App() {
                 update: (patch) => updateChat(chat2.id, patch), onClose: () => setSplitTab(null),
                 onSend: (text, atts, extra) => sendTo(chat2, text, atts, extra), onStop: () => stop(chat2), ...queueFor(chat2), onRegenerate: (m) => regenerate(m, chat2), onDecide: decide,
                 onDelete: (mid) => deleteMessage(chat2.id, mid), onUsageDetails: () => setModal('usage'), onOpenSettings: (t) => { setSettingsTab(t || 'general'); setModal('settings'); },
-                onCompact: () => compactChat(chat2), canCompact: canCompact(chat2), compacting
+                onCompact: () => compactChat(chat2), canCompact: canCompact(chat2), compacting: compacting === chat2.id
               }} />
             </ErrorBoundary>
           )}
