@@ -2153,7 +2153,7 @@ export default function App() {
       </main>
 
       {((chatView && (panel || showProgress)) || (!chatView && panel && panel.type === 'file')) && (
-        <aside data-find-scope="panel" className={`side-panel ${wide ? 'wide' : ''} ${wide && panel && panel.type === 'file' ? 'full' : ''} ${wide && chatView && panel && panel.type === 'artifact' ? 'full art' : ''}`} style={wide ? undefined : { width: chatView && !panel ? pgW : spW }}>
+        <aside data-find-scope="panel" className={`side-panel ${wide ? 'wide' : ''} ${wide && panel && panel.type === 'file' ? 'full' : ''} ${wide && chatView && panel && panel.type === 'artifact' ? 'full art' : ''} ${wide && sideHidden && mac ? 'pad-mac' : ''}`} style={wide ? undefined : { width: chatView && !panel ? pgW : spW }}>
           <ErrorBoundary name="the side panel" resetKey={panel ? panel.type + (panel.id || '') : 'progress'}>
           <div className="resize-grip left" onMouseDown={(e) => dragPanel(e, chatView && !panel)} onDoubleClick={() => { if (chatView && !panel) { setPgW(360); saveWidth('zero.pgW', 360); } else { setSpW(460); saveWidth('zero.spW', 460); } }} title="Drag to resize · double-click to reset" />
           {panel && panel.type === 'file' && <FilePanel file={panel.file} onClose={() => setPanel(null)} expanded={wide} onExpand={() => setWide(!wide)} />}
