@@ -148,7 +148,7 @@ const XLSX = require('xlsx');
   // when the folder is missing
   r = await tools.run('list_dir', {}, { root: null });
   assert(!r.ok && /folder/.test(r.text));
-  assert.deepStrictEqual(tools.definitions({ hasFolder: false, memoryEnabled: false }).map((d) => d.function.name), ['create_artifact', 'lock_app']);
+  assert.deepStrictEqual(tools.definitions({ hasFolder: false, memoryEnabled: false }).map((d) => d.function.name), ['create_artifact', 'compact_chat', 'lock_app']);
 
   // long file paging
   fs.writeFileSync(path.join(root, 'long.txt'), 'a'.repeat(130000));

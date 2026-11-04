@@ -1,6 +1,6 @@
 import React, { useRef } from 'react';
 import { useFollow } from '../lib/stick.js';
-import Message from './Message.jsx';
+import Message, { CompactingCard } from './Message.jsx';
 import Composer, { ChatPills } from './Composer.jsx';
 import { Icon } from './Icons.jsx';
 import FindBar from './FindBar.jsx';
@@ -32,6 +32,7 @@ export default function SplitPane({ chat, busy, settings, projects, brains, brai
           const live = busy && m === chat.messages[chat.messages.length - 1] && m.role === 'assistant';
           return <Message key={m.id} m={m} live={live} chatId={chat.id} h={msgH} canDelete={!live} artifacts={chat.artifacts} />;
         })}
+        {h.compacting && <CompactingCard />}
       </section>
       {follow.unseen && <div className="jump-anchor"><button type="button" className="jump-latest" onClick={follow.jump} aria-label="Jump to latest message"><Icon name="arrowUp" size={14} className="flip" /> Jump to latest</button></div>}
       <Composer key={chat.id} chatId={chat.id} streaming={busy} onSend={h.onSend} onStop={h.onStop} queue={h.queue} queueHeld={h.queueHeld} onQueue={h.onQueue} onUnqueue={h.onUnqueue} onSendNow={h.onSendNow} onSendNowText={h.onSendNowText} model={chat.model} onModel={(m) => h.update({ model: m })} groups={groups}
