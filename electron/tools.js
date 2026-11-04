@@ -114,6 +114,7 @@ function definitions({ teamsEnabled, makeEnabled, hasFolder, memoryEnabled, memo
       fn('delete_file', 'Deletes a file or folder (always asks the user for approval).', { path: { type: 'string' } }, ['path'])
     );
   }
+  defs.push(fn('compact_chat', 'Compacts this chat once your answer is finished: the older messages are summarized into one card and the last few stay as they are, so later turns cost fewer tokens. Use it yourself when the chat has grown long and the old part no longer matters word for word (for example the topic changed or a long task is done), or when the user asks to compact. Not for short chats. Needs no arguments and no approval.', {}, []));
   defs.push(fn('lock_app', 'Locks the Artemis app (the app lock from Settings → Security) right now. Use it when the user says "lock", "Artemis lock" or asks you to lock or secure the app. Needs no arguments and no approval. Only the user can unlock it again (password, Touch ID or their voice).', {}, []));
   if (memoryEnabled) {
     defs.push(
@@ -633,6 +634,7 @@ function summarize(name, args) {
     case 'use_tools': return 'Switch on tools: ' + [].concat(args.names || []).join(', ');
     case 'use_connector': return 'Switch on the connector ' + String(args.name || '');
     case 'lock_app': return 'Lock Artemis';
+    case 'compact_chat': return 'Compact this chat';
     case 'get_location': return 'Look up your approximate location from your IP address (one request to ipwho.is)';
     case 'schedule_task': return `Schedule "${args.name}": ${args.repeat}${args.from && args.to ? ` ${args.from}-${args.to}` : ''}${args.date ? ' ' + args.date : ''}${args.at ? ' at ' + args.at : ''}${args.every_minutes ? ' every ' + args.every_minutes + ' min' : ''}`;
     case 'update_schedule': { const f = Object.keys(args).filter((k) => k !== 'id'); return `Change scheduled task ${args.id}${args.name ? ` ("${args.name}")` : ''}${f.length ? ': ' + f.join(', ') : ''}${args.enabled === false ? ' (pause)' : ''}`; }
@@ -1036,6 +1038,11 @@ async function runTool(name, args, ctx) {
         if (!fs.existsSync(abs)) throw new Error(`Not found: ${args.path}`);
         fs.rmSync(abs, { recursive: true, force: true });
         return { ok: true, text: `Deleted: ${rel(root, abs)}` };
+      }
+      case 'compact_chat': {
+        if (!ctx.compactChat) return { ok: true, text: 'Compacting is not available in this kind of task.' };
+        ctx.compactChat();
+        return { ok: true, text: 'The chat will be compacted as soon as this answer ends. Finish your answer normally.' };
       }
       case 'lock_app': {
         if (!ctx.lockApp) return { ok: true, text: 'Locking is not available in this kind of task (scheduled tasks and helper agents never lock the app).' };
