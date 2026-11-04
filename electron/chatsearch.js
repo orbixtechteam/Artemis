@@ -40,7 +40,7 @@ function searchChats(chats, query, { limit = 8, projects = [] } = {}) {
 function recentChats(chats, n = 10, projects = []) {
   const pname = (id) => (projects.find((p) => p.id === id) || {}).name || '';
   return (chats || []).filter((c) => c && !c.incognito && (c.messages || []).length).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).slice(0, n)
-    .map((c) => ({ id: c.id, title: c.title || 'Untitled', project: pname(c.projectId), date: when(c.updatedAt), model: c.model || '', count: c.messages.length }));
+    .map((c) => ({ id: c.id, title: c.title || 'Untitled', project: pname(c.projectId), date: when(c.updatedAt), model: c.model || '', count: c.messages.length, source: c.source || '' }));
 }
 
 /** Plain text turns [{role, content}] (tool calls dropped), most recent `maxTurns`. */

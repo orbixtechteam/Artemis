@@ -60,6 +60,9 @@ function createChannel(runChat, abortFn, onTurn, autoLink, onLink) {
   };
 }
 
+const BACKGROUND_SOURCES = new Set(['heartbeat', 'webhook', 'schedule']);
+const isBackgroundChat = (c) => !!c && (BACKGROUND_SOURCES.has(c.source) || /^(heartbeat|bg)-/.test(String(c.id || '')));
+
 /**
  * deps: { getSettings(), getSecret(name), setSecret(name, value), saveSettings(patch), runChat({requestId,messages,send}),
  *         decide(id, ok), abort(requestId), parseFile(path), telegramApi? }
@@ -67,15 +70,17 @@ function createChannel(runChat, abortFn, onTurn, autoLink, onLink) {
 function createRemote(deps) {
   const autoLink = () => {
     if (!deps.chatsApi || deps.getSettings().remoteContinueLast === false) return null;
-    const r = deps.chatsApi.recent(1)[0]; if (!r) return null;
+    // skip background chats (heartbeat, webhook, schedule): the phone should continue a chat the user wrote in
+    const r = deps.chatsApi.recent(10).find((x) => !isBackgroundChat(x)); if (!r) return null;
     const c = deps.chatsApi.get(r.id);
+    if (isBackgroundChat(c)) return null;
     if (!c || Date.now() - (c.updatedAt || 0) > 12 * 3600e3) return null;
     return { chat: c, turns: deps.chatsApi.turns(c, 30) };
   };
   const channel = createChannel(deps.runChat, deps.abort, (l, userText, answer) => deps.appendToChat && deps.appendToChat(l.id, userText, answer), autoLink,
     (l) => { try { deps.saveSettings({ remoteLinkedChatId: l ? l.id : '' }); } catch {} });
   // remember which chat the phone was continuing across restarts
-  { const sid = deps.getSettings().remoteLinkedChatId; const c = sid && deps.chatsApi ? deps.chatsApi.get(sid) : null; if (c) channel.link(c, deps.chatsApi.turns(c, 30)); }
+  { const sid = deps.getSettings().remoteLinkedChatId; const c = sid && deps.chatsApi ? deps.chatsApi.get(sid) : null; if (c && !isBackgroundChat(c)) channel.link(c, deps.chatsApi.turns(c, 30)); }
   const control = createControl({
     getSettings: deps.getSettings, saveSettings: deps.saveSettings, models: deps.models || [], readStore: deps.readStore || (() => []),
     providers: deps.providersApi || null, liveModel: deps.liveModel,
@@ -185,4 +190,4 @@ function createRemote(deps) {
   };
 }
 
-module.exports = { createRemote, createChannel, describeCall };
+module.exports = { isBackgroundChat, createRemote, createChannel, describeCall };

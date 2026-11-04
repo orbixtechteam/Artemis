@@ -47,7 +47,7 @@ const READ_KEYS = [...Object.keys(SAFE_SETTINGS), 'shellEnabled', 'computerEnabl
 
 const READ_FS = new Set(['read_file', 'list_dir', 'search_files']);
 // Agents and teams: the chat tools from tools.js (agent_*, model_list, team_*), run against main's teams. Lists run at once, the rest ask.
-const TEAM_TOOLS = ['agent_list', 'agent_save', 'model_list', 'agent_set_model', 'team_list', 'team_save', 'team_start', 'team_delete'];
+const TEAM_TOOLS = ['agent_list', 'agent_save', 'model_list', 'agent_set_model', 'agent_delete', 'team_list', 'team_save', 'team_start', 'team_delete'];
 const TEAM_READ = new Set(['agent_list', 'model_list', 'team_list']);
 const GRANT_MS = 10 * 60 * 1000;
 // "Allow for 10 minutes" answers. Module scope: main rebuilds the tool list on every request.
@@ -175,8 +175,8 @@ function buildArtemisTools(d) {
       const read = TEAM_READ.has(f.name);
       return t(f.name, f.description.replace(/ Requires approval\.$/, ' The user is asked to confirm (once, or for 10 minutes).'), f.parameters.properties || {}, f.parameters.required || [], async (args) => {
         const approve = (info) => {
-          const del = info.name === 'team_delete';
-          return asked(del ? 'teams:delete:' + Math.random() : 'teams', del ? 'Let an outside app delete an agent team?' : 'Let an outside app change your agents and teams?', String(info.summary || info.name).slice(0, 600));
+          const del = info.name === 'team_delete' || info.name === 'agent_delete';
+          return asked(del ? 'teams:delete:' + Math.random() : 'teams', del ? `Let an outside app delete ${info.name === 'agent_delete' ? 'an agent' : 'an agent team'}?` : 'Let an outside app change your agents and teams?', String(info.summary || info.name).slice(0, 600));
         };
         const r = await d.teams.run(f.name, args || {}, { approve });
         if (r && r.denied) throw new Error(r.text);
