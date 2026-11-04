@@ -58,7 +58,7 @@ import { flushAllNotes } from './lib/noteRegistry.js';
 import CommandPalette from './components/CommandPalette.jsx';
 import { matchesAccelerator, formatAccelerator } from './lib/shortcuts.mjs';
 import { FilePanel, ArtifactPanel, ProgressPanel } from './components/SidePanel.jsx';
-import { greeting, toApiMessages, uid } from './lib/history.js';
+import { greeting, toApiMessages, uid, contextWindowOf, chatTokens } from './lib/history.js';
 import { needsTitle, keepsTitle } from './lib/titles.mjs';
 import LockHost from './components/LockHost.jsx';
 import { stripFences, codeOnly } from './lib/clip.mjs';
@@ -1227,13 +1227,16 @@ export default function App() {
   };
 
   const sendTo = (c, text, atts, opts) => {
-    if (!c || isRunning(c.id)) return false;
+    if (!c || isRunning(c.id) || compacting) return false;
     if (!settings.hasApiKey) { setModal('settings'); return false; }
     if (held[c.id]) setHeld((h) => ({ ...h, [c.id]: false }));
     const user = { id: uid(), role: 'user', content: text, attachments: atts, createdAt: Date.now(), ...(opts && opts.mentions && opts.mentions.length ? { mentions: opts.mentions } : {}) };
-    const msgs = [...c.messages, user];
     if (!c.messages.length && !c.incognito) updateChat(c.id, { title: (text || atts[0]?.name || 'New chat').replace(/\s+/g, ' ').slice(0, 48) });
-    startStream(c, msgs, opts);
+    if (needsCompact(c)) {
+      compactChat(c, true).then((m) => startStream({ ...c, messages: m || c.messages }, [...(m || c.messages), user], opts));
+      return true;
+    }
+    startStream(c, [...c.messages, user], opts);
     return true;
   };
   const send = (text, atts, extra) => {
@@ -1285,18 +1288,23 @@ export default function App() {
   const [compacting, setCompacting] = useState(false);
   const compactTail = (c) => { let i = Math.max(0, c.messages.length - 4); while (i > 0 && c.messages[i].role !== 'user') i--; return i; };
   const canCompact = (c) => !!c && !isRunning(c.id) && !compacting && compactTail(c) >= 2;
-  const compactChat = async (target) => {
-    const c = target && target.messages ? target : chat; if (!canCompact(c)) return;
+  // Returns the compacted message list (or null), so an automatic compact can send the next message on top of it.
+  const compactChat = async (target, auto) => {
+    const c = target && target.messages ? target : chat; if (!canCompact(c)) return null;
     const at = compactTail(c); const older = c.messages.slice(0, at);
     setCompacting(true);
     try {
       const r = await api.compact({ model: c.model, messages: toApiMessages(older), chatId: c.id, incognito: !!c.incognito });
-      if (!r.ok) { flashSent(r.error); return; }
-      const card = { id: uid(), role: 'user', compacted: older.length, content: `[Summary of the earlier conversation — compacted to save tokens]\n${r.summary}` };
+      if (!r.ok) { if (!auto) flashSent(r.error); return null; }
+      const card = { id: uid(), role: 'user', compacted: older.length, ...(auto ? { auto: true } : {}), content: `[Summary of the earlier conversation — compacted to save tokens]\n${r.summary}` };
+      const next = [card, ...c.messages.slice(at)];
       setChats((cs) => cs.map((x) => (x.id === c.id ? { ...x, messages: [card, ...x.messages.slice(at)], updatedAt: Date.now() } : x)));
-    } catch (e) { flashSent((e && e.message) || String(e)); }
+      return next;
+    } catch (e) { if (!auto) flashSent((e && e.message) || String(e)); return null; }
     finally { setCompacting(false); }
   };
+  // Automatic compact (like Claude Code): once, before a message is sent, when the chat fills ~80% of the model's window. The summary stays in the chat as a card, so later turns reuse it.
+  const needsCompact = (c) => settings.autoCompact !== false && canCompact(c) && chatTokens(c.messages) > Number(settings.compactAt || 80) / 100 * contextWindowOf(c.model || settings.model);
   actionsRef.current.compact = compactChat;
   // Sentinel keeps one chat. The first time it needs one it takes the chat open on screen (or starts a new one when no suitable
   // chat is open: a page like Settings or Home, a phone / scheduled-task chat), and from then on every turn goes there, even after

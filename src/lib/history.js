@@ -54,6 +54,27 @@ export function toApiMessages(messages) {
   return out;
 }
 
+/** A rough context window (tokens) for a model id; unknown models get 128K, like most current models. */
+export function contextWindowOf(model) {
+  const id = String(model || '').toLowerCase();
+  if (/gemini|1m\b|\[1m\]/.test(id)) return 1000000;
+  if (/gpt-5|gpt-4\.1|codex/.test(id)) return 400000;
+  if (/claude|anthropic|opus|sonnet|haiku|fable/.test(id)) return 200000;
+  if (/(\b|[-_:.])(1b|3b|7b|8b|9b)(\b|[-_:.])|gemma|ollama|lmstudio|llama-?3\.?1?-8/.test(id)) return 32000;
+  return 128000;
+}
+
+/** Estimated tokens of a chat as it would be sent (text is ~4 characters per token; an image counts as ~1.5K). */
+export function chatTokens(messages) {
+  let chars = 0;
+  for (const m of toApiMessages(messages)) {
+    if (typeof m.content === 'string') chars += m.content.length;
+    else if (Array.isArray(m.content)) for (const p of m.content) chars += p.type === 'text' ? (p.text || '').length : 6000;
+    if (m.tool_calls) chars += JSON.stringify(m.tool_calls).length;
+  }
+  return Math.round(chars / 4);
+}
+
 export function dayGroup(ts) {
   const d = new Date(ts), now = new Date();
   const days = Math.floor((new Date(now.getFullYear(), now.getMonth(), now.getDate()) - new Date(d.getFullYear(), d.getMonth(), d.getDate())) / 864e5);
