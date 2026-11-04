@@ -47,3 +47,16 @@ const assert = require('assert');
   assert.strictEqual(withCache(shot)[1].content[0].cache_control.type, 'ephemeral');
   console.log('agent: withCache ok');
 }
+
+// ---- automatic compact threshold: per-model window and the token estimate of a chat
+(async () => {
+  const { contextWindowOf, chatTokens } = await import('../src/lib/history.js');
+  assert.strictEqual(contextWindowOf('cli:claude:claude-opus-5-5'), 200000);
+  assert.strictEqual(contextWindowOf('prov:google:gemini-3-flash'), 1000000);
+  assert.strictEqual(contextWindowOf('prov:groq:llama-3.1-8b-instant'), 32000);
+  assert.strictEqual(contextWindowOf('prov:x:unknown-model'), 128000);
+  const msgs = [{ role: 'user', content: 'a'.repeat(4000) }, { role: 'assistant', steps: [{ text: 'b'.repeat(4000), toolCalls: [] }] }];
+  const t = chatTokens(msgs);
+  assert.ok(t >= 2000 && t < 2100, 'chat tokens ~ chars/4: ' + t);
+  console.log('compact window ok');
+})().catch((e) => { console.error(e); process.exit(1); });
