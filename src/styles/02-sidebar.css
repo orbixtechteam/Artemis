@@ -60,7 +60,7 @@
 .project-group-head:hover .project-open, .project-group-head:hover .x { display: inline-flex; }
 .project-open:hover { color: var(--text); background: var(--fill-2); }
 .project-submenu { display: flex; flex-direction: column; gap: 1px; margin: 1px 0 6px 19px; padding-left: 9px; border-left: .5px solid var(--line-2); }
-.project-submenu .chat-item { color: var(--text-2); }
+.project-submenu .chat-item { color: var(--text); }
 .project-submenu .chat-item:hover, .project-submenu .chat-item.active { color: var(--text); }
 .chat-item.view-all { color: var(--muted); }
 

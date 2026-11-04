@@ -448,14 +448,14 @@ const broadcastTheme = () => {
 
 // ---------- window ----------
 let win;
-const { createNotificationCenter } = require('./notifications');
+const { createNotificationCenter, plainText } = require('./notifications');
 // Every notification Artemis shows also lands in Settings → Notifications, and its unread count is the Dock number.
 let notifyCenter = null;
 const notifications = () => notifyCenter || (notifyCenter = createNotificationCenter({
   file: path.join(app.getPath('userData'), 'notifications.json'),
   onChange: (state) => { try { app.setBadgeCount(state.unread); } catch {} try { if (win && !win.isDestroyed()) win.webContents.send('notifications:changed', state); } catch {} }
 }));
-function Notification(opts) { try { notifications().add(opts); } catch {} return new NativeNotification(opts); }
+function Notification(opts) { opts = { ...opts, body: plainText(opts && opts.body) }; try { notifications().add(opts); } catch {} return new NativeNotification(opts); }
 Notification.isSupported = () => NativeNotification.isSupported();
 ipcMain.handle('notifications:read-all', () => notifications().readAll());
 ipcMain.handle('notifications:settings', () => shell.openExternal('x-apple.systempreferences:com.apple.Notifications-Settings.extension'));
@@ -507,6 +507,12 @@ function createWindow() {
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:/.test(url)) shell.openExternal(url);
     return { action: 'deny' };
+  });
+  // an artifact frame may not navigate itself away (location = 'https://…?data' would carry data out of a live artifact)
+  win.webContents.on('will-frame-navigate', (e) => {
+    if (e.isMainFrame) return;
+    const from = (() => { try { return e.frame && e.frame.url; } catch { return ''; } })() || '';
+    if (from.startsWith('artifact:') && !String(e.url).startsWith('artifact:')) e.preventDefault();
   });
   win.webContents.on('will-navigate', (e, url) => {
     const cur = (() => { try { return win.webContents.getURL().split('#')[0]; } catch { return ''; } })();
@@ -679,17 +685,57 @@ const jsonMemoryApi = (notify) => ({
 });
 
 // ---------- artifacts ----------
-const staged = new Map(); // token -> html
+const staged = new Map(); // token -> { html, csp }
 const ARTIFACT_CSP = "default-src 'none'; script-src 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com; style-src 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; img-src data: blob: https:; font-src https: data:; media-src data: blob: https:; connect-src 'none'; frame-src 'none'; form-action 'none'";
+// Live artifacts (dashboards that call artemis.call): they read connector data, so nothing may leave the frame. No https images, fonts or media
+// (an <img src="https://…?data"> would carry it out); scripts and styles only from the CDNs, which cannot send it anywhere readable.
+const LIVE_ARTIFACT_CSP = "default-src 'none'; script-src 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com; style-src 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; frame-src 'none'; form-action 'none'";
+const isLiveArtifact = (content) => /\bartemis\s*(\?\.|\.)\s*(call|json|tools)\b/.test(content);
+// window.artemis in the frame: postMessage to the window, which asks the user once and runs the call in main (artifact:call)
+const ARTIFACT_BRIDGE = `<script>(function(){var n=0,w={};addEventListener('message',function(e){if(e.source!==parent)return;var d=e.data;if(!d||d.__artemis!=='reply'||!w[d.id])return;var p=w[d.id];delete w[d.id];d.ok?p[0](d.result):p[1](new Error(d.error||'Call failed'))});function send(op,tool,args){return new Promise(function(res,rej){var id=++n;w[id]=[res,rej];parent.postMessage({__artemis:op,id:id,tool:tool,args:args||{}},'*')})}window.artemis={call:function(t,a){return send('call',t,a)},json:function(t,a){return send('call',t,a).then(function(s){try{return JSON.parse(s)}catch(e){return s}})},tools:function(){return send('tools')}}})();</script>`;
+// The sandbox has no allow-popups, so links (target=_blank, window.open) would do nothing: a real click on an http(s) link asks the
+// window to open it in the default browser instead. Untrusted clicks and window.open outside a user gesture are ignored.
+const ARTIFACT_LINKS = `<script>(function(){function go(u){try{u=new URL(u,location.href).href}catch(e){return}if(/^https?:/i.test(u))parent.postMessage({__artemis:'open',url:u},'*')}addEventListener('click',function(e){if(!e.isTrusted)return;var a=e.target&&e.target.closest&&e.target.closest('a[href]');if(!a)return;var h=a.getAttribute('href')||'';if(!h||h.charAt(0)==='#'||/^javascript:/i.test(h))return;e.preventDefault();go(a.href)},true);window.open=function(u){if(navigator.userActivation&&navigator.userActivation.isActive)go(u);return null}})();</script>`;
+function inject(html, script) {
+  if (/<head[^>]*>/i.test(html)) return html.replace(/<head[^>]*>/i, (h) => h + script);
+  if (/<html[^>]*>/i.test(html)) return html.replace(/<html[^>]*>/i, (h) => h + script);
+  return /^\s*<!doctype[^>]*>/i.test(html) ? html.replace(/^\s*<!doctype[^>]*>/i, (h) => h + script) : script + html;
+}
+const withBridge = (html) => inject(html, ARTIFACT_BRIDGE);
 function artifactHtml(content, kind) {
-  if (kind === 'svg') return `<!doctype html><meta charset="utf-8"><body style="margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#fff">${content}</body>`;
-  return /<html[\s>]|<!doctype/i.test(content) ? content : `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><body>${content}</body>`;
+  if (kind === 'svg') return `<!doctype html><meta charset="utf-8">${ARTIFACT_LINKS}<body style="margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#fff">${content}</body>`;
+  return inject(/<html[\s>]|<!doctype/i.test(content) ? content : `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><body>${content}</body>`, ARTIFACT_LINKS);
 }
 ipcMain.handle('artifact:stage', (_e, content, kind) => {
   const token = Math.random().toString(36).slice(2) + Date.now().toString(36);
-  staged.set(token, artifactHtml(String(content || '').slice(0, 5e6), kind));
+  const text = String(content || '').slice(0, 5e6);
+  const live = kind === 'html' && isLiveArtifact(text);
+  staged.set(token, { html: live ? withBridge(artifactHtml(text, kind)) : artifactHtml(text, kind), csp: live ? LIVE_ARTIFACT_CSP : ARTIFACT_CSP });
   while (staged.size > 40) staged.delete(staged.keys().next().value);
   return `artifact://view/${token}`;
+});
+// Connector tools a live artifact may call: read-only by annotation, or read-only by name when the server does not annotate (many do not)
+// Names are split into words (snake_case, camelCase): one of the first three words is a read verb (they may start with a vendor prefix,
+// ZohoMail_list_mails) and no word is a write verb (get_or_create).
+const READ_VERBS = new Set(['get', 'list', 'search', 'read', 'fetch', 'query', 'find', 'retrieve', 'view', 'describe', 'lookup', 'browse', 'count']);
+const WRITE_VERBS = new Set(['create', 'update', 'delete', 'remove', 'send', 'write', 'edit', 'move', 'archive', 'unarchive', 'trash', 'untrash', 'post', 'publish', 'reply', 'forward', 'add', 'set', 'apply', 'mark', 'merge', 'upload', 'cancel', 'commit', 'run', 'execute', 'clear', 'empty', 'enable', 'disable', 'reset', 'restore', 'label', 'unlabel', 'pin', 'unpin', 'snooze', 'copy', 'import', 'push', 'fork', 'request', 'perform', 'start', 'stop', 'open', 'like', 'unlike']);
+const nameWords = (t) => String(t).replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+const artifactToolOk = (name) => {
+  const info = mcp.info(name);
+  if (!info) return false;
+  if (info.readOnly) return true;
+  const w = nameWords(String(name).split('__').pop());
+  return w.slice(0, 3).some((x) => READ_VERBS.has(x)) && !w.some((x) => WRITE_VERBS.has(x));
+};
+// A flat list of names: that is what generated pages expect (tools.includes(name))
+ipcMain.handle('artifact:tools', () => mcp.index().flatMap((s) => s.tools.map((t) => `mcp__${s.slug}__${t}`).filter(artifactToolOk)));
+ipcMain.handle('artifact:call', async (_e, tool, args) => {
+  const name = String(tool || '');
+  if (!artifactToolOk(name)) return { ok: false, error: mcp.info(name) ? `${name} can change data; artifacts may only call read-only connector tools.` : mcp.explainMissing(name) };
+  try {
+    const r = await mcp.call(name, args && typeof args === 'object' ? args : {});
+    return r.ok ? { ok: true, result: r.text } : { ok: false, error: r.text };
+  } catch (e) { return { ok: false, error: e.message }; }
 });
 ipcMain.handle('artifact:save', async (_e, { title, kind, language, content }) => {
   const parent = BrowserWindow.fromWebContents(_e.sender) || win; // the Sentinel widget saves too: its own dialog, the main window stays in the back
@@ -1309,7 +1355,7 @@ async function executeRun({ requestId, model: model0, messages, project, system,
         new Notification({ title: 'Artemis stopped', body: stopReason.slice(0, 180), silent: false }).show();
         logger.info('chat', 'Stop notification shown: ' + stopReason.slice(0, 120));
       } else if (!stopReason && !aborted && !looking && !unattended && !source && lastText.trim() && Notification.isSupported()) {
-        const n = new Notification({ title: 'Artemis finished', body: lastText.replace(/\s+/g, ' ').trim().slice(0, 180) });
+        const n = new Notification({ title: 'Artemis finished', body: plainText(lastText).slice(0, 180) });
         n.on('click', () => showMain('chat notification clicked'));
         n.show();
       }
@@ -2287,9 +2333,9 @@ app.whenReady().then(() => {
   try { updater.start(); } catch (e) { logger.warn('update', 'Could not start the update checks: ' + e.message); }
   try {
     protocol.handle('artifact', (req) => {
-      const html = staged.get(new URL(req.url).pathname.slice(1));
-      if (!html) return new Response('Not found', { status: 404 });
-      return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8', 'content-security-policy': ARTIFACT_CSP } });
+      const page = staged.get(new URL(req.url).pathname.slice(1));
+      if (!page) return new Response('Not found', { status: 404 });
+      return new Response(page.html, { headers: { 'content-type': 'text/html; charset=utf-8', 'content-security-policy': page.csp } });
     });
   } catch {}
   try {
@@ -2483,6 +2529,7 @@ ipcMain.handle('sentinel:download', async (e) => {
 ipcMain.handle('quick:resize', (_e, mode) => quick?.resize(mode === 'chips' ? 'chips' : !!mode));
 ipcMain.handle('quick:hide', () => quick?.hide());
 ipcMain.handle('quick:mode', (_e, mode) => quick?.setMode(mode));
+ipcMain.handle('quick:search', () => { if (!lock.isLocked()) quick?.show('search'); }); // the sidebar's Search row: the same window as ⌘⇧Space inside Artemis
 // While a shortcut box in Settings is recording, the global shortcuts are let go, so pressing them reaches the box
 ipcMain.handle('shortcuts:pause', (_e, on) => { if (on) unregisterShortcuts(); else applyShortcut(); return true; });
 ipcMain.handle('quick:keep-open', (_e, on) => quick?.keepOpen(!!on));
