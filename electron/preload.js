@@ -210,6 +210,7 @@ contextBridge.exposeInMainWorld('api', {
   chatTitle: (o) => ipcRenderer.invoke('chat:title', o),
   abort: (requestId) => ipcRenderer.invoke('chat:abort', requestId),
   decide: (toolId, ok) => ipcRenderer.invoke('tool:decision', toolId, ok),
+  answer: (id, answers) => ipcRenderer.invoke('tool:answer', id, answers),
   onEvent: (cb) => sub('chat:event', cb),
   quickResize: (expanded) => ipcRenderer.invoke('quick:resize', expanded),
   quickHide: () => ipcRenderer.invoke('quick:hide'),
