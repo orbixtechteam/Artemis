@@ -38,7 +38,7 @@ const modelId = (m) => {
   if (/codex/i.test(v)) return 'cli:codex';
   return v;
 };
-const ASK_EACH_TIME = new Set(['hook_create', 'hook_delete', 'heartbeat_set', 'heartbeat_delete', 'agent_save', 'agent_set_model', 'team_save', 'team_start', 'team_delete']);
+const ASK_EACH_TIME = new Set(['hook_create', 'hook_delete', 'heartbeat_set', 'heartbeat_delete', 'agent_save', 'agent_set_model', 'agent_delete', 'team_save', 'team_start', 'team_delete']);
 // Tools that need one approval per task (per run), by category
 // A model can get stuck saving, deleting and re-saving the same memory. Memory may change a few times per task, then it is refused.
 const MEMORY_CHANGES_PER_TASK = 4;
@@ -375,6 +375,7 @@ function definitions({ teamsEnabled, makeEnabled, hasFolder, memoryEnabled, memo
         agents: { type: 'array', items: { type: 'string' }, description: 'Agent names, e.g. ["Scout", "Themis"]' },
         model: { type: 'string', description: 'Model id from model_list, "cli:claude", "cli:codex", or empty for the default' }
       }, ['agents', 'model']),
+      fn('agent_delete', 'Deletes one of the user\'s agents (by name). An agent that is still a member of a team is not deleted: change or delete the team first. Requires approval.', { name: { type: 'string' } }, ['name']),
       fn('team_list', 'Lists the agent teams with their goal, members, status, schedule and budget.', {}),
       fn('team_save', 'Creates (no id) or changes (with id) an agent team: a goal, members from the user\'s agents, and how it runs. Members must exist: create them with agent_save first. Requires approval.', {
         id: { type: 'string', description: 'Only to change an existing team (from team_list)' },
@@ -640,6 +641,7 @@ function summarize(name, args) {
     case 'hook_delete': return `Delete webhook ${args.id}`;
     case 'agent_save': return `Save agent "${args.name}"${args.role ? ` (${args.role})` : ''}${Array.isArray(args.tools) && args.tools.length ? ' · tools: ' + args.tools.join(', ') : ''}`;
     case 'agent_set_model': return `Set the model of ${(args.agents || []).join(', ')} to ${args.model || 'the default'}`;
+    case 'agent_delete': return `Delete agent "${args.name}" (permanent)`;
     case 'team_save': return `${args.id ? 'Change' : 'Create'} team "${args.name}" · ${(args.members || []).map((m) => m.name).join(', ')}${args.repeat && args.repeat.type ? ` · runs ${args.repeat.type === 'interval' ? `every ${Math.round((args.repeat.every || 60) / 60)} h` : `${args.repeat.type} at ${args.repeat.at || '09:00'}`}` : ''}${args.ask_first === false ? ' · acts without asking' : ''}`;
     case 'team_start': return `Start a run of team ${args.id}`;
     case 'team_delete': return `Delete team ${args.id}`;
@@ -1388,6 +1390,17 @@ async function runTool(name, args, ctx) {
           done.push(a.name);
         }
         return { ok: true, text: `${done.join(', ')} now use${done.length === 1 ? 's' : ''} ${model || 'the default model'}. A team member model set in the team overrides this.` };
+      }
+      case 'agent_delete': {
+        if (!ctx.teams || !ctx.teams.removeAgent) throw new Error('Agents and teams are not available here.');
+        const q = String(args.name || '').trim().toLowerCase();
+        const a = ctx.teams.agents().find((x) => x.name.toLowerCase() === q);
+        if (!a) throw new Error(`No agent named "${args.name}". Use agent_list.`);
+        const inTeams = (await ctx.teams.list()).filter((t) => (t.members || []).some((m) => String(m.name).toLowerCase() === q)).map((t) => `"${t.name}"`);
+        if (inTeams.length) throw new Error(`${a.name} is a member of ${inTeams.join(', ')}. Remove ${a.name} from the team (team_save) or delete the team first.`);
+        const r = ctx.teams.removeAgent(a.name);
+        if (!r || !r.ok) throw new Error(`${a.name} is a built-in role or has no file of its own, so it cannot be deleted.`);
+        return { ok: true, text: `Agent "${a.name}" deleted.` };
       }
       case 'team_list': {
         if (!ctx.teams) throw new Error('Agents and teams are not available here.');

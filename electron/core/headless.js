@@ -235,7 +235,7 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
         phone: remote ? remote.phone() : null,
         schedule: unattended ? null : { list: () => sched.list(), save: (j) => sched.save(j), remove: (id) => sched.remove(id), hooks: hooksTools, heartbeat: heartbeatTools },
         teams: unattended ? (watchTeamId ? scopedTeams({ list: async () => teams.list(), projects: () => readJson('projects', []), start: async (id) => teams.start(id) }, watchTeamId) : null) : {
-          agents: (root) => agents.list(root || null).map(({ file, ...a }) => a), projects: () => readJson('projects', []).map((p) => ({ id: p.id, name: p.name, folder: p.folder || '', instructions: p.instructions || '' })), saveAgent: (a) => agents.save(a),
+          agents: (root) => agents.list(root || null).map(({ file, ...a }) => a), projects: () => readJson('projects', []).map((p) => ({ id: p.id, name: p.name, folder: p.folder || '', instructions: p.instructions || '' })), saveAgent: (a) => agents.save(a), removeAgent: (name) => agents.remove(name),
           list: async () => teams.list(), get: async (id) => teams.list().find((t) => t.id === id || String(t.name).toLowerCase() === String(id).toLowerCase()) || null,
           save: async (d) => { const t = teams.save(d); syncTeamJob(t); return t; }, start: async (id) => teams.start(id), remove: async (id) => { const j = sched.list().find((x) => x.teamId === id); if (j) sched.remove(j.id); return teams.remove(id); }
         },

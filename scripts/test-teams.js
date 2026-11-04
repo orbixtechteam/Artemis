@@ -522,6 +522,16 @@ const def = (extra) => ({ name: 'Launch', goal: 'Ship the notes', members: [{ na
     r = await tools.run('agent_set_model', { agents: ['Pip'], model: 'prov:or:cheap' }, ctx);
     assert.ok(r.ok, r.text);
     assert.strictEqual(saved.at(-1).model, 'prov:or:cheap'); assert.strictEqual(saved.at(-1).body, 'Post notes on Substack.');
+    const removed = [];
+    ctx.teams.removeAgent = (n) => { removed.push(n); const i = roster.findIndex((a) => a.name === n); if (i < 0) return { ok: false }; roster.splice(i, 1); return { ok: true }; };
+    r = await tools.run('agent_delete', { name: 'pip' }, ctx);
+    assert.ok(!r.ok && /Notes/.test(r.text) && !removed.length, 'a team member is not deleted');
+    r = await tools.run('agent_delete', { name: 'Nobody' }, ctx);
+    assert.ok(!r.ok && /agent_list/.test(r.text));
+    roster.push({ name: 'Solo', role: 'Writer', tools: [] });
+    r = await tools.run('agent_delete', { name: 'solo' }, ctx);
+    assert.ok(r.ok && removed[0] === 'Solo' && !roster.some((a) => a.name === 'Solo'), r.text);
+    assert.ok(approvals.some((x) => /Delete agent "solo"/.test(x)), 'deleting asks');
     console.log('teams: chat tools ok');
   }
   console.log('teams: all tests passed');
