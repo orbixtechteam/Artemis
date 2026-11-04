@@ -32,6 +32,6 @@ export function viewKind(a) {
   if (ext === 'md' || ext === 'markdown') return 'markdown';
   if (ext === 'html' || ext === 'htm') return 'html';
   if (ext === 'svg') return 'svg';
-  if (a.kind === 'binary' || a.kind === 'archive' || a.kind === 'pdf' || a.kind === 'docx') return 'text';
+  if (a.kind === 'binary' || a.kind === 'archive' || a.kind === 'pdf' || a.kind === 'docx' || a.kind === 'pptx') return 'text';
   return 'code';
 }

@@ -237,6 +237,7 @@ function kindOf(file) {
   if (ext === '.zip') return 'archive';
   if (SHEET_EXT.has(ext)) return 'sheet';
   if (ext === '.docx') return 'docx';
+  if (ext === '.pptx') return 'pptx';
   if (ext === '.pdf') return 'pdf';
   if (IMAGE_MIME[ext]) return 'image';
   if (TEXT_EXT.has(ext) || ext === '') return 'text';
@@ -287,6 +288,24 @@ function usedRange(ws, maxCells) {
   return cut;
 }
 
+/** PowerPoint: the text of every slide (and its speaker notes), in slide order. */
+async function readPptx(buf) {
+  let zip;
+  try { zip = await JSZip.loadAsync(buf); } catch (e) { throw new Error(`PowerPoint file could not be read: ${e.message}`); }
+  const num = (n) => Number((n.match(/(\d+)\.xml$/) || [])[1]) || 0;
+  const textOf = (xml) => xml.split(/<\/a:p>/).map((p) => (p.match(/<a:t>([^<]*)<\/a:t>/g) || []).map((t) => t.slice(5, -6)).join('')).filter((l) => l.trim())
+    .join('\n').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
+  const slides = Object.keys(zip.files).filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n)).sort((a, b) => num(a) - num(b));
+  const parts = [];
+  for (const n of slides) {
+    let t = textOf(await zip.file(n).async('string'));
+    const notes = zip.file(`ppt/notesSlides/notesSlide${num(n)}.xml`);
+    if (notes) { const nt = textOf(await notes.async('string')).replace(/^\d+$/m, '').trim(); if (nt) t += `\n[Notes] ${nt}`; }
+    parts.push(`--- Slide ${num(n)} ---\n${t}`);
+  }
+  return { kind: 'pptx', text: parts.join('\n\n'), pages: slides.length, size: buf.length };
+}
+
 /** Turns a file's content into plain text. Returns a dataUrl for images. Big text files return only their start (large: true). */
 async function readContent(abs, { sheet } = {}) {
   let kind = kindOf(abs);
@@ -321,6 +340,7 @@ async function readContent(abs, { sheet } = {}) {
     const r = await mammoth.extractRawText({ buffer: buf });
     return { kind, text: r.value, size: buf.length };
   }
+  if (kind === 'pptx') return readPptx(buf);
   if (kind === 'pdf') {
     const pdfParse = require('pdf-parse/lib/pdf-parse.js');
     const r = await pdfParse(buf);

@@ -72,7 +72,7 @@ function definitions({ teamsEnabled, makeEnabled, hasFolder, memoryEnabled, memo
         path: { type: 'string', description: 'Folder path relative to the project root. Default "."' },
         recursive: { type: 'boolean', description: 'Also list subfolders (up to 3 levels)' }
       }),
-      fn('read_file', 'Reads a file: text, CSV, Excel (xlsx/xls/ods), Word (docx), PDF. Excel sheets are returned as CSV. Reading a whole file is expensive: a big file comes back as an outline; find the spot with search_files or the outline, then read only those lines with start_line/end_line. For long files, continue with offset.', {
+      fn('read_file', 'Reads a file: text, CSV, Excel (xlsx/xls/ods), Word (docx), PowerPoint (pptx), PDF. Excel sheets are returned as CSV. Reading a whole file is expensive: a big file comes back as an outline; find the spot with search_files or the outline, then read only those lines with start_line/end_line. For long files, continue with offset.', {
         path: { type: 'string' },
         sheet: { type: 'string', description: 'Excel only: a single sheet name' },
         offset: { type: 'number', description: 'Character offset (to read the next chunk of a long file)' },
@@ -178,7 +178,7 @@ function definitions({ teamsEnabled, makeEnabled, hasFolder, memoryEnabled, memo
       fn('notes_append', 'Appends markdown to the end of a note, creating it if needed (requires approval).', { path: { type: 'string' }, text: { type: 'string' } }, ['path', 'text']),
       fn('library_list', "Lists the files in the user's Files library (everything they attached to chats before). Requires the user's approval once per task.", {}),
       fn('library_search', "Searches the user's Files library by file name and text content. Returns paths and snippets.", { query: { type: 'string' } }, ['query']),
-      fn('library_read', 'Reads a text file from the Files library by its path (from library_list / library_search or the library attribute of an attachment). For a big file (CSV, log) do NOT read it whole: pass query to get only the matching lines, or from_line / to_line for a slice (line 1 of a CSV is the header). For Excel, Word or PDF files use the attachment text instead.', { path: { type: 'string' }, query: { type: 'string', description: 'Return only lines containing this text (case-insensitive)' }, regex: { type: 'boolean', description: 'Treat query as a regular expression' }, from_line: { type: 'number', description: 'First line to return (1-based)' }, to_line: { type: 'number', description: 'Last line to return' } }, ['path']),
+      fn('library_read', 'Reads a file from the Files library by its path (from library_list / library_search or the library attribute of an attachment): text, CSV, PDF, Word (docx), Excel (xlsx/xls/ods) and PowerPoint (pptx), whose text is extracted. For a big file do NOT read it whole: pass query to get only the matching lines, or from_line / to_line for a slice (line 1 of a CSV is the header). A cut-off result says which from_line to continue with.', { path: { type: 'string' }, query: { type: 'string', description: 'Return only lines containing this text (case-insensitive)' }, regex: { type: 'boolean', description: 'Treat query as a regular expression' }, from_line: { type: 'number', description: 'First line to return (1-based)' }, to_line: { type: 'number', description: 'Last line to return' } }, ['path']),
       fn('library_write', 'Creates or fully replaces a text file in the Files library (requires approval). Prefer library_edit for small changes.', { path: { type: 'string', description: 'e.g. "report.md"' }, text: { type: 'string' } }, ['path', 'text']),
       fn('library_edit', 'Replaces one passage inside a text file of the Files library (requires approval). old_text must match the file exactly once. The stored file is updated in place.', { path: { type: 'string' }, old_text: { type: 'string', description: 'Exact text to replace (copy it from library_read)' }, new_text: { type: 'string' } }, ['path', 'old_text', 'new_text']),
       fn('library_delete', 'Deletes a file (or an empty folder) from the Files library (always asks the user for approval). Use it for files saved with library_write; delete_file only works in the project folder.', { path: { type: 'string', description: 'Path inside the Files library, as in library_list' }, recursive: { type: 'boolean', description: 'Also delete a folder that is not empty. Default false.' } }, ['path'])
@@ -901,7 +901,7 @@ async function runTool(name, args, ctx) {
         if (!args.start_line && !args.offset && !args.full && !r.sheets && !r.pages && text.length > OUTLINE_MIN && files.TEXT_EXT.has(path.extname(abs).toLowerCase())) return { ok: true, text: outlineOf(text, args.path) };
         let head = r.encoding && r.encoding !== 'utf8' ? `[encoding: ${r.encoding}${r.bom ? ' with BOM' : ''}; edits keep it]\n` : '';
         if (r.sheets) head += `Sheets: ${r.sheets.join(', ')}\n\n`;
-        if (r.pages) head += `PDF pages: ${r.pages}\n\n`;
+        if (r.pages) head += r.kind === 'pptx' ? `Slides: ${r.pages}\n\n` : `PDF pages: ${r.pages}\n\n`;
         if (args.start_line) {
           const all = text.split('\n');
           const from = Math.max(1, Math.floor(Number(args.start_line)) || 1);
@@ -1273,10 +1273,14 @@ async function runTool(name, args, ctx) {
       case 'library_read': {
         if (!ctx.library) throw new Error('The Files library is not available here.');
         if (args.query || args.from_line || args.to_line) {
-          const r = ctx.library.readLines(args.path, { from: args.from_line, to: args.to_line, query: args.query, regex: !!args.regex });
+          const r = await ctx.library.readLines(args.path, { from: args.from_line, to: args.to_line, query: args.query, regex: !!args.regex });
           return { ok: true, text: `${r.name}: ${r.total} lines${args.query ? `, ${r.hits}${r.more ? '+' : ''} matching` : ''}\n${r.text || '(nothing matched)'}${r.more ? '\n…[more lines match; narrow the query or use from_line / to_line]' : ''}` };
         }
-        const r = ctx.library.read(args.path, { max: MAX_RESULT });
+        const r = await ctx.library.read(args.path, { max: MAX_RESULT });
+        if (r.extracted) {
+          const head = `${r.name}: ${r.kind === 'pptx' ? `${r.pages} slides, ` : r.pages ? `${r.pages} pages, ` : r.sheets ? `sheets ${r.sheets.join(', ')}, ` : ''}${r.lines} lines of extracted text\n`;
+          return { ok: true, text: head + r.text + (r.truncated ? `\n…[cut at line ${r.shownLines} of ${r.lines}; continue with from_line=${r.shownLines + 1}]` : '') };
+        }
         let disk = ''; try { disk = ctx.library.abs(args.path); } catch {}
         return { ok: true, text: (disk && r.truncated ? `(Full file on disk: ${disk}. For a big file use run_command with head, grep, sed or python on that path instead of reading it all.)\n` : '') + r.text + (r.truncated ? `\n…[truncated, ${r.length} characters total]` : '') };
       }
@@ -1287,7 +1291,8 @@ async function runTool(name, args, ctx) {
       }
       case 'library_edit': {
         if (!ctx.library) throw new Error('The Files library is not available here.');
-        const cur = ctx.library.read(args.path, { max: 5e6 });
+        const cur = await ctx.library.read(args.path, { max: 5e6 });
+        if (cur.extracted) throw new Error(`"${cur.name}" is not a text file: its text can be read but it cannot be edited here.`);
         if (cur.truncated) throw new Error('That file is too large to edit in one go.');
         const oldT = String(args.old_text == null ? '' : args.old_text);
         if (!oldT) throw new Error('old_text is empty. Use library_write to replace the whole file.');

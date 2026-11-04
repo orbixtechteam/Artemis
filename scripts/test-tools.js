@@ -229,7 +229,7 @@ const XLSX = require('xlsx');
       lib.write('todo.md', 'a\nb\nc');
       const lctx = { library: lib, session: new Set(), approve: async () => true };
       let l = await tools.run('library_edit', { path: 'todo.md', old_text: 'b', new_text: 'B' }, lctx);
-      assert(l.ok && lib.read('todo.md').text === 'a\nB\nc', JSON.stringify(l));
+      assert(l.ok && (await lib.read('todo.md')).text === 'a\nB\nc', JSON.stringify(l));
       l = await tools.run('library_search', { query: 'todo' }, lctx);
       assert(l.ok && l.text.includes('todo.md'));
       l = await tools.run('library_edit', { path: 'todo.md', old_text: 'zzz', new_text: 'x' }, lctx).catch(() => ({ ok: false }));
