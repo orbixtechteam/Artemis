@@ -25,12 +25,13 @@ export function ProjectsList({ projects, chats, onOpen, onNew, onPin }) {
           {[...projects].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0)).map((p) => {
             const n = chats.filter((c) => c.projectId === p.id).length;
             return (
-              <button key={p.id} className="card" onClick={() => onOpen(p.id)}>
+              <button key={p.id} className="card" data-project={p.id} onClick={() => onOpen(p.id)}>
                 <div className="card-title"><ProjectLogo logo={p.logo} size={16} /> {p.name}<span role="button" className={`card-pin ${p.pinned ? 'on' : ''}`} title={p.pinned ? 'Unpin' : 'Pin'} onClick={(e) => { e.stopPropagation(); onPin(p.id); }}><Icon name="pin" size={14} /></span></div>
                 <div className="card-text">{p.instructions ? p.instructions.slice(0, 110) : 'No instructions yet'}</div>
                 <div className="card-meta">
                   {p.folder && <span><Icon name="folderOpen" size={13} /> {base(p.folder)}</span>}
                   <span><Icon name="chat" size={13} /> {n} chat{n === 1 ? '' : 's'}</span>
+                  {p.sideHidden && <span title="Right-click → Show in sidebar">Hidden from sidebar</span>}
                 </div>
               </button>
             );

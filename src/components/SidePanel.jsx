@@ -14,12 +14,13 @@ import FindBar from './FindBar.jsx';
 
 const api = window.api;
 
-function Head({ title, sub, onClose, expanded, onExpand, children }) {
+function Head({ title, sub, onClose, expanded, onExpand, onChat, children }) {
   return (
     <div className="sp-head">
       <div className="sp-title"><span className="t">{title}</span>{sub && <span className="sub">{sub}</span>}</div>
       {children}
-      <button className="icon-btn" title={expanded ? 'Shrink' : 'Expand'} aria-label={expanded ? 'Shrink' : 'Expand'} onClick={onExpand}><Icon name="expand" size={16} /></button>
+      {onChat && <button className="sp-btn" title="Open the chat this came from" onClick={onChat}><Icon name="chat" size={14} /> Chat</button>}
+      {onExpand && <button className="icon-btn" title={expanded ? 'Shrink' : 'Expand'} aria-label={expanded ? 'Shrink' : 'Expand'} onClick={onExpand}><Icon name="expand" size={16} /></button>}
       <button className="icon-btn" title="Close" aria-label="Close" onClick={onClose}><Icon name="x" size={17} /></button>
     </div>
   );
@@ -193,12 +194,45 @@ export function FilePanel({ file: a, onClose, expanded, onExpand }) {
   );
 }
 
-export function ArtifactPanel({ artifact, onClose, expanded, onExpand }) {
+// Live artifacts (window.artemis.call in the frame) read connector data. The user allows it once per artifact while the app runs;
+// parallel calls share one question.
+const liveAsk = new Map(); // artifact id -> Promise<boolean>
+const allowLive = (a) => {
+  if (!liveAsk.has(a.id)) {
+    const p = askConfirm({ title: 'Let this artifact read your connectors?', message: `"${a.title}" wants to load live data from your connectors (read-only tools only, e.g. search and list). It cannot change anything or send the data out.`, confirmLabel: 'Allow' });
+    liveAsk.set(a.id, p);
+    p.then((ok) => { if (!ok) liveAsk.delete(a.id); }); // a "no" asks again on the next call
+  }
+  return liveAsk.get(a.id);
+};
+/** Answers window.artemis calls from the artifact frame in frameRef. */
+function useArtifactBridge(frameRef, artifact) {
+  useEffect(() => {
+    if (!artifact) return;
+    const onMsg = async (e) => {
+      const f = frameRef.current;
+      if (!f || e.source !== f.contentWindow) return;
+      const d = e.data;
+      if (!d || (d.__artemis !== 'call' && d.__artemis !== 'tools')) return;
+      const reply = (r) => { try { f.contentWindow && f.contentWindow.postMessage({ __artemis: 'reply', id: d.id, ...r }, '*'); } catch {} };
+      if (!(await allowLive(artifact))) return reply({ ok: false, error: 'The user did not allow connector access.' });
+      if (d.__artemis === 'tools') return reply({ ok: true, result: await api.artifactTools().catch(() => []) });
+      const r = await api.artifactCall(String(d.tool || ''), d.args).catch((err) => ({ ok: false, error: err.message }));
+      reply(r && r.ok ? { ok: true, result: r.result } : { ok: false, error: (r && r.error) || 'Call failed' });
+    };
+    window.addEventListener('message', onMsg);
+    return () => window.removeEventListener('message', onMsg);
+  }, [artifact && artifact.id]);
+}
+
+export function ArtifactPanel({ artifact, onClose, expanded, onExpand, onChat }) {
   const [ver, setVer] = useState(-1);
   const [tab, setTab] = useState('preview');
   const [src, setSrc] = useState('');
   const [note, setNote] = useState('');
   const bodyRef = React.useRef(null);
+  const frameRef = React.useRef(null);
+  useArtifactBridge(frameRef, artifact);
   const versions = artifact ? artifact.versions : [];
   const idx = ver < 0 || ver >= versions.length ? versions.length - 1 : ver;
   const content = versions[idx] || '';
@@ -220,7 +254,7 @@ export function ArtifactPanel({ artifact, onClose, expanded, onExpand }) {
   const sub = { html: 'Web page', svg: 'SVG', markdown: 'Document', spreadsheet: 'Spreadsheet', code: artifact.language || 'Code' }[artifact.type];
   return (
     <>
-      <Head title={artifact.title} sub={sub} onClose={onClose} expanded={expanded} onExpand={onExpand}>
+      <Head title={artifact.title} sub={sub} onClose={onClose} expanded={expanded} onExpand={onExpand} onChat={onChat}>
         {versions.length > 1 && (
           <Select className="sp-ver" value={idx} onChange={(e) => setVer(Number(e.target.value))}>
             {versions.map((_, i) => <option key={i} value={i}>v{i + 1}{i === versions.length - 1 ? ' (latest)' : ''}</option>)}
@@ -237,7 +271,7 @@ export function ArtifactPanel({ artifact, onClose, expanded, onExpand }) {
       )}
       {!(live && tab === 'preview') && <FindBar key={artifact.id} targetRef={bodyRef} />}
       <div className={`sp-body ${live && tab === 'preview' ? 'flush' : ''}`} ref={bodyRef}>
-        {tab === 'preview' && live && (src ? <iframe className="artifact-frame" title={artifact.title} sandbox="allow-scripts" src={src} /> : <div className="muted pad">Loading…</div>)}
+        {tab === 'preview' && live && (src ? <iframe ref={frameRef} className="artifact-frame" title={artifact.title} sandbox="allow-scripts" src={src} /> : <div className="muted pad">Loading…</div>)}
         {tab === 'preview' && artifact.type === 'markdown' && <div className="sp-doc"><Markdown text={content} /></div>}
         {tab === 'preview' && sheetList && sheetList.length > 1 && <div className="tabs sp-sheets">{sheetList.map((sh, i) => <button key={i} className={i === sheetTab ? 'active' : ''} onClick={() => setSheetTab(i)}>{sh.name}</button>)}</div>}
         {tab === 'preview' && isTable && tableRows && <DataTable rows={tableRows} clean />}

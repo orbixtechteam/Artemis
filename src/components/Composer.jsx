@@ -167,7 +167,7 @@ export function ChatPills({ brains = [], brain, onBrain, councilPick, onRevote, 
         </Select>
       )}
       {onPerm && (
-        <Select className={`pill-select perm ${perm}`} title="Auto-allow all: file edits, agent writes, web, terminal, computer control, Make and connectors run without asking. Deleting files still asks." value={perm} onChange={(e) => onPerm(e.target.value)}>
+        <Select className={`pill-select perm ${perm === 'auto' ? 'auto' : ''}`} title="Auto-allow all: file edits, agent writes, web, terminal, computer control, Make and connectors run without asking. Deleting files still asks." value={perm} onChange={(e) => onPerm(e.target.value)}>
           <option value="ask">Ask first</option>
           <option value="auto">Auto-allow</option>
         </Select>
