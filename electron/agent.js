@@ -545,6 +545,16 @@ function compactHistory(history, limitTokens = DEFAULT_CONTEXT_TOKENS) {
 }
 
 
+/** A rough context window (tokens) for a model id (same table as src/lib/history.js); unknown models get 128K. */
+function contextWindowOf(model) {
+  const id = String(model || '').toLowerCase();
+  if (/gemini|1m\b|\[1m\]/.test(id)) return 1000000;
+  if (/gpt-5|gpt-4\.1|codex/.test(id)) return 400000;
+  if (/claude|anthropic|opus|sonnet|haiku|fable/.test(id)) return 200000;
+  if (/(\b|[-_:.])(1b|3b|7b|8b|9b)(\b|[-_:.])|gemma|ollama|lmstudio|llama-?3\.?1?-8/.test(id)) return 32000;
+  return 128000;
+}
+
 // ---------- automatic summarising (compact) ----------
 const summaryCache = []; // {n, hash, summary}: so later turns of the same chat do not rebuild the summary
 const hashMsgs = (arr) => require('crypto').createHash('sha256').update(JSON.stringify(arr)).digest('hex');
@@ -557,12 +567,12 @@ function isShotMsg(m) { return !!m && m.role === 'user' && (!!m._shot || (Array.
 function transcript(msgs) {
   const cut = (t, n) => (t.length > n ? t.slice(0, n) + ' …' : t);
   return msgs.map((m) => {
-    if (m.role === 'tool') return `TOOL RESULT: ${cut(textOf(m), 700)}`;
+    if (m.role === 'tool') return `TOOL RESULT: ${cut(textOf(m), 2000)}`;
     if (m.role === 'assistant') {
-      const calls = (m.tool_calls || []).map((c) => `${c.function.name}(${cut(c.function.arguments || '', 160)})`).join('; ');
-      return `ASSISTANT: ${cut(textOf(m), 1500)}${calls ? ` [tool calls: ${calls}]` : ''}`;
+      const calls = (m.tool_calls || []).map((c) => `${c.function.name}(${cut(c.function.arguments || '', 400)})`).join('; ');
+      return `ASSISTANT: ${cut(textOf(m), 8000)}${calls ? ` [tool calls: ${calls}]` : ''}`;
     }
-    return `USER: ${cut(textOf(m), 1800)}`;
+    return `USER: ${cut(textOf(m), 8000)}`;
   }).join('\n');
 }
 
@@ -597,7 +607,7 @@ async function summarizeHistory(history, { url, key, model, usageModel, signal, 
     const fresh = older.slice(from);
     // Memory flush: the messages about to be summarized go to onCompact (it saves what is worth keeping). It runs on the side, so compaction does not wait for it.
     if (onCompact) { try { Promise.resolve(onCompact(transcript(fresh))).catch(() => {}); } catch {} }
-    const body = (base ? `Previous summary:\n${base}\n\nNew messages to merge:\n` : '') + transcript(fresh).slice(-70000);
+    const body = (base ? `Previous summary:\n${base}\n\nNew messages to merge:\n` : '') + transcript(fresh).slice(-240000);
     const res = await fetch(url, {
       method: 'POST', signal,
       headers: { ...headersFor(url), 'content-type': 'application/json', ...(key ? { authorization: `Bearer ${key}` } : {}) },
@@ -623,7 +633,7 @@ async function summarizeHistory(history, { url, key, model, usageModel, signal, 
 
 /** Summarise a whole list of API messages into a briefing (used by the manual Compact button). */
 async function summarizeAll(msgs, { url, key, model, usageModel, signal, onUsage, complete }) {
-  if (complete) { const s = String(await complete(SUMMARY_SYSTEM, transcript(msgs).slice(-70000)) || '').trim(); if (!s) throw new Error('The model returned an empty summary.'); return s; } // Claude Code / Codex
+  if (complete) { const s = String(await complete(SUMMARY_SYSTEM, transcript(msgs).slice(-240000)) || '').trim(); if (!s) throw new Error('The model returned an empty summary.'); return s; } // Claude Code / Codex
   const res = await fetch(url, {
     method: 'POST', signal,
     headers: { ...headersFor(url), 'content-type': 'application/json', ...(key ? { authorization: `Bearer ${key}` } : {}) },
@@ -631,7 +641,7 @@ async function summarizeAll(msgs, { url, key, model, usageModel, signal, onUsage
       model, stream: false, max_tokens: 1500, ...routingBody(url),
       messages: [
         { role: 'system', content: SUMMARY_SYSTEM },
-        { role: 'user', content: transcript(msgs).slice(-70000) }
+        { role: 'user', content: transcript(msgs).slice(-240000) }
       ]
     })
   });
@@ -757,6 +767,8 @@ async function runAgent(opts) {
   let maxTokKey = 'max_tokens'; // some endpoints (OpenAI reasoning models) want max_completion_tokens
   let ctxRetried = false; // a context-length error is retried once after aggressive compaction
   const usageModel = opts.usageModel || model;
+  const runLimit = Math.min(DEFAULT_CONTEXT_TOKENS, Math.round(contextWindowOf(usageModel) * 0.6)); // small-window models compact earlier
+  const sumRoute = opts.summarizer || { url, key, model, usageModel }; // the compact model from Settings, else the run's own model
   let skillsIdx = null, agentsIdx = null, wsCtx = null, schedSum = null; // read once per run
   const effort = ['low', 'medium', 'high'].includes(opts.reasoningEffort) ? opts.reasoningEffort : '';
   let toolCap = 0, capNoticed = false; // toolCap: max tools the endpoint accepts (Groq: 128), learned from its error or known by host
@@ -963,7 +975,7 @@ async function runAgent(opts) {
       // Last step of the allowance: a run that has been changing things is summarized and given another round (up to 4 times) instead of being cut off.
       if (iter === maxIter - 1 && !opts.isSub && opts.autoCompact !== false && stepExt < 4 && (stepExt === 0 ? wrote : wroteSince)) {
         let ok = false;
-        try { ok = await summarizeHistory(history, { url, key, model, usageModel, signal, limitTokens: 1000, onUsage: opts.onUsage, onCompact: opts.isSub ? null : opts.onCompact }); } catch (e) { if (signal?.aborted) throw e; }
+        try { ok = await summarizeHistory(history, { ...sumRoute, signal, limitTokens: 1000, onUsage: opts.onUsage, onCompact: opts.isSub ? null : opts.onCompact }); } catch (e) { if (signal?.aborted) throw e; }
         if (ok) { stepExt++; maxIter += MAX_ITERATIONS; wroteSince = false; send({ type: 'notice', text: `${iter + 1} steps so far: the earlier steps were summarized and the task carries on.` }); }
       }
       if (iter > 0) send({ type: 'step:new' });
@@ -990,11 +1002,11 @@ async function runAgent(opts) {
       if (opts.cli) { await cliTurn(system, defs); return; } // Claude Code / Codex on the user's plan login: the CLI runs the loop itself
       pruneImages(history);
       {
-        const limitTokens = opts.contextTokens || DEFAULT_CONTEXT_TOKENS;
+        const limitTokens = opts.contextTokens || runLimit;
         const over = () => history.reduce((t, m) => t + msgChars(m), 0) > limitTokens * 4;
         if (over() && opts.autoCompact !== false) {
           let ok = false;
-          try { ok = await summarizeHistory(history, { url, key, model, usageModel, signal, limitTokens, onUsage: opts.onUsage, onCompact: opts.isSub ? null : opts.onCompact }); } catch (e) { if (signal?.aborted) throw e; }
+          try { ok = await summarizeHistory(history, { ...sumRoute, signal, limitTokens, onUsage: opts.onUsage, onCompact: opts.isSub ? null : opts.onCompact }); } catch (e) { if (signal?.aborted) throw e; }
           if (ok) send({ type: 'notice', text: 'Conversation compacted: earlier messages were summarized to save tokens.' });
           else if (!ctx.sumFailNoticed) { ctx.sumFailNoticed = true; send({ type: 'notice', text: 'The chat got long and could not be summarized yet, so long tool output and attached files were shortened instead.' }); }
         }
@@ -1058,9 +1070,9 @@ async function runAgent(opts) {
         if (CTX_ERR.test(String(err.message)) && !ctxRetried && !signal?.aborted && (!err.status || err.status === 400 || err.status === 413 || err.status === 422)) {
           // The request is over the model's context window: compact hard and try once more.
           ctxRetried = true;
-          const limitTokens = Math.max(2000, Math.round((opts.contextTokens || DEFAULT_CONTEXT_TOKENS) / 3));
+          const limitTokens = Math.max(2000, Math.round((opts.contextTokens || runLimit) / 3));
           let ok = false;
-          if (opts.autoCompact !== false) { try { ok = await summarizeHistory(history, { url, key, model, usageModel, signal, limitTokens, onUsage: opts.onUsage, onCompact: opts.isSub ? null : opts.onCompact }); } catch (e) { if (signal?.aborted) throw e; } }
+          if (opts.autoCompact !== false) { try { ok = await summarizeHistory(history, { ...sumRoute, signal, limitTokens, onUsage: opts.onUsage, onCompact: opts.isSub ? null : opts.onCompact }); } catch (e) { if (signal?.aborted) throw e; } }
           trimOldTools(history); compactHistory(history, limitTokens); pruneImages(history, 1, 1);
           send({ type: 'notice', text: `The conversation is longer than this model's context window, so it was ${ok ? 'summarized' : 'shortened'} and the request is being retried.` });
           iter--; continue;
@@ -1171,7 +1183,7 @@ async function runAgent(opts) {
         // Over the budget: summarize and carry on (up to 3 times, and only while the run keeps changing things) instead of just stopping.
         let carried = false;
         if (!opts.isSub && opts.autoCompact !== false && softResets < 3 && (softResets === 0 || wroteSince) && spent < budget * 4) {
-          try { carried = await summarizeHistory(history, { url, key, model, usageModel, signal, limitTokens: 1000, onUsage: opts.onUsage, onCompact: opts.isSub ? null : opts.onCompact }); } catch (e) { if (signal?.aborted) throw e; }
+          try { carried = await summarizeHistory(history, { ...sumRoute, signal, limitTokens: 1000, onUsage: opts.onUsage, onCompact: opts.isSub ? null : opts.onCompact }); } catch (e) { if (signal?.aborted) throw e; }
         }
         if (!carried) {
           send({ type: 'notice', text: `Stopped: this run used about ${Math.round(spent / 1000)}k tokens (limit ${Math.round(budget / 1000)}k${softResets ? `, after ${softResets} summar${softResets === 1 ? 'y' : 'ies'}` : ''}). Send a message to continue.` });
