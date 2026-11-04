@@ -849,6 +849,7 @@ async function runAgent(opts) {
     session: new Set(), send, media: opts.media || null, mcp: opts.mcp || null, computer: opts.computer || null, phone: opts.phone || null, schedule: opts.schedule && subOk('automation') ? opts.schedule : null, teams: opts.teams && !opts.isSub ? opts.teams : null, notes: opts.notes && !opts.isSub ? opts.notes : null, library: opts.library && !opts.isSub ? opts.library : null, term: opts.term && !opts.isSub ? opts.term : null, browser: opts.browser && subOk('browser') ? opts.browser : null, searchFallback: opts.searchFallback, searchVia: opts.searchVia,
     allowPrivateFetch: opts.allowPrivateFetch, userData: opts.userData || '', fullAccess: opts.fullFileAccess === true && !opts.isSub, userLocation: opts.userLocation || '', activeConnectors: new Set(), activeGroups, groupsAvailable, mcpLazy: !!opts.mcp && opts.mcpLazy === true && (!opts.isSub || !!opts.memberCaps), // team members switch connectors on as needed too
     lockApp: opts.lockApp && !opts.isSub ? opts.lockApp : null,
+    askUser: opts.askUser && !opts.isSub ? opts.askUser : null,
     compactChat: opts.compactChat && !opts.isSub ? opts.compactChat : null,
     appShot: opts.appShot && !opts.isSub ? opts.appShot : null, withArtemisVisible: opts.withArtemisVisible && !opts.isSub ? opts.withArtemisVisible : null,
     make: opts.make && subOk('make') ? opts.make : null, skills: opts.skills || null, chats: opts.chats || null, autoLearn: !!opts.autoLearn, autoLearnAllowed: !!opts.autoLearn && !opts.isSub,
@@ -952,6 +953,7 @@ async function runAgent(opts) {
       chat: opts.sessionId && !opts.incognito ? { id: String(opts.sessionId), messages: history } : null, note: `Current local time: ${localClock()}`,
       perm: opts.autoAll ? 'auto' : opts.autoApprove ? 'edits' : 'ask',
       ask: (info) => opts.approve({ id: `cli-ask-${Date.now().toString(36)}-${++n}`, ...info }),
+      askUser: ctx.askUser ? (questions) => ctx.askUser({ id: `cli-q-${Date.now().toString(36)}-${++n}`, questions: tools.normQuestions(questions) }) : null,
       onUsage: (u) => opts.onUsage?.({ model: usageModel, prompt: u.prompt || 0, completion: u.completion || 0, cached: u.cached || 0 }),
       onStep: (ev) => {
         if (ev.type === 'step') { if (steps++ > 0) send({ type: 'step:new' }); }

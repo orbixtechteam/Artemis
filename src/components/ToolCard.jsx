@@ -4,6 +4,8 @@ import { lineDiff, withContext } from '../lib/diff.js';
 import { Icon } from './Icons.jsx';
 
 const LABELS = {
+  ask_user: ['help', 'Question for you'],
+  AskUserQuestion: ['help', 'Question for you'],
   list_dir: ['folderOpen', 'Listed folder'],
   read_file: ['file', 'Read file'],
   search_files: ['search', 'Searched files'],
@@ -207,6 +209,60 @@ function Approve({ tc, onDecide }) {
   );
 }
 
+/**
+ * ask_user / Claude Code's AskUserQuestion: one block per question with its options (one pick, or several with multiSelect)
+ * and an "Other" field for a typed answer. Send hands { [question]: answer } to main; Skip leaves the choice to the assistant.
+ */
+function Ask({ tc }) {
+  const qs = tc.questions || [];
+  const [pick, setPick] = useState(() => qs.map(() => []));
+  const [other, setOther] = useState(() => qs.map(() => ''));
+  const [sent, setSent] = useState(null);
+  const answerOf = (i) => [...pick[i], ...(other[i].trim() ? [other[i].trim()] : [])].join(', ');
+  const ready = qs.every((_, i) => answerOf(i));
+  const toggle = (i, label) => setPick((p) => p.map((cur, j) => (j !== i ? cur : qs[i].multiSelect ? (cur.includes(label) ? cur.filter((x) => x !== label) : [...cur, label]) : cur[0] === label ? [] : [label])));
+  const submit = (skip) => {
+    const answers = {};
+    if (!skip) qs.forEach((q, i) => { answers[q.question] = answerOf(i); });
+    setSent(skip ? 'skipped' : answers);
+    window.api.answer(tc.id, skip ? null : answers);
+  };
+  if (sent) return (
+    <div className="ask done">
+      {sent === 'skipped' ? <div className="ask-note">Skipped: the assistant picks for you.</div>
+        : qs.map((q) => <div key={q.question} className="ask-done-row"><span className="ask-q">{q.question}</span><span className="ask-a">{sent[q.question]}</span></div>)}
+    </div>
+  );
+  return (
+    <div className="ask" data-pending="1">
+      {qs.map((q, i) => (
+        <div key={i} className="ask-item" role="group" aria-label={q.question}>
+          {q.header && <div className="ask-head">{q.header}</div>}
+          <div className="ask-q">{q.question}{q.multiSelect && <span className="ask-multi"> (pick any)</span>}</div>
+          <div className="ask-opts">
+            {q.options.map((o) => {
+              const on = pick[i].includes(o.label);
+              return (
+                <button type="button" key={o.label} className={`ask-opt ${on ? 'on' : ''}`} aria-pressed={on} onClick={() => toggle(i, o.label)}>
+                  <span className={`ask-mark ${q.multiSelect ? 'box' : 'dot'}`}>{on && <Icon name="check" size={11} />}</span>
+                  <span className="ask-txt"><span className="ask-label">{o.label}</span>{o.description && <span className="ask-desc">{o.description}</span>}</span>
+                </button>
+              );
+            })}
+            <input className="ask-other" value={other[i]} placeholder="Other: type your own answer" aria-label="Other answer"
+              onChange={(e) => { const v = e.target.value; setOther((p) => p.map((x, j) => (j === i ? v : x))); if (v && !q.multiSelect) setPick((p) => p.map((x, j) => (j === i ? [] : x))); }}
+              onKeyDown={(e) => { if (e.key === 'Enter' && ready) { e.preventDefault(); submit(false); } }} />
+          </div>
+        </div>
+      ))}
+      <div className="approve-actions">
+        <button type="button" className="primary" disabled={!ready} onClick={() => submit(false)}>Send answer</button>
+        <button type="button" className="secondary" onClick={() => submit(true)}>Skip</button>
+      </div>
+    </div>
+  );
+}
+
 /** Splits a step's tool calls into single cards and runs of 2+ finished read-only calls. */
 export function groupToolCalls(list) {
   const out = []; let run = [];
@@ -292,8 +348,8 @@ function ToolCard({ tc, onDecide }) {
   const prev = useRef(status);
   useEffect(() => { if (status === 'error' && prev.current !== 'error') setOpen(true); prev.current = status; }, [status]);
   const [icon, label] = labelFor(tc.name);
-  const awaiting = status === 'awaiting';
-  const badge = { awaiting: 'awaiting approval', denied: 'denied', cancelled: 'cancelled' }[status] || '';
+  const awaiting = status === 'awaiting' || status === 'question';
+  const badge = { question: 'waiting for your answer', awaiting: 'awaiting approval', denied: 'denied', cancelled: 'cancelled' }[status] || '';
   const tgt = target(tc);
   const mono = MONO.has(tc.name);
   const dur = tc.startedAt && tc.endedAt ? tc.endedAt - tc.startedAt : 0;
@@ -310,7 +366,8 @@ function ToolCard({ tc, onDecide }) {
       </button>
       {status === 'error' && tc.result && <div className="tool-err-line">{firstLine(tc.result)}</div>}
       {tc.agents && tc.agents.length > 0 && <div className="agent-list">{tc.agents.filter(Boolean).map((a, i) => <AgentCard key={i} a={a} onDecide={onDecide} />)}</div>}
-      {awaiting && <Approve tc={tc} onDecide={onDecide} />}
+      {status === 'awaiting' && <Approve tc={tc} onDecide={onDecide} />}
+      {status === 'question' && <Ask tc={tc} />}
       {tc.status === 'done' && FILE_TOOLS.has(tc.name) && tc.args?.path && (
         <div className="file-actions">
           <button onClick={() => openPreview({ project: true, path: tc.args.path })}>Preview</button>

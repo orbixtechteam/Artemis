@@ -1,8 +1,8 @@
 /* ---------- Sidebar (components/Sidebar.jsx): the macOS source-list look ----------
    Top row (traffic lights on macOS, new incognito / new chat), search, the main places, a foldable Workspace
-   section, then the chat list and the profile row. Every row is 30px with the same left edge. */
-.sidebar { position: relative; width: var(--sb-w, 268px); flex: none; min-height: 0; display: flex; flex-direction: column; padding: 0 10px 10px; background: var(--side); border-right: .5px solid var(--line); overflow: hidden; transition: margin-left .2s; }
-.sidebar.hidden { margin-left: calc(-1 * var(--sb-w, 268px)); }
+   section, then the chat list and the profile row. Every row is 34px with the same left edge; text is a size larger than the rest of the UI (Claude Desktop's sidebar). */
+.sidebar { --fs-side: 14.5px; position: relative; width: var(--sb-w, 288px); flex: none; min-height: 0; display: flex; flex-direction: column; padding: 0 10px 10px; background: var(--side); border-right: .5px solid var(--line); overflow: hidden; transition: margin-left .2s; }
+.sidebar.hidden { margin-left: calc(-1 * var(--sb-w, 288px)); }
 
 .side-top { flex: none; display: flex; align-items: center; gap: 2px; height: 12px; }
 .side-top.mac { height: 52px; padding-left: 76px; } /* room for the traffic lights */
@@ -11,17 +11,17 @@
 .side-ib { flex: none; width: 28px; height: 28px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text-2); cursor: pointer; }
 .side-ib:hover { background: var(--fill); color: var(--text); }
 
-.side-search { flex: none; display: flex; align-items: center; gap: 6px; height: 28px; margin: 2px 2px 14px; padding: 0 8px; border-radius: 8px; background: var(--fill); color: var(--muted); }
-.side-search svg { width: 14px; height: 14px; flex: none; }
-.side-search input { flex: 1; min-width: 0; height: 100%; border: 0; background: transparent; outline: none; color: var(--text); font-size: var(--fs-ui); }
+.side-search { flex: none; display: flex; align-items: center; gap: 8px; height: 34px; margin: 2px 0 14px; padding: 0 10px; border-radius: 8px; background: var(--fill); color: var(--muted); }
+.side-search svg { width: 16px; height: 16px; flex: none; }
+.side-search input { flex: 1; min-width: 0; height: 100%; border: 0; background: transparent; outline: none; color: var(--text); font-size: var(--fs-side); }
 .side-search input::placeholder { color: var(--muted); }
 .side-search:focus-within { box-shadow: var(--ring); }
 
 .side-nav { flex: 0 1 auto; min-height: 0; max-height: 55%; display: flex; flex-direction: column; gap: 1px; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
 .side-nav > *, .nav-more > * { flex: none; }
 .nav-more { display: flex; flex-direction: column; gap: 1px; }
-.nav-item { display: flex; align-items: center; gap: 9px; width: 100%; height: 30px; padding: 0 9px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text); font-size: var(--fs-ui); line-height: 1; text-align: left; cursor: pointer; }
-.nav-item > svg { width: 16px; height: 16px; flex: none; color: var(--accent); }
+.nav-item { display: flex; align-items: center; gap: 11px; width: 100%; height: 34px; padding: 0 10px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text); font-size: var(--fs-side); line-height: 1; text-align: left; cursor: pointer; }
+.nav-item > svg { width: 18px; height: 18px; flex: none; color: var(--accent); }
 .nav-item:hover { background: var(--fill); }
 .nav-item.active { background: var(--fill-2); }
 .nav-item .count { margin-left: auto; font-size: var(--fs-xs); color: var(--muted); }
@@ -30,44 +30,49 @@
 .nav-item .state.on { color: var(--ok); }
 
 /* section headers: Workspace, Notes, Pinned, Projects, and the day groups of the chat list */
-.group-label, .side-head { padding: 18px 9px 6px; font-size: 11px; font-weight: 600; line-height: 1.2; letter-spacing: .01em; color: var(--muted); }
+.group-label, .side-head { padding: 20px 10px 7px; font-size: 12.5px; font-weight: 500; line-height: 1.2; letter-spacing: .01em; color: var(--muted); }
 .side-head { display: flex; align-items: center; gap: 4px; cursor: pointer; user-select: none; }
-.side-head > svg { order: 2; width: 11px; height: 11px; opacity: 0; transition: opacity .12s; }
+.side-head > svg { order: 2; width: 12px; height: 12px; opacity: 0; transition: opacity .12s; }
 .side-head:hover { color: var(--text-2); }
 .side-head:hover > svg, .side-head:focus-visible > svg { opacity: 1; }
 .chat-list > .side-head:first-child, .chat-list > .notes-sec:first-child > .side-head { padding-top: 6px; }
 
 .chat-list { flex: 1 1 140px; min-height: 120px; display: flex; flex-direction: column; gap: 1px; margin-top: 2px; padding-right: 2px; overflow-y: auto; }
-.chat-item { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 9px; border-radius: var(--r-sm); color: var(--text); font-size: var(--fs-ui); cursor: pointer; }
-.chat-item > svg.row-icon { width: 14px; height: 14px; flex: none; color: var(--text-2); }
+.chat-item { display: flex; align-items: center; gap: 10px; min-height: 34px; padding: 0 10px; border-radius: var(--r-sm); color: var(--text); font-size: var(--fs-side); cursor: pointer; }
+.chat-item > svg.row-icon { width: 16px; height: 16px; flex: none; color: var(--text-2); }
 .chat-item:hover { background: var(--fill); }
 .chat-item.active { background: var(--fill-2); color: var(--text); }
 .chat-item .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .x { visibility: hidden; padding: 0 6px; border: none; border-radius: 4px; background: none; color: var(--muted); }
-.chat-item:hover .x, .chat-item:focus-within .x { visibility: visible; }
+.sidebar .x { visibility: visible; display: none; flex: none; padding: 0 6px; border: none; border-radius: 4px; background: none; color: var(--muted); }
+.chat-item:hover .x, .chat-item:focus-within .x { display: inline-flex; }
 .x:hover { color: var(--text); background: var(--fill); }
-.x.pin.on { visibility: visible; color: var(--accent); }
+.x.pin.on { color: var(--accent); }
 .rename { flex: 1; min-width: 0; padding: 2px 6px; border: 1px solid var(--accent); border-radius: var(--r-sm); background: var(--field-bg); outline: none; }
 
 .project-group { margin: 1px 0; }
-.project-group-head { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 9px; border-radius: var(--r-sm); font-size: var(--fs-ui); font-weight: 500; cursor: pointer; }
+.project-group-head { display: flex; align-items: center; gap: 10px; min-height: 34px; padding: 0 10px; border-radius: var(--r-sm); font-size: var(--fs-side); font-weight: 500; cursor: pointer; }
 .project-group-head:hover { background: var(--fill); }
 .project-group-head .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.project-chevron { flex: none; color: var(--muted); }
-.project-open { visibility: hidden; display: inline-flex; padding: 2px 4px; border: none; border-radius: 5px; background: none; color: var(--muted); }
-.project-group-head:hover .project-open, .project-group-head:hover .x { visibility: visible; }
+.project-chevron { flex: none; color: var(--muted); opacity: 0; transition: opacity .12s; }
+.project-group-head:hover .project-chevron, .project-group.closed .project-chevron, .project-group-head:focus-visible .project-chevron { opacity: 1; }
+.project-open { display: none; padding: 2px 4px; border: none; border-radius: 5px; background: none; color: var(--muted); }
+.project-group-head:hover .project-open, .project-group-head:hover .x { display: inline-flex; }
 .project-open:hover { color: var(--text); background: var(--fill-2); }
-.project-submenu { display: flex; flex-direction: column; gap: 1px; margin-left: 15px; padding-left: 6px; border-left: 1px solid var(--line); }
+.project-submenu { display: flex; flex-direction: column; gap: 1px; margin: 1px 0 6px 19px; padding-left: 9px; border-left: .5px solid var(--line-2); }
+.project-submenu .chat-item { color: var(--text-2); }
+.project-submenu .chat-item:hover, .project-submenu .chat-item.active { color: var(--text); }
+.chat-item.view-all { color: var(--muted); }
 
 .found-group { margin-bottom: 6px; }
-.found-title { padding: 6px 9px 3px; font-size: 11px; font-weight: 600; color: var(--muted); }
+.found-title { padding: 6px 10px 3px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
 
 .side-foot { flex: none; display: flex; align-items: center; gap: 4px; margin-top: 6px; padding: 8px 0 0; border-top: .5px solid var(--line); }
 .profile-btn { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 9px; padding: 4px 6px; border: 0; border-radius: var(--r-md); background: transparent; }
 .profile-btn:hover { background: var(--fill); }
-.avatar { width: 26px; height: 26px; flex: none; display: inline-grid; place-items: center; border-radius: 50%; background: var(--text); color: var(--bg); font-size: 11.5px; font-weight: 600; }
+.avatar { width: 28px; height: 28px; flex: none; display: inline-grid; place-items: center; border-radius: 50%; background: var(--text); color: var(--bg); font-size: 11.5px; font-weight: 600; }
 img.avatar { object-fit: cover; }
-.side-user { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-ui); font-weight: 500; }
+.side-user { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-side); font-weight: 500; }
 
 .chat-item:focus-visible, .side-head:focus-visible, .project-group-head:focus-visible { outline-offset: -2px; }
 .chat-item.running .row-icon { color: var(--accent); }

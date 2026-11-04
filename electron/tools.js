@@ -115,6 +115,14 @@ function definitions({ teamsEnabled, makeEnabled, hasFolder, memoryEnabled, memo
     );
   }
   defs.push(fn('compact_chat', 'Compacts this chat once your answer is finished: the older messages are summarized into one card and the last few stay as they are, so later turns cost fewer tokens. Use it yourself when the chat has grown long and the old part no longer matters word for word (for example the topic changed or a long task is done), or when the user asks to compact. Not for short chats. Needs no arguments and no approval.', {}, []));
+  defs.push(fn('ask_user', 'Asks the user 1-4 multiple-choice questions on a card in the chat and waits for the answers. Use it only when you are blocked on a decision that is the user\'s to make (which approach, which option, missing requirement), not for facts you can check yourself and not to ask "should I proceed?". The user can always type their own answer instead of an option. If you recommend an option, put it first and add "(Recommended)" to its label.', {
+    questions: { type: 'array', minItems: 1, maxItems: 4, description: 'The questions', items: { type: 'object', properties: {
+      question: { type: 'string', description: 'The full question, ending with a question mark' },
+      header: { type: 'string', description: 'A very short label for the question (max 12 characters)' },
+      options: { type: 'array', minItems: 2, maxItems: 4, description: 'The choices', items: { type: 'object', properties: { label: { type: 'string', description: '1-5 words' }, description: { type: 'string', description: 'What this choice means' } }, required: ['label'] } },
+      multiSelect: { type: 'boolean', description: 'Allow picking several options' }
+    }, required: ['question', 'options'] } }
+  }, ['questions']));
   defs.push(fn('lock_app', 'Locks the Artemis app (the app lock from Settings → Security) right now. Use it when the user says "lock", "Artemis lock" or asks you to lock or secure the app. Needs no arguments and no approval. Only the user can unlock it again (password, Touch ID or their voice).', {}, []));
   if (memoryEnabled) {
     defs.push(
@@ -633,6 +641,7 @@ function summarize(name, args) {
   switch (name) {
     case 'use_tools': return 'Switch on tools: ' + [].concat(args.names || []).join(', ');
     case 'use_connector': return 'Switch on the connector ' + String(args.name || '');
+    case 'ask_user': return 'Question for you';
     case 'lock_app': return 'Lock Artemis';
     case 'compact_chat': return 'Compact this chat';
     case 'get_location': return 'Look up your approximate location from your IP address (one request to ipwho.is)';
@@ -823,6 +832,15 @@ function precheck(name, args, ctx, resolveSafe) {
 }
 
 /** ctx: { root, autoApprove, approve(info)->Promise<boolean>, memory:{list(),add(text),remove(id)} } */
+/** Cleans the questions of ask_user / Claude Code's AskUserQuestion: [{ question, header, options: [{ label, description }], multiSelect }]. */
+function normQuestions(list) {
+  const str = (v, n) => String(v == null ? '' : v).trim().slice(0, n);
+  return (Array.isArray(list) ? list : []).slice(0, 4).map((q) => ({
+    question: str(q && q.question, 500), header: str(q && q.header, 24), multiSelect: !!(q && q.multiSelect),
+    options: (Array.isArray(q && q.options) ? q.options : []).slice(0, 6).map((o) => (typeof o === 'string' ? { label: str(o, 120), description: '' } : { label: str(o && o.label, 120), description: str(o && o.description, 400) })).filter((o) => o.label)
+  })).filter((q) => q.question && q.options.length);
+}
+
 async function runTool(name, args, ctx) {
   args = args || {};
   const resolveSafe = (r, p) => (ctx && ctx.fullAccess ? openPath(r, p) : resolveStrict(r, p));
@@ -1043,6 +1061,13 @@ async function runTool(name, args, ctx) {
         if (!ctx.compactChat) return { ok: true, text: 'Compacting is not available in this kind of task.' };
         ctx.compactChat();
         return { ok: true, text: 'The chat will be compacted as soon as this answer ends. Finish your answer normally.' };
+      }
+      case 'ask_user': {
+        const qs = normQuestions(args.questions);
+        if (!qs.length) throw new Error('questions must be a list of { question, options: [{ label }] } (1-4 questions, 2-4 options each)');
+        const answers = ctx.askUser ? await ctx.askUser({ id: ctx.callId, questions: qs }) : null;
+        if (!answers) return { ok: true, text: 'The user did not answer (or this task runs without the user). Pick the most sensible option yourself and say which one you chose.' };
+        return { ok: true, text: 'The user answered:\n' + qs.map((q) => `${q.question} -> ${answers[q.question] || '(no answer)'}`).join('\n') };
       }
       case 'lock_app': {
         if (!ctx.lockApp) return { ok: true, text: 'Locking is not available in this kind of task (scheduled tasks and helper agents never lock the app).' };
@@ -1536,4 +1561,4 @@ async function runTool(name, args, ctx) {
   }
 }
 
-module.exports = { definitions, run, clip, modelId, resolveSafe, WRITE_TOOLS, SESSION_TOOLS, jobsOf, withLocks, lockKey, walk, browserApproval, summarize };
+module.exports = { definitions, normQuestions, run, clip, modelId, resolveSafe, WRITE_TOOLS, SESSION_TOOLS, jobsOf, withLocks, lockKey, walk, browserApproval, summarize };

@@ -472,8 +472,10 @@ const browser = createBrowser({
 });
 function createWindow() {
   const isMac = process.platform === 'darwin';
+  const wa = (() => { try { return screen.getPrimaryDisplay().workArea; } catch { return null; } })();
   win = new BrowserWindow({
-    width: 1240, height: 820, minWidth: 820, minHeight: 540,
+    ...(wa ? { x: wa.x, y: wa.y, width: wa.width, height: wa.height } : { width: 1240, height: 820 }), // opens filling the screen, like Claude Desktop
+    minWidth: 820, minHeight: 540,
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#262624' : '#faf9f5',
     icon: process.platform === 'darwin' ? path.join(__dirname, '..', 'build', 'Artemis.icns') : path.join(__dirname, 'assets', 'tray.png'),
     titleBarStyle: isMac ? 'hiddenInset' : 'default',
@@ -634,6 +636,14 @@ const runs = new Map();       // requestId -> AbortController
 const approvals = new Map();  // toolId -> resolve(bool)
 const approvalMeta = new Map(); // toolId -> { name, category }: what the approval is for (Touch ID is asked for the sensitive ones)
 
+ipcMain.handle('tool:answer', (_e, id, answers) => {
+  const r = approvals.get(id); if (!r) return false;
+  approvals.delete(id);
+  const out = {};
+  if (answers && typeof answers === 'object') for (const [k, v] of Object.entries(answers)) if (String(v || '').trim()) out[String(k).slice(0, 500)] = String(v).slice(0, 2000);
+  r(Object.keys(out).length ? out : null);
+  return true;
+});
 ipcMain.handle('tool:decision', async (_e, toolId, ok) => {
   if (ok) {
     const r = await lock.requireSensitive(approvalMeta.get(toolId));
@@ -1263,6 +1273,12 @@ async function executeRun({ requestId, model: model0, messages, project, system,
         if (approvalMeta.size > 200) approvalMeta.clear();
         approvalMeta.set(info.id, { name: info.name, category: info.category });
         send({ type: 'tool:approval', id: info.id, category: info.category, session: !!info.session, summary: info.summary, agent: info.agent });
+      }),
+      // ask_user / Claude Code's AskUserQuestion: a question card in the chat; resolves { [question]: answer }, or null (no user, declined or stopped)
+      askUser: (q) => unattended ? Promise.resolve(null) : new Promise((resolve) => {
+        myApprovals.add(q.id);
+        approvals.set(q.id, (v) => { const answers = v && typeof v === 'object' ? v : null; send({ type: 'tool:answered', id: q.id, answers }); resolve(answers); });
+        send({ type: 'tool:question', id: q.id, questions: q.questions });
       }),
       send, signal: controller.signal
     });
