@@ -1769,7 +1769,7 @@ const teamsClient = require('./ipc/teams').createTeamsClient({ teams, scheduler,
 const teamsTools = {
   agents: (root) => agents.list(root || null).map(({ file, ...a }) => a),
   projects: () => readJson('projects', []).map((p) => ({ id: p.id, name: p.name, folder: p.folder || '', instructions: p.instructions || '' })),
-  saveAgent: (a) => agents.save(a),
+  saveAgent: (a) => agents.save(a), removeAgent: (name) => agents.remove(name),
   models: () => readProviders().filter((p) => p.enabled !== false).flatMap((p) => (p.models || []).map((m) => ({ id: providersLib.prefixId(p.id, m.id), name: m.name || m.id, provider: p.name, in: m.in, out: m.out, local: !!p.local }))),
   list: () => teamsClient.list(), get: (id) => teamsClient.get(id), save: (d) => teamsClient.save(d), start: (id) => teamsClient.act(id, 'start'), remove: (id) => teamsClient.remove(id)
 };

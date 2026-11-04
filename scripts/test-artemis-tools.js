@@ -163,7 +163,7 @@ const post = (port, body, { token = 'tok', host, origin, method = 'POST', path =
     }
   });
   const by = (n) => t.find((x) => x.name === 'artemis_' + n);
-  for (const n of ['agent_list', 'agent_save', 'model_list', 'agent_set_model', 'team_list', 'team_save', 'team_start', 'team_delete', 'team_room', 'team_say', 'team_stop']) assert.ok(by(n), n + ' is listed');
+  for (const n of ['agent_list', 'agent_save', 'model_list', 'agent_set_model', 'agent_delete', 'team_list', 'team_save', 'team_start', 'team_delete', 'team_room', 'team_say', 'team_stop']) assert.ok(by(n), n + ' is listed');
   assert.ok(!t.some((x) => /artemis_(read_file|run_command|delegate)$/.test(x.name)), 'only the team tools come from the chat definitions');
   assert.ok(by('team_list').annotations && by('team_list').annotations.readOnlyHint, 'lists are read-only');
   assert.ok(!/Requires approval/.test(by('team_save').description), 'descriptions speak about the confirm dialog');
