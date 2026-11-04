@@ -10,7 +10,7 @@ export default function ModelPicker({ value, groups = [], onChange, emptyLabel =
   const input = useRef(null);
   const list = useRef(null);
   const pop = useRef(null);
-  const [shift, setShift] = useState({ x: 0, flip: false });
+  const [shift, setShift] = useState({ x: 0, flip: false, maxH: 0 });
 
   useEffect(() => {
     if (!open) return;
@@ -22,14 +22,17 @@ export default function ModelPicker({ value, groups = [], onChange, emptyLabel =
 
   // keep the list on the screen: slide it sideways when it would run past an edge, and open it the other way when there is no room below / above
   useLayoutEffect(() => {
-    if (!open) { setShift({ x: 0, flip: false }); return; }
+    if (!open) { setShift({ x: 0, flip: false, maxH: 0 }); return; }
     const el = pop.current, wrap = ref.current; if (!el || !wrap) return;
     const r = el.getBoundingClientRect(), b = wrap.getBoundingClientRect(), vw = window.innerWidth, vh = window.innerHeight, m = 8;
     let x = 0;
     if (r.right > vw - m) x = vw - m - r.right;
     if (r.left + x < m) x = m - r.left;
     const room = up ? b.top : vh - b.bottom, other = up ? vh - b.bottom : b.top;
-    setShift({ x: Math.round(x), flip: r.height + 14 > room && other > room });
+    const flip = r.height + 14 > room && other > room;
+    // a short window (Quick Chat) would cut the list off below its edge: fit the list into the room on the side it opens
+    const searchH = input.current ? input.current.getBoundingClientRect().height : 40;
+    setShift({ x: Math.round(x), flip, maxH: Math.max(120, Math.floor((flip ? other : room) - searchH - 22)) });
   }, [open]);
   const flat = useMemo(() => {
     const all = [];
@@ -64,7 +67,7 @@ export default function ModelPicker({ value, groups = [], onChange, emptyLabel =
       {open && (
         <div ref={pop} className={`mp-pop ${(shift.flip ? !up : up) ? 'up' : 'down'} ${align}`} style={shift.x ? { transform: `translateX(${shift.x}px)` } : undefined}>
           <input ref={input} className="mp-search" placeholder="Search models…" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onKey} />
-          <div className="mp-list" ref={list}>
+          <div className="mp-list" ref={list} style={shift.maxH ? { maxHeight: Math.min(340, shift.maxH) } : undefined}>
             {shown.length === 0 && <div className="muted small mp-none">No model matches "{q}".</div>}
             {shown.map((m, i) => {
               const head = m.group !== lastGroup && m.group ? m.group : null;

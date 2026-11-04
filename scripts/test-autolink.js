@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { createChannel } = require('../electron/remote');
+const { createChannel, isBackgroundChat } = require('../electron/remote');
 
 (async () => {
   const seen = [];
@@ -23,5 +23,11 @@ const { createChannel } = require('../electron/remote');
   await ch2.ask('x', () => {});
   assert.strictEqual(ch2.linked(), null);
   assert.strictEqual(seen[0].length, 1);
+  // heartbeat, webhook and schedule chats are never continued from the phone
+  assert.ok(isBackgroundChat({ id: 'heartbeat-hbee391ab2' }));
+  assert.ok(isBackgroundChat({ id: 'bg-x1', source: '' }));
+  assert.ok(isBackgroundChat({ id: 'abc', source: 'schedule' }));
+  assert.ok(!isBackgroundChat({ id: '8st1i5p113zv', source: '' }));
+  assert.ok(!isBackgroundChat({ id: 'p1', source: 'phone' }));
   console.log('autolink: all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });
