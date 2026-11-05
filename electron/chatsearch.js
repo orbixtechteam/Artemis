@@ -48,11 +48,22 @@ function chatTurns(chat, maxTurns = 30, maxChars = 4000) {
   return (chat.messages || []).map((m) => ({ role: m.role === 'user' ? 'user' : 'assistant', content: clip(messageText(m), maxChars) })).filter((t) => t.content.trim()).slice(-maxTurns);
 }
 
-function transcript(chat, { last = 10, maxChars = 12000 } = {}) {
-  const turns = chatTurns(chat, last, 3000);
-  let text = turns.map((t) => `${t.role === 'user' ? 'User' : 'Assistant'}: ${t.content}`).join('\n\n');
-  if (text.length > maxChars) text = '…' + text.slice(-maxChars);
-  return `Chat "${chat.title || 'Untitled'}" (${when(chat.updatedAt)}, ${(chat.messages || []).length} messages${turns.length < (chat.messages || []).length ? `, showing last ${turns.length}` : ''}):\n\n${text}`;
+/** Turns for a model continuing the chat: from the latest compact card on (the messages before it stay for the user and read_chat). */
+function modelTurns(chat, maxTurns = 30, maxChars = 4000) {
+  const msgs = chat.messages || [];
+  let i = msgs.length - 1;
+  while (i >= 0 && !(msgs[i] && msgs[i].role === 'user' && msgs[i].compacted)) i--;
+  return chatTurns(i > 0 ? { ...chat, messages: msgs.slice(i) } : chat, maxTurns, maxChars);
 }
 
-module.exports = { searchChats, recentChats, chatTurns, transcript, messageText };
+/** The latest `last` turns, `offset` turns back from the end (to read what a compact summarized). */
+function transcript(chat, { last = 10, offset = 0, maxChars = 12000 } = {}) {
+  const all = chatTurns(chat, Infinity, 3000);
+  const off = Math.max(0, Math.min(all.length, Number(offset) || 0));
+  const turns = all.slice(Math.max(0, all.length - off - last), all.length - off);
+  let text = turns.map((t) => `${t.role === 'user' ? 'User' : 'Assistant'}: ${t.content}`).join('\n\n');
+  if (text.length > maxChars) text = '…' + text.slice(-maxChars);
+  return `Chat "${chat.title || 'Untitled'}" (${when(chat.updatedAt)}, ${(chat.messages || []).length} messages${turns.length < all.length ? `, showing ${all.length - off - turns.length + 1}-${all.length - off} of ${all.length} turns` : ''}):\n\n${text}`;
+}
+
+module.exports = { searchChats, recentChats, chatTurns, modelTurns, transcript, messageText };

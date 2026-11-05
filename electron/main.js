@@ -193,7 +193,7 @@ const searchSaved = (q, n) => {
 const getSaved = (id) => { const c = initCore(); if (c.sessions) { try { return c.sessions.get(id); } catch {} } return (readChats() || []).find((x) => x.id === id) || null; };
 const chatsApi = () => ({
   search: (q, n) => searchSaved(q, n),
-  read: (id, last) => { const c = getSaved(id); return c && !c.incognito ? chatSearch.transcript(c, { last }) : null; }
+  read: (id, last, offset) => { const c = getSaved(id); return c && !c.incognito ? chatSearch.transcript(c, { last, offset }) : null; }
 });
 const mcp = createMcpManager();
 const oauthPending = new Map();
@@ -2139,7 +2139,7 @@ const gatewayHandlers = {
     const sid = sessionId || 'gw-' + crypto.randomBytes(5).toString('hex');
     const prev = getSaved(sid);
     if (prev && prev.incognito) throw new Error('That chat is incognito and cannot be continued from outside.');
-    const prior = prev ? chatSearch.chatTurns(prev, 30) : [];
+    const prior = prev ? chatSearch.modelTurns(prev, 30) : [];
     const m = liveModel(model || st.gatewayModel || st.model);
     const pid = projectId || (prev && prev.projectId) || null;
     const winOpen = !!(win && !win.isDestroyed());
