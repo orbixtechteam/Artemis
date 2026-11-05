@@ -41,13 +41,14 @@ export const Stack = ({ names, size = 'sm' }) => (
 
 export const pendingAsks = (t) => ((t.run && t.run.messages) || []).filter((m) => m.kind === 'approval' && m.decided == null);
 
+const PAUSED = { budget: 'Paused · budget reached', tokens: 'Paused · token cap reached', time: 'Paused · time limit', restart: 'Paused · app restarted' };
 /** What a team is doing, as a dot style and a short label. */
 export function teamState(t) {
   const r = t.run || {};
   if (r.status === 'working' && pendingAsks(t).length) return { dot: 'wait', label: 'Needs you' };
   switch (r.status) {
     case 'working': return { dot: 'work', label: 'Working' };
-    case 'paused': return { dot: 'wait', label: r.reason === 'budget' ? 'Paused · budget reached' : r.reason === 'time' ? 'Paused · time limit' : r.reason === 'restart' ? 'Paused · app restarted' : 'Paused' };
+    case 'paused': return { dot: 'wait', label: PAUSED[r.reason] || 'Paused' };
     case 'done': return { dot: 'done', label: 'Done' };
     case 'failed': return { dot: 'err', label: 'Stopped on an error' };
     case 'stopped': return { dot: '', label: 'Stopped' };
@@ -63,6 +64,15 @@ export function splitFiles(raw) {
   if (at < 0) return { text: s, files: [] };
   const files = s.slice(at + FILES_HEAD.length).trim().split('\n').map((l) => /^- (.+?): (\/.+?)(?: \[(artemis-media:\/\/\S+)\])?$/.exec(l)).filter(Boolean).map((m) => ({ name: m[1], path: m[2], url: m[3] || '' }));
   return files.length ? { text: s.slice(0, at).trim(), files } : { text: s, files: [] };
+}
+
+/** Markdown as one plain line, for previews. */
+export const plain = (s) => String(s || '').replace(/```[\s\S]*?```/g, ' ').replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[*_`~#>]+/g, '').replace(/\s+/g, ' ').trim();
+export const plural = (n, one, many = one + 's') => `${n} ${n === 1 ? one : many}`;
+/** A task the room made from your @mention carries your words in its title: show them, not the instruction. */
+export function taskTitle(k) {
+  const m = k && k.direct && /^The user wrote to you in the team room: "([\s\S]*)"\. Answer them/.exec(k.title || '');
+  return m ? `Reply to you: “${plain(m[1]).replace(/^@\S+\s*/, '')}”` : (k && k.title) || '';
 }
 
 export const usd = (n) => '$' + (Number(n) || 0).toFixed((Number(n) || 0) >= 10 ? 1 : 2);
