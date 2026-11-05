@@ -10,9 +10,15 @@ export function assistantText(m, keepTags = false) {
   return keepTags ? t : stripTags(t);
 }
 
+/** Index of the latest compact card (-1 when none). Everything before it stays in the chat for the user, not for the model. */
+export function lastCompact(messages) {
+  for (let i = (messages || []).length - 1; i >= 0; i--) if (messages[i] && messages[i].role === 'user' && messages[i].compacted) return i;
+  return -1;
+}
+
 export function toApiMessages(messages) {
   const out = [];
-  for (const m of messages) {
+  for (const m of messages.slice(Math.max(0, lastCompact(messages)))) {
     if (m.role === 'user') {
       let text = '';
       const images = [];

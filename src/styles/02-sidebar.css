@@ -54,6 +54,7 @@
 .project-group { margin: 1px 0; }
 .project-group-head { display: flex; align-items: center; gap: 10px; min-height: 34px; padding: 0 10px; border-radius: var(--r-sm); font-size: var(--fs-side); font-weight: 500; cursor: pointer; }
 .project-group-head:hover { background: var(--fill); }
+.project-group-head.drop { background: var(--fill-2); box-shadow: inset 0 0 0 1px var(--ring); } /* a chat dragged over it */
 .project-group-head .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-chevron { flex: none; color: var(--muted); opacity: 0; transition: opacity .12s; }
 .project-group-head:hover .project-chevron, .project-group.closed .project-chevron, .project-group-head:focus-visible .project-chevron { opacity: 1; }

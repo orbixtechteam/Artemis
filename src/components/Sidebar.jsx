@@ -11,6 +11,10 @@ import { useSentinelKey } from '../lib/sentinelKey.js';
 
 const PROJECT_ROWS = 4; // chats shown under each project before "View all"
 
+// A chat row dragged onto a project in the sidebar moves the chat into that project
+const CHAT_DRAG = 'application/x-artemis-chat';
+const isChatDrag = (e) => Array.from(e.dataTransfer.types || []).includes(CHAT_DRAG);
+
 function ChatRow({ c, active, status, inProject, onSelect, onRename, onPin }) {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState(c.title);
@@ -20,7 +24,8 @@ function ChatRow({ c, active, status, inProject, onSelect, onRename, onPin }) {
   };
   const icon = status === 'running' ? 'spinner' : status === 'awaiting' ? 'warning' : c.incognito ? 'ghost' : c.sentinel ? 'mic' : c.source === 'phone' ? 'phone' : c.source === 'schedule' ? 'clock' : 'chat';
   return (
-    <div className={`chat-item ${active ? 'active' : ''} ${status || ''}`} data-chat={c.id} onClick={() => onSelect(c.id)} {...asButton(() => onSelect(c.id))} aria-current={active ? 'page' : undefined}>
+    <div className={`chat-item ${active ? 'active' : ''} ${status || ''}`} data-chat={c.id} onClick={() => onSelect(c.id)} {...asButton(() => onSelect(c.id))} aria-current={active ? 'page' : undefined}
+      draggable={!c.incognito && !editing} onDragStart={(e) => { e.dataTransfer.setData(CHAT_DRAG, c.id); e.dataTransfer.effectAllowed = 'move'; }}>
       {icon !== 'chat' && <Icon name={icon} size={14} className="row-icon" title={status === 'running' ? 'Running' : status === 'awaiting' ? 'Needs your approval' : undefined} />}
       {editing ? (
         <input
@@ -50,8 +55,9 @@ function SideHead({ label, open, onToggle }) {
 
 export default function Sidebar({
   chats, projects = [], currentId, view, statusOf, onNewChat, onNewIncognito, onSelect, onRename, onPinChat, onPinProject, onOpenProject,
-  onHome, onFiles, onOpenFile, onProjects, onConnectors, onSettings, onMemory, onUsage, onBrowser, onTerminal, notes, onNotes, notesActive, onSchedule, onSkills, onArtifacts, onAgents, onAutomations, onSentinel, sentinel = 'off', onLogs, agentCount = 0, teamsNeed = 0, onPermissions, onProfile, profile = {}, view_, memoryCount, connectorCount, hidden, onResizeStart
+  onHome, onFiles, onOpenFile, onProjects, onConnectors, onSettings, onMemory, onUsage, onBrowser, onTerminal, notes, onNotes, notesActive, onSchedule, onSkills, onArtifacts, onAgents, onAutomations, onSentinel, sentinel = 'off', onLogs, agentCount = 0, teamsNeed = 0, onPermissions, onProfile, profile = {}, view_, memoryCount, connectorCount, hidden, onResizeStart, onMoveChat
 }) {
+  const [dropOn, setDropOn] = useState(''); // project id a chat is being dragged over
   const sKey = useSentinelKey();
   const [q, setQ] = useState('');
   const [dq, setDq] = useState(''); // the search as used for filtering: follows typing after a short pause
@@ -114,7 +120,10 @@ export default function Sidebar({
 
     rows.push(
       <div key={'pg' + p.id} className={`project-group ${isOpen ? 'open' : 'closed'}`}>
-        <div className="project-group-head" data-project={p.id} onClick={() => toggleProject(p.id)} {...asButton(() => toggleProject(p.id))} aria-expanded={!!isOpen}>
+        <div className={`project-group-head ${dropOn === p.id ? 'drop' : ''}`} data-project={p.id} onClick={() => toggleProject(p.id)} {...asButton(() => toggleProject(p.id))} aria-expanded={!!isOpen}
+          onDragOver={onMoveChat ? (e) => { if (!isChatDrag(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dropOn !== p.id) setDropOn(p.id); } : undefined}
+          onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDropOn(''); }}
+          onDrop={onMoveChat ? (e) => { const id = e.dataTransfer.getData(CHAT_DRAG); setDropOn(''); if (!id) return; e.preventDefault(); onMoveChat(id, p.id); } : undefined}>
           <ProjectLogo logo={p.logo} size={18} />
           <span className="t" onDoubleClick={(e) => { e.stopPropagation(); onOpenProject(p.id); }}>{p.name}</span>
           <Icon name={isOpen ? 'chevronDown' : 'chevronRight'} size={13} className="project-chevron" />
