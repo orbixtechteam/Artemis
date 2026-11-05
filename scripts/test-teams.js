@@ -26,6 +26,8 @@ const def = (extra) => ({ name: 'Launch', goal: 'Ship the notes', members: [{ na
   const c = cleanDef({ name: 'a', goal: 'g', members: [{ name: 'athena' }, { name: 'Athena' }], mode: 'weird', budgetUsd: -4, minutes: 9999 }, ROSTER);
   assert.deepStrictEqual(c.members, [{ name: 'Athena', model: '' }]);
   assert.strictEqual(c.mode, 'lead'); assert.strictEqual(c.budgetUsd, 0); assert.strictEqual(c.minutes, 600);
+  // the lead model is kept, Claude Code / Codex included (the picker offers them)
+  for (const m of ['prov:p1:gpt-x', 'cli:claude', 'cli:claude:claude-opus-5-5', 'cli:codex']) assert.strictEqual(cleanDef({ name: 'a', goal: 'g', members: [{ name: 'Athena' }], leadModel: m }, ROSTER).leadModel, m);
   console.log('teams: definitions ok');
 
   // a full run: plan -> Athena -> Calliope (asks Athena, depends on her) -> Themis sends it back once -> summary

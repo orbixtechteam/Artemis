@@ -90,7 +90,7 @@ function cleanDef(d, roster) {
   if (!members.length) throw new Error('Add at least one agent to the team.');
   const num = (v, max) => Math.max(0, Math.min(max, Number(v) || 0));
   return {
-    name, goal, members, mode: MODES.includes(d.mode) ? d.mode : 'lead', leadModel: typeof d.leadModel === 'string' && !/^cli:/.test(d.leadModel) ? d.leadModel.slice(0, 200) : '',
+    name, goal, members, mode: MODES.includes(d.mode) ? d.mode : 'lead', leadModel: typeof d.leadModel === 'string' ? d.leadModel.slice(0, 200) : '', // cli:claude / cli:codex too: the lead runs on them like a member
     folder: typeof d.folder === 'string' ? d.folder.trim().slice(0, 1000) : '', // '' = the project's folder, else the Files folder
     projectId: typeof d.projectId === 'string' ? d.projectId.trim().slice(0, 100) : '', // the project the team works for: its folder, instructions and agents
     budgetUsd: num(d.budgetUsd, 1000), budgetTokens: Math.round(num(d.budgetTokens, 1e9)), minutes: num(d.minutes, 600), askWrites: d.askWrites !== false,
