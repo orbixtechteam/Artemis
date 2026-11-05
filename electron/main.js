@@ -2361,6 +2361,13 @@ app.whenReady().then(() => {
     };
     setDockIcon();
     nativeTheme.on('updated', setDockIcon);
+    // Notifications take the icon from macOS's cache, not from the Dock icon: refresh it after an update
+    try {
+      require('./icon-refresh').createIconRefresh({
+        fs, path, execFile: require('child_process').execFile, markerFile: path.join(app.getPath('userData'), 'icon-registered.txt'),
+        version: app.getVersion(), exePath: app.getPath('exe'), isPackaged: app.isPackaged, log: (m) => logger.info('app', 'Icon refresh: ' + m),
+      }).run();
+    } catch (e) { logger.warn('app', 'Icon refresh failed: ' + ((e && e.message) || e)); }
     try { app.dock.show(); } catch (e) { logger.warn('app', 'Dock show failed: ' + ((e && e.message) || e)); }
   }
   floater = createFloat({ BrowserWindow, screen });
