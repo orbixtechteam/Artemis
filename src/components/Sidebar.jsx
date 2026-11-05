@@ -50,7 +50,7 @@ function SideHead({ label, open, onToggle }) {
 
 export default function Sidebar({
   chats, projects = [], currentId, view, statusOf, onNewChat, onNewIncognito, onSelect, onRename, onPinChat, onPinProject, onOpenProject,
-  onHome, onFiles, onOpenFile, onProjects, onConnectors, onSettings, onMemory, onUsage, onBrowser, onTerminal, notes, onNotes, notesActive, onSchedule, onSkills, onArtifacts, onAgents, onAutomations, onSentinel, sentinel = 'off', onLogs, agentCount = 0, onPermissions, onProfile, profile = {}, view_, memoryCount, connectorCount, hidden, onResizeStart
+  onHome, onFiles, onOpenFile, onProjects, onConnectors, onSettings, onMemory, onUsage, onBrowser, onTerminal, notes, onNotes, notesActive, onSchedule, onSkills, onArtifacts, onAgents, onAutomations, onSentinel, sentinel = 'off', onLogs, agentCount = 0, teamsNeed = 0, onPermissions, onProfile, profile = {}, view_, memoryCount, connectorCount, hidden, onResizeStart
 }) {
   const sKey = useSentinelKey();
   const [q, setQ] = useState('');
@@ -153,7 +153,7 @@ export default function Sidebar({
       </div>
       <nav className="side-nav" aria-label="Main">
         <button className="nav-item" data-nav="search" onClick={() => window.api.quickSearch()} title="Search (⌘⇧Space)"><Icon name="search" size={16} /> Search</button>
-        <button className="nav-item" data-nav="agents" onClick={onAgents}><Icon name="user" size={16} /> Agents{agentCount ? <span className="count" title={agentCount + ' running'}>{agentCount}</span> : null}</button>
+        <button className="nav-item" data-nav="agents" onClick={onAgents}><Icon name="user" size={16} /> Agents{teamsNeed ? <span className="count need" title={teamsNeed === 1 ? 'A team needs you' : `${teamsNeed} teams need you`}>{teamsNeed}</span> : agentCount ? <span className="count" title={agentCount + ' running'}>{agentCount}</span> : null}</button>
         <button className="nav-item" data-nav="schedule" onClick={onSchedule}><Icon name="clock" size={16} /> Scheduled</button>
         {onArtifacts && <button className="nav-item" data-nav="artifacts" onClick={onArtifacts}><Icon name="artifact" size={16} /> Artifacts</button>}
         <button className="nav-item" data-nav="connectors" onClick={onConnectors}><Icon name="plug" size={16} /> Connectors{connectorCount ? <span className="count">{connectorCount}</span> : null}</button>
