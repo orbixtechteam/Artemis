@@ -173,7 +173,7 @@ function createSessions({ db, log = () => {}, writer: defaultWriter = 'app', med
     return hits.length ? hits : run('or');
   }
 
-  const read = (id, last) => { const c = get(id); return c && !c.incognito ? chatSearch.transcript(c, { last }) : null; };
+  const read = (id, last, offset) => { const c = get(id); return c && !c.incognito ? chatSearch.transcript(c, { last, offset }) : null; };
   const turns = (chat, n) => chatSearch.chatTurns(chat, n);
 
   /** Adds one user turn and the assistant's answer to a chat, creating the chat when it does not exist. */

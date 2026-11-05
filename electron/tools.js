@@ -296,8 +296,9 @@ function definitions({ teamsEnabled, makeEnabled, hasFolder, memoryEnabled, memo
         query: { type: 'string', description: 'Keywords' },
         limit: { type: 'number', description: 'Max results (default 6)' }
       }, ['query']),
-      fn('read_chat', 'Reads the messages of one saved chat (id from search_chats).', {
-        id: { type: 'string' }, last: { type: 'number', description: 'How many of the latest messages (default 10, max 40)' }
+      fn('read_chat', 'Reads the messages of one saved chat (id from search_chats), including the messages a compact summarized.', {
+        id: { type: 'string' }, last: { type: 'number', description: 'How many of the latest messages (default 10, max 40)' },
+        offset: { type: 'number', description: 'Skip this many of the newest messages first, to read further back (default 0)' }
       }, ['id'])
     );
   }
@@ -1140,7 +1141,7 @@ async function runTool(name, args, ctx) {
       }
       case 'read_chat': {
         if (!ctx.chats) throw new Error('Chat search is off');
-        const t = ctx.chats.read(String(args.id || ''), Math.min(40, Math.max(1, Number(args.last) || 10)));
+        const t = ctx.chats.read(String(args.id || ''), Math.min(40, Math.max(1, Number(args.last) || 10)), Math.max(0, Number(args.offset) || 0));
         if (!t) throw new Error('No chat with that id.');
         return { ok: true, text: t };
       }

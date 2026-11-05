@@ -242,7 +242,7 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
         notes: st.notesAi !== false ? notes : null,
         skills: st.skillsEnabled !== false ? { index: () => skills.indexText(project && project.folder), get: (n) => skills.get(n, project && project.folder), save: (o) => skills.save(o, project && project.folder) } : null,
         autoLearn: st.autoLearn !== false && !unattended,
-        chats: st.chatSearchEnabled !== false ? { search: (q, n) => sessions.search(q, { limit: n, projects: readJson('projects', []) }), read: (id, last) => sessions.read(id, last) } : null,
+        chats: st.chatSearchEnabled !== false ? { search: (q, n) => sessions.search(q, { limit: n, projects: readJson('projects', []) }), read: (id, last, offset) => sessions.read(id, last, offset) } : null,
         delegateEnabled: st.delegateEnabled !== false,
         agents: { find: (n) => agents.find(n, project && project.folder), list: () => agents.list(project && project.folder), index: () => agents.indexText(project && project.folder) },
         resolveModel: (id) => providersLib.resolve(id, readProviders(), getProviderKey), usageModel: modelId,
@@ -359,7 +359,7 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
       const sb = caps.has('shell') ? sandbox() : null;
       return {
         webEnabled: st.webEnabled !== false, searchVia: searchVia(st),
-        chats: st.chatSearchEnabled !== false ? { search: (q, n) => sessions.search(q, { limit: n, projects: readJson('projects', []) }), read: (id, last) => sessions.read(id, last) } : null,
+        chats: st.chatSearchEnabled !== false ? { search: (q, n) => sessions.search(q, { limit: n, projects: readJson('projects', []) }), read: (id, last, offset) => sessions.read(id, last, offset) } : null,
         make: caps.has('make') && st.makeEnabled !== false && getSecret('makeToken', 'makeTokenEnc') ? make : null,
         browser: caps.has('browser') && browserOn && st.browserTools !== false && browserAvailable() ? browserFor() : null,
         mcp: caps.has('connectors') && mcp && st.connectorsEnabled !== false ? (sb ? hideHostShellTools(agentMcp()) : agentMcp()) : null,
@@ -398,7 +398,7 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
       if (prev && prev.incognito) throw new Error('That chat is incognito and cannot be continued from outside.');
       const modelId = pickModel(model);
       const pid = projectId || (prev && prev.projectId) || null;
-      const res = await run({ runId, messages: [...(prev ? chatSearch.chatTurns(prev, 30) : []), { role: 'user', content: message }], modelId, project: projectFor(pid), chatId: sid, send: emit, restrict: !!settings().gatewayRestrict });
+      const res = await run({ runId, messages: [...(prev ? chatSearch.modelTurns(prev, 30) : []), { role: 'user', content: message }], modelId, project: projectFor(pid), chatId: sid, send: emit, restrict: !!settings().gatewayRestrict });
       sessions.appendTurn(sid, { user: message, steps: res.steps.map((t) => ({ text: t, toolCalls: [] })), assistant: res.error ? `Error: ${res.error}` : '', via: 'gateway', source: 'gateway', model: modelId, projectId: pid, title: message });
       mirror();
       if (res.error && !res.steps.length) throw new Error(res.error);

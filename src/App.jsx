@@ -60,7 +60,7 @@ import { flushAllNotes } from './lib/noteRegistry.js';
 import CommandPalette from './components/CommandPalette.jsx';
 import { matchesAccelerator, formatAccelerator } from './lib/shortcuts.mjs';
 import { FilePanel, ArtifactPanel, ProgressPanel } from './components/SidePanel.jsx';
-import { greeting, toApiMessages, uid, contextWindowOf, chatTokens } from './lib/history.js';
+import { greeting, toApiMessages, uid, contextWindowOf, chatTokens, lastCompact } from './lib/history.js';
 import { needsTitle, keepsTitle } from './lib/titles.mjs';
 import LockHost from './components/LockHost.jsx';
 import { stripFences, codeOnly } from './lib/clip.mjs';
@@ -1318,21 +1318,24 @@ export default function App() {
       break;
     }
   }, [queues, runningIds, chats, held]);
-  // Compact button: summarize the older messages into one card and keep the last few as they are.
+  // Compact button: summarize the older messages into a card placed after them, like Claude. The chat still shows every message;
+  // the model gets only the latest card and what follows it (toApiMessages starts there).
   const [compacting, setCompacting] = useState(''); // id of the chat being compacted
   const compactTail = (c) => { let i = Math.max(0, c.messages.length - 4); while (i > 0 && c.messages[i].role !== 'user') i--; return i; };
-  const canCompact = (c) => !!c && !isRunning(c.id) && !compacting && compactTail(c) >= 2;
+  const canCompact = (c) => !!c && !isRunning(c.id) && !compacting && compactTail(c) - Math.max(0, lastCompact(c.messages) + 1) >= 2;
   // Returns the compacted message list (or null), so an automatic compact can send the next message on top of it.
   const compactChat = async (target, auto) => {
     const c = target && target.messages ? target : chat; if (!canCompact(c)) return null;
-    const at = compactTail(c); const older = c.messages.slice(0, at);
+    const at = compactTail(c); const from = Math.max(0, lastCompact(c.messages)); const older = c.messages.slice(from, at); // a previous card's summary is carried into the new one
     setCompacting(c.id); stick.current = true;
     try {
       const r = await api.compact({ model: c.model, messages: toApiMessages(older), chatId: c.id, incognito: !!c.incognito });
       if (!r.ok) { if (!auto) flashSent(r.error); return null; }
-      const card = { id: uid(), role: 'user', compacted: older.length, ...(auto ? { auto: true } : {}), content: `[Summary of the earlier conversation — compacted to save tokens]\n${r.summary}` };
-      const next = [card, ...c.messages.slice(at)];
-      setChats((cs) => cs.map((x) => (x.id === c.id ? { ...x, messages: [card, ...x.messages.slice(at)], updatedAt: Date.now() } : x)));
+      const keep = c.incognito ? '' : `\n\n[The earlier messages are still saved in this chat (id ${c.id}). When an exact detail is not in this summary, find it with search_chats or read it with read_chat (this id, offset to go further back) instead of asking the user.]`;
+      const card = { id: uid(), role: 'user', compacted: at - from - (c.messages[from] && c.messages[from].compacted ? 1 : 0), ...(auto ? { auto: true } : {}), content: `[Summary of the earlier conversation — compacted to save tokens]\n${r.summary}${keep}` };
+      const next = [...c.messages.slice(0, at), card, ...c.messages.slice(at)];
+      const cardAt = c.messages[at] && c.messages[at].id; // insert before the same message even if more arrived meanwhile
+      setChats((cs) => cs.map((x) => { if (x.id !== c.id) return x; const i = x.messages.findIndex((m) => m.id === cardAt); const j = i < 0 ? x.messages.length : i; return { ...x, messages: [...x.messages.slice(0, j), card, ...x.messages.slice(j)], updatedAt: Date.now() }; }));
       return next;
     } catch (e) { if (!auto) flashSent((e && e.message) || String(e)); return null; }
     finally { setCompacting(''); }
@@ -2035,6 +2038,7 @@ export default function App() {
         onOpenProject={(id) => navView({ project: id })} currentId={currentId} view={chatView ? 'chat' : 'other'} statusOf={statusOf}
         onNewChat={() => newChat()} onNewIncognito={newIncognito} onSelect={select}
         onRename={(id, title) => updateChat(id, { title, titleManual: true })}
+        onMoveChat={(id, pid) => setChats((cs) => cs.map((c) => (c.id === id && !c.incognito ? { ...c, projectId: pid } : c)))}
         onHome={() => navView('home')} onProjects={() => navView('projects')} onSchedule={() => navView('schedule')} onFiles={() => navView('files')} onOpenFile={openLibFile} onSkills={() => navView('skills')} onArtifacts={() => navView('artifacts')} onAgents={() => { agentsIntent.home(); navView('agents'); }} onAutomations={() => navView('automations')} onSentinel={toggleSentinel} sentinel={sent.state} onLogs={() => navView('logs')} agentCount={liveAgents(chats, runningIds).length} teamsNeed={teamsNeed} onPermissions={() => setModal('permissions')} onConnectors={() => setModal('connectors')}
         onSettings={() => { setSettingsTab('general'); setModal('settings'); }} onMemory={() => setModal('memory')} onUsage={() => setModal('usage')}
         onTerminal={() => { if (!termRef.current.tabs.length) newTermTab(); navView('terminal'); }}
