@@ -37,7 +37,7 @@ export default function DeploySheet({ team, roster: userRoster, chatGroups, proj
   const [clis, setClis] = useState({ claude: false, codex: false });
   useEffect(() => { window.api.browserVisible?.(false); return () => { window.api.browserVisible?.(true); }; }, []); // the browser page is a native view above this sheet
   useEffect(() => { window.api.teamsClis?.().then((c) => c && setClis(c)).catch(() => {}); }, []);
-  // Claude Code and Codex run on this computer with their own login (a subscription or their own key)
+  // Claude Code and Codex run on this computer on the user's plan login (API-key variables are not passed on)
   const cliIds = new Set(CLI_GROUPS.flatMap((g) => g.items.map(([id]) => id)));
   const cliGroups = CLI_GROUPS.filter((g) => clis[g.kind]).map((g) => ({ label: g.label, items: g.items }));
   const memberGroups = [...cliGroups, ...chatGroups.filter((g) => !g.items.some(([id]) => cliIds.has(id)))];
@@ -70,26 +70,28 @@ export default function DeploySheet({ team, roster: userRoster, chatGroups, proj
     onDone(null, { deleted: true });
   };
   const mode = MODES.find((m) => m[0] === d.mode) || MODES[0];
+  // what still stops the team from being saved, said before the click instead of after it
+  const missing = !d.name.trim() ? 'Give the team a name.' : !d.goal.trim() ? 'Write the goal.' : !d.members.length ? 'Turn on at least one agent.' : '';
   const opt = (list, v) => (list.some((o) => o[0] === String(v)) ? list : [...list, [String(v), String(v)]]);
 
   return (
     <div className="overlay" onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) onDone(null, {}); }}>
-      <div className="modal tm-sheet" role="dialog" aria-label={fresh ? 'Deploy a team' : 'Edit team'}>
-        <h2>{fresh ? 'Deploy a team' : 'Edit team'}</h2>
-        <p className="tm-sheet-sub">One goal, a few agents. Artemis leads: it plans, hands out the work and keeps the team talking.</p>
+      <div className="modal tm-sheet" role="dialog" aria-label={fresh ? 'New team' : 'Edit team'}>
+        <h2>{fresh ? 'New team' : 'Edit team'}</h2>
+        <p className="tm-sheet-sub">One goal, a few agents. Artemis leads: it plans, hands out the work and keeps you posted in the team's room.</p>
         <label className="tm-lbl" htmlFor="tm-name">Name</label>
         <input id="tm-name" className="tm-in" value={d.name} autoFocus={fresh} placeholder="Launch week" onChange={(e) => set('name')(e.target.value)} />
         <label className="tm-lbl" htmlFor="tm-goal">Goal</label>
         <textarea id="tm-goal" className="tm-in" rows={3} value={d.goal} placeholder="What should the team deliver? Be specific about the result and where it should go." onChange={(e) => set('goal')(e.target.value)} />
 
-        <div className="tm-lbl">Members</div>
+        <div className="tm-lbl">Members <small>{d.members.length} of {roster.length} on the team</small></div>
         <div className="tm-grp">
           {roster.map((a) => {
             const m = member(a.name);
             return (
               <div key={a.name} className={`tm-r ${m ? '' : 'off'}`}>
                 <Avatar name={a.name} />
-                <div className="tm-r-t"><b>{a.name}{a.role ? <span> · {a.role}</span> : null}</b><small>{a.description}</small></div>
+                <div className="tm-r-t"><b>{a.name}{a.role ? <span> · {a.role}</span> : null}</b><small className="one" title={a.description}>{a.description}</small></div>
                 {m && <ModelPicker value={m.model} groups={memberGroups} onChange={(v) => setModel(a.name, v)} emptyLabel="Agent's model" up={false} align="right" />}
                 <Switch checked={!!m} onChange={() => toggle(a.name)} label={`${a.name} on the team`} />
               </div>
@@ -100,39 +102,49 @@ export default function DeploySheet({ team, roster: userRoster, chatGroups, proj
 
         <div className="tm-lbl">How they work</div>
         <div className="tm-grp">
-          <div className="tm-r"><div className="tm-r-t"><b>Teamwork</b></div><Segmented label="Teamwork" value={d.mode} onChange={set('mode')} options={MODES.map(([v, l]) => [v, l])} /></div>
-          <div className="tm-r"><div className="tm-r-t"><b>Lead model</b><small>Artemis plans and writes the final answer</small></div><ModelPicker value={d.leadModel} groups={chatGroups} onChange={set('leadModel')} emptyLabel="Chat model" up={false} align="right" /></div>
-        </div>
-        <p className="tm-how">{mode[2]}</p>
-
-        <div className="tm-grp">
-          <div className="tm-r"><div className="tm-r-t"><b>Budget</b><small>The team pauses and asks when it is reached</small></div>
-            <Select value={String(d.budgetUsd)} onChange={(e) => set('budgetUsd')(e.target.value)} aria-label="Budget">{opt(BUDGETS, d.budgetUsd).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Select>
-            <Select value={String(d.minutes)} onChange={(e) => set('minutes')(e.target.value)} aria-label="Time limit">{opt(MINUTES, d.minutes).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Select>
+          <div className="tm-r tm-r-mode">
+            <div className="tm-r-t"><b>Teamwork</b><small>{mode[2]}</small></div>
+            <Segmented label="Teamwork" value={d.mode} onChange={set('mode')} options={MODES.map(([v, l]) => [v, l])} />
           </div>
-          <div className="tm-r"><div className="tm-r-t"><b>Project</b><small>{project ? `Works in its folder, follows its instructions and can use its agents` : 'Not part of a project'}</small></div>
-            <Select value={d.projectId || ''} aria-label="Project" onChange={(e) => set('projectId')(e.target.value)}>
-              <option value="">No project</option>
-              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              {d.projectId && !project && <option value={d.projectId}>(deleted project)</option>}
-            </Select>
-          </div>
-          <div className="tm-r"><div className="tm-r-t"><b>Folder</b><small title={d.folder || (project && project.folder) || ''}>{d.folder ? d.folder : project && project.folder ? `${project.folder} (the project's)` : 'Your Files folder'}{usesCli ? ' · Claude Code and Codex work here' : ''}</small></div>
-            {d.folder && <button type="button" className="tm-link" onClick={() => set('folder')('')}>{project && project.folder ? "Use the project's" : 'Use Files'}</button>}
-            <button type="button" onClick={pickFolder}>Choose…</button>
-          </div>
-                    <div className="tm-r"><div className="tm-r-t"><b>Token budget</b><small>Counts every model, also ones without a price</small></div>
-            <Select value={String(d.budgetTokens || 0)} onChange={(e) => set('budgetTokens')(e.target.value)} aria-label="Token budget">{opt(TOKENS, d.budgetTokens || 0).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Select>
-          </div>
-          <div className="tm-r"><div className="tm-r-t"><b>Ask me before acting</b><small>{usesCodex && d.askWrites !== false ? 'Codex cannot ask in the middle of a run, so it works read-only while this is on.' : 'Writing files, commands, Make, posting, sending' + (usesCli ? ' (Claude Code asks before edits and commands too)' : '') + '. In the room, and on Telegram when it is paired. Off: the team acts on its own.'}</small></div><Switch checked={d.askWrites !== false} onChange={set('askWrites')} label="Ask me before acting" /></div>
+          <div className="tm-r"><div className="tm-r-t"><b>Lead model</b><small>Artemis plans the work and writes the final answer</small></div><ModelPicker value={d.leadModel} groups={chatGroups} onChange={set('leadModel')} emptyLabel="Chat model" up={false} align="right" /></div>
           <div className="tm-r"><div className="tm-r-t"><b>Reviewer</b><small>{reviewerNow ? `${reviewerNow} checks every finished task and sends work back until it is right` : 'Nobody checks the work before the next step'}</small></div>
             <Select value={reviewerNow} aria-label="Reviewer" onChange={(e) => set('reviewer')(e.target.value)}>
               <option value="">Nobody</option>
               {d.members.map((m) => <option key={m.name} value={m.name}>{m.name}</option>)}
             </Select>
           </div>
+          <div className="tm-r"><div className="tm-r-t"><b>Ask me before acting</b><small>{usesCodex && d.askWrites !== false ? 'Codex cannot ask in the middle of a run, so it works read-only while this is on.' : d.askWrites !== false ? 'Writing files, running commands, Make, posting and sending wait for your OK' + (usesCli ? ' (Claude Code asks before edits and commands too)' : '') + ', in the room and on Telegram when it is paired.' : 'The team writes, runs and sends on its own.'}</small></div><Switch checked={d.askWrites !== false} onChange={set('askWrites')} label="Ask me before acting" /></div>
           <div className="tm-r"><div className="tm-r-t"><b>Let Artemis add agents</b><small>When no member fits a task, the lead creates a new agent (up to 3 per team)</small></div><Switch checked={!!d.canHire} onChange={set('canHire')} label="Let Artemis add agents" /></div>
         </div>
+
+        <div className="tm-lbl">Where it works</div>
+        <div className="tm-grp">
+          <div className="tm-r"><div className="tm-r-t"><b>Project</b><small>{project ? 'Works in its folder, follows its instructions and can use its agents' : 'Not part of a project'}</small></div>
+            <Select value={d.projectId || ''} aria-label="Project" onChange={(e) => set('projectId')(e.target.value)}>
+              <option value="">No project</option>
+              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              {d.projectId && !project && <option value={d.projectId}>(deleted project)</option>}
+            </Select>
+          </div>
+          <div className="tm-r"><div className="tm-r-t"><b>Folder</b><small className="one" title={d.folder || (project && project.folder) || ''}>{d.folder ? d.folder : project && project.folder ? `${project.folder} (the project's)` : 'Your Files folder'}{usesCli ? ' · Claude Code and Codex work here' : ''}</small></div>
+            {d.folder && <button type="button" className="tm-link" onClick={() => set('folder')('')}>{project && project.folder ? "Use the project's" : 'Use Files'}</button>}
+            <button type="button" onClick={pickFolder}>Choose…</button>
+          </div>
+        </div>
+
+        <div className="tm-lbl">Limits</div>
+        <div className="tm-grp">
+          <div className="tm-r"><div className="tm-r-t"><b>Spending cap</b><small>From the prices set for each model</small></div>
+            <Select value={String(d.budgetUsd)} onChange={(e) => set('budgetUsd')(e.target.value)} aria-label="Spending cap">{opt(BUDGETS, d.budgetUsd).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Select>
+          </div>
+          <div className="tm-r"><div className="tm-r-t"><b>Time limit</b><small>Counted while the team runs</small></div>
+            <Select value={String(d.minutes)} onChange={(e) => set('minutes')(e.target.value)} aria-label="Time limit">{opt(MINUTES, d.minutes).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Select>
+          </div>
+          <div className="tm-r"><div className="tm-r-t"><b>Token cap</b><small>Counts every model, also ones without a price</small></div>
+            <Select value={String(d.budgetTokens || 0)} onChange={(e) => set('budgetTokens')(e.target.value)} aria-label="Token cap">{opt(TOKENS, d.budgetTokens || 0).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Select>
+          </div>
+        </div>
+        <p className="tm-how">At a limit the team pauses and tells you. Resuming allows the same amount again.</p>
 
         <div className="tm-lbl">Runs by itself</div>
         <div className="tm-grp">
@@ -144,16 +156,16 @@ export default function DeploySheet({ team, roster: userRoster, chatGroups, proj
             {d.repeat && d.repeat.type === 'interval' && <Select value={String(d.repeat.every || 360)} aria-label="Every" onChange={(e) => set('repeat')({ ...d.repeat, every: Number(e.target.value) })}>{opt(EVERY, d.repeat.every || 360).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Select>}
           </div>
         </div>
-        <label className="tm-lbl" htmlFor="tm-rules">Team rules <small>(optional)</small></label>
+        <label className="tm-lbl" htmlFor="tm-rules">Team rules <small>optional</small></label>
         <textarea id="tm-rules" className="tm-in" rows={2} value={d.rules || ''} placeholder="Anything every member should follow: tone, platforms, what not to do, where results go." onChange={(e) => set('rules')(e.target.value)} />
 
         {err && <div className="tm-err" role="alert">{err}</div>}
         <div className="tm-foot">
           {!fresh && <button type="button" className="tm-del" onClick={remove} disabled={busy}>Delete team</button>}
-          <small>Each agent uses its own model, so cheap work stays cheap.</small>
+          <small>{missing}</small>
           <button type="button" onClick={() => onDone(null, {})} disabled={busy}>Cancel</button>
-          {!fresh && <button type="button" onClick={() => submit(false)} disabled={busy}>Save</button>}
-          {(fresh || team.run?.status !== 'working') && <button type="button" className="primary" onClick={() => submit(true)} disabled={busy}>{busy ? 'Starting…' : fresh ? 'Deploy team' : 'Save and run'}</button>}
+          <button type="button" onClick={() => submit(false)} disabled={busy || !!missing} title={fresh ? 'Save the team without starting it' : undefined}>Save</button>
+          {(fresh || team.run?.status !== 'working') && <button type="button" className="primary" onClick={() => submit(true)} disabled={busy || !!missing}>{busy ? 'Starting…' : fresh ? 'Deploy team' : 'Save and run'}</button>}
         </div>
       </div>
     </div>

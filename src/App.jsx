@@ -45,6 +45,7 @@ import LogsView from './components/LogsView.jsx';
 import AutomationsView from './components/AutomationsView.jsx';
 import { log } from './lib/log.js';
 import { liveAgents } from './lib/agents.js';
+import { useTeamsNeed } from './lib/teamsNeed.js';
 import { MemoryModal, ProjectModal, ConnectorsModal, UsageModal, PermissionsModal, ProfileModal } from './components/Modals.jsx';
 import SchedulesView from './components/SchedulesView.jsx';
 import { modelGroups, defaultModel } from './lib/models.js';
@@ -525,6 +526,7 @@ export default function App() {
   };
   const navSnap = (k) => ({ view: 'chat', chatId: currentRef.current, modal: null, settingsTab: 'general', ...NAV[k] });
   // ---------- Sentinel (hands-free voice mode) ----------
+  const teamsNeed = useTeamsNeed();
   const [sent, setSent] = useState({ state: 'off', info: null, err: '' });
   const sentRef = useRef(null);
   const levelAt = useRef(0);
@@ -2033,7 +2035,7 @@ export default function App() {
         onOpenProject={(id) => navView({ project: id })} currentId={currentId} view={chatView ? 'chat' : 'other'} statusOf={statusOf}
         onNewChat={() => newChat()} onNewIncognito={newIncognito} onSelect={select}
         onRename={(id, title) => updateChat(id, { title, titleManual: true })}
-        onHome={() => navView('home')} onProjects={() => navView('projects')} onSchedule={() => navView('schedule')} onFiles={() => navView('files')} onOpenFile={openLibFile} onSkills={() => navView('skills')} onArtifacts={() => navView('artifacts')} onAgents={() => navView('agents')} onAutomations={() => navView('automations')} onSentinel={toggleSentinel} sentinel={sent.state} onLogs={() => navView('logs')} agentCount={liveAgents(chats, runningIds).length} onPermissions={() => setModal('permissions')} onConnectors={() => setModal('connectors')}
+        onHome={() => navView('home')} onProjects={() => navView('projects')} onSchedule={() => navView('schedule')} onFiles={() => navView('files')} onOpenFile={openLibFile} onSkills={() => navView('skills')} onArtifacts={() => navView('artifacts')} onAgents={() => { agentsIntent.home(); navView('agents'); }} onAutomations={() => navView('automations')} onSentinel={toggleSentinel} sentinel={sent.state} onLogs={() => navView('logs')} agentCount={liveAgents(chats, runningIds).length} teamsNeed={teamsNeed} onPermissions={() => setModal('permissions')} onConnectors={() => setModal('connectors')}
         onSettings={() => { setSettingsTab('general'); setModal('settings'); }} onMemory={() => setModal('memory')} onUsage={() => setModal('usage')}
         onTerminal={() => { if (!termRef.current.tabs.length) newTermTab(); navView('terminal'); }}
         notes={notesTree} onNotes={() => (notePath && notes.items.some((i) => i.path === notePath) ? noteActions.open(notePath, 'here') : navView('notes'))} notesActive={!pageModal && (view === 'note' || view === 'notes')}
