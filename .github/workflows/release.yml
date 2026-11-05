@@ -23,6 +23,23 @@ jobs:
       - name: Check the tag matches package.json
         run: test "${GITHUB_REF_NAME#v}" = "$(node -p "require('./package.json').version")"
       - run: pnpm build
+      # A stable self-signed certificate (secrets MAC_SIGN_P12 base64 + MAC_SIGN_PASSWORD) keeps the Keychain from asking after every update
+      - name: Import the signing certificate
+        env:
+          P12: ${{ secrets.MAC_SIGN_P12 }}
+          PASS: ${{ secrets.MAC_SIGN_PASSWORD }}
+        run: |
+          test -n "$P12" || { echo "MAC_SIGN_P12 is not set"; exit 1; }
+          KC="$RUNNER_TEMP/sign.keychain-db"; KP="$(openssl rand -hex 16)"
+          echo "$P12" | base64 --decode > "$RUNNER_TEMP/sign.p12"
+          security create-keychain -p "$KP" "$KC"
+          security set-keychain-settings "$KC"
+          security unlock-keychain -p "$KP" "$KC"
+          security import "$RUNNER_TEMP/sign.p12" -k "$KC" -P "$PASS" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KP" "$KC" > /dev/null
+          rm "$RUNNER_TEMP/sign.p12"
+          echo "MAC_SIGN_KEYCHAIN=$KC" >> "$GITHUB_ENV"
+          echo "MAC_SIGN_IDENTITY=Artemis Self-Signed" >> "$GITHUB_ENV"
       - run: pnpm exec electron-builder --mac --publish never
       - uses: softprops/action-gh-release@v2
         with:
