@@ -26,6 +26,7 @@
 .nav-item.active { background: var(--fill-2); }
 .nav-item .count { margin-left: auto; font-size: var(--fs-xs); color: var(--muted); }
 .nav-item .count[title] { padding: 1px 6px; border-radius: 8px; background: var(--fill-2); color: var(--text); }
+.nav-item .count.need { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); font-weight: 600; }
 .nav-item .state { margin-left: auto; font-size: var(--fs-xs); color: var(--muted); }
 .nav-item .state.on { color: var(--ok); }
 
