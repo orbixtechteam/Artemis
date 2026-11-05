@@ -194,16 +194,16 @@ export function FilePanel({ file: a, onClose, expanded, onExpand }) {
   );
 }
 
-// Live artifacts (window.artemis.call in the frame) read connector data. The user allows it once per artifact while the app runs;
-// parallel calls share one question.
-const liveAsk = new Map(); // artifact id -> Promise<boolean>
+// Live artifacts (window.artemis.call in the frame) read connector data. The user allows it once for all artifacts and it is
+// remembered across restarts; parallel calls share one question.
+const LIVE_KEY = 'artemis.artifact-connectors';
+let liveAsk = (() => { try { return localStorage.getItem(LIVE_KEY) === '1' ? Promise.resolve(true) : null; } catch { return null; } })();
 const allowLive = (a) => {
-  if (!liveAsk.has(a.id)) {
-    const p = askConfirm({ title: 'Let this artifact read your connectors?', message: `"${a.title}" wants to load live data from your connectors (read-only tools only, e.g. search and list). It cannot change anything or send the data out.`, confirmLabel: 'Allow' });
-    liveAsk.set(a.id, p);
-    p.then((ok) => { if (!ok) liveAsk.delete(a.id); }); // a "no" asks again on the next call
+  if (!liveAsk) {
+    liveAsk = askConfirm({ title: 'Let artifacts read your connectors?', message: `"${a.title}" wants to load live data from your connectors (read-only tools only, e.g. search and list). Artifacts cannot change anything or send the data out. You will not be asked again.`, confirmLabel: 'Allow' });
+    liveAsk.then((ok) => { if (ok) { try { localStorage.setItem(LIVE_KEY, '1'); } catch {} } else liveAsk = null; }); // a "no" asks again on the next call
   }
-  return liveAsk.get(a.id);
+  return liveAsk;
 };
 /** Answers window.artemis calls from the artifact frame in frameRef. */
 function useArtifactBridge(frameRef, artifact) {
