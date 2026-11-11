@@ -4,10 +4,12 @@ import ToolCard, { ToolGroup, groupToolCalls } from './ToolCard.jsx';
 import ErrorBoundary from './ErrorBoundary.jsx';
 import { classifyError } from '../lib/errors.js';
 import MediaBlock from './MediaBlock.jsx';
+import FileCards from './FileCard.jsx';
 import { ArtifactCard } from './SidePanel.jsx';
 import { assistantText } from '../lib/history.js';
 import { splitMentions } from '../lib/mentions.mjs';
 import { openPreview } from '../lib/preview.js';
+import { openLightbox } from '../lib/viewer-bus.js';
 import { speak, stopSpeaking } from '../lib/voice.js';
 import { createFollower } from '../lib/follow.js';
 import { Icon, FILE_ICON } from './Icons.jsx';
@@ -67,12 +69,25 @@ function fmtTime(ts) {
 }
 
 export function AttachmentChip({ a, onRemove }) {
+  if (a.kind === 'selection') return <SelectionChip a={a} onRemove={onRemove} />;
   return (
-    <span className={`chip ${a.kind === 'error' ? 'bad' : a.pending ? 'pending' : 'clickable'} ${a.kind === 'image' && (a.dataUrl || a.url) ? 'has-thumb' : ''}`} title={a.pending ? `Reading ${a.name}…` : a.error || a.path || a.name} onClick={() => a.kind !== 'error' && !a.pending && openPreview(a)}>
+    <span className={`chip ${a.kind === 'error' ? 'bad' : a.pending ? 'pending' : 'clickable'} ${a.kind === 'image' && (a.dataUrl || a.url) ? 'has-thumb' : ''}`} title={a.pending ? `Reading ${a.name}…` : a.error || a.path || a.name} onClick={() => { if (a.kind === 'error' || a.pending) return; if (a.kind === 'image' && (a.dataUrl || a.url)) openLightbox([{ src: a.dataUrl || a.url, name: a.name, path: a.path }], 0); else openPreview(a); }}>
       {a.pending ? <Icon name="spinner" size={16} className="spin" /> : a.kind === 'image' && (a.dataUrl || a.url) ? <img src={a.dataUrl || a.url} alt="" /> : <Icon name={a.name?.toLowerCase().endsWith('.zip') ? 'file' : (FILE_ICON[a.kind] || 'file')} size={16} />}
       <span className="chip-name">{a.name}</span>
       {a.truncated && <span className="chip-note">truncated</span>}
       {onRemove && <button aria-label={`Remove ${a.name || 'attachment'}`} title="Remove" onClick={(e) => { e.stopPropagation(); onRemove(); }}><Icon name="x" size={13} /></button>}
+    </span>
+  );
+}
+
+/** A sheet range or doc passage the user asked about: icon + "A3 · Data", opens the file it came from. */
+function SelectionChip({ a, onRemove }) {
+  const open = async () => { if (!a.source) return; const f = await window.api.openLink('', a.source); if (f && f.kind !== 'error') openPreview(f); };
+  return (
+    <span className="chip clickable sel-chip" title={a.title || a.name} onClick={open}>
+      <Icon name={a.icon || 'file'} size={15} />
+      <span className="chip-name">{a.name}</span>
+      {onRemove && <button aria-label={`Remove ${a.name}`} title="Remove" onClick={(e) => { e.stopPropagation(); onRemove(); }}><Icon name="x" size={13} /></button>}
     </span>
   );
 }
@@ -202,6 +217,8 @@ function MessageView({ m, live, chatId, h, canDelete = true, artifacts }) {
   const lastStep = steps[steps.length - 1] || {};
   const toolBusy = (lastStep.toolCalls || []).some((t) => t.status === 'running' || t.status === 'awaiting');
   const parts = steps.map(stepParts);
+  // one card per file in an answer: a file written and then presented shows once, at its last mention
+  const lastCard = new Map(); steps.forEach((st, i) => (st.files || []).forEach((f) => lastCard.set(f.path, i)));
   const lastParts = parts[parts.length - 1] || {};
   // waiting for words: before the first token, or after a tool step before the next text arrives (a thinking block shows its own state instead)
   const waiting = live && !lastParts.text && !(lastParts.thinking && thinkMode() !== 'hidden') && !toolBusy;
@@ -224,6 +241,7 @@ function MessageView({ m, live, chatId, h, canDelete = true, artifacts }) {
             : <ToolCard key={g.tc.id} tc={g.tc} onDecide={onDecide} />))}
           {[...new Set(s.artifactRefs || [])].map((id) => (artifacts && artifacts[id] ? <ArtifactCard key={id} a={artifacts[id]} onOpen={() => h && h.openArtifact && h.openArtifact(chatId, id)} /> : null))}
           {s.media?.map((it, j) => <MediaBlock key={j} item={it} />)}
+          <FileCards files={(s.files || []).filter((f) => lastCard.get(f.path) === i)} />
         </React.Fragment>
       ))}
       {waiting && <Thinking since={m.createdAt} />}

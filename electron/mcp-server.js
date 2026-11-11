@@ -1,10 +1,12 @@
 // Artemis as an MCP server: other apps (Claude Code, Claude Desktop, the Claude proxy …) can control Artemis through MCP tools.
-// Streamable HTTP, JSON replies only, no extra packages. It listens on 127.0.0.1 only and every request needs the bearer token.
+// Streamable HTTP, no extra packages. Replies are JSON, except tools/call for clients that accept SSE: those get the headers
+// at once and progress every 15 s, so a tool that waits for the user (approvals, ask_user) is not cut off by the client's timeout. It listens on 127.0.0.1 only and every request needs the bearer token.
 const http = require('http');
 const crypto = require('crypto');
 
 const VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const MAX_BODY = 1024 * 1024;
+const KEEPALIVE_MS = 15000;
 
 const safeEqual = (a, b) => {
   const x = Buffer.from(String(a)), y = Buffer.from(String(b));
@@ -59,6 +61,28 @@ function createMcpServer({ getToken, tools = () => [], sessions = null, info = {
 
   const send = (res, code, body, headers = {}) => { res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store', ...headers }); res.end(body === undefined ? '' : JSON.stringify(body)); };
 
+  /**
+   * One tools/call answered as an SSE stream: headers now, a progress notification (or a comment when the client sent no
+   * progressToken) every KEEPALIVE_MS while the tool runs, then the result as the last event. Clients time a request out
+   * until its first byte and an idle call after minutes without progress; a person answering a question can take longer.
+   */
+  async function streamCall(res, body, list) {
+    res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive', 'x-accel-buffering': 'no' });
+    res.flushHeaders && res.flushHeaders();
+    const event = (msg) => { if (!res.writableEnded) res.write(`event: message\ndata: ${JSON.stringify(msg)}\n\n`); };
+    const token = body.params && body.params._meta && body.params._meta.progressToken;
+    let n = 0;
+    const beat = setInterval(() => {
+      if (res.writableEnded) return;
+      if (token !== undefined && token !== null) event({ jsonrpc: '2.0', method: 'notifications/progress', params: { progressToken: token, progress: ++n, message: 'Waiting…' } });
+      else res.write(': keepalive\n\n');
+    }, KEEPALIVE_MS);
+    beat.unref && beat.unref();
+    try { const out = await handle(body, list); if (out) event(out); }
+    catch (e) { event({ jsonrpc: '2.0', id: body.id, error: { code: -32603, message: String((e && e.message) || e) } }); }
+    finally { clearInterval(beat); if (!res.writableEnded) res.end(); }
+  }
+
   const onRequest = (req, res) => {
     if (!hostOk(req.headers.host)) return send(res, 403, { error: 'Forbidden host' });
     if (req.headers.origin) return send(res, 403, { error: 'Browser requests are not allowed' }); // a web page must never reach this
@@ -86,6 +110,7 @@ function createMcpServer({ getToken, tools = () => [], sessions = null, info = {
           const out = (await Promise.all(body.map((m) => handle(m, list)))).filter(Boolean);
           return out.length ? send(res, 200, out) : send(res, 202);
         }
+        if (body && body.method === 'tools/call' && body.id != null && /text\/event-stream/i.test(String(req.headers.accept || ''))) return streamCall(res, body, list);
         const out = await handle(body, list);
         return out ? send(res, 200, out) : send(res, 202);
       } catch (e) { return send(res, 500, { jsonrpc: '2.0', id: null, error: { code: -32603, message: String((e && e.message) || e) } }); }

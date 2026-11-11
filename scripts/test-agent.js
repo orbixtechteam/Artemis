@@ -130,7 +130,8 @@ const delta = (d, finish = null) => ({ choices: [{ delta: d, finish_reason: fini
   assert.strictEqual(approvals[0].id, 'c1');
   assert.strictEqual(mem.length, 1);
   const types = events.map((e) => e.type);
-  assert.deepStrictEqual(types.filter((t) => t !== 'chunk'), ['tool:call', 'tool:result', 'tool:call', 'tool:result', 'step:new']);
+  assert.deepStrictEqual(types.filter((t) => t !== 'chunk'), ['tool:call', 'files', 'tool:result', 'tool:call', 'tool:result', 'step:new']);
+  { const card = events.find((e) => e.type === 'files'); assert.strictEqual(card.auto, true); assert.strictEqual(card.items[0].name, 'b.txt'); } // a written deliverable gets a file card
   assert.strictEqual(events.filter((e) => e.type === 'chunk').map((e) => e.text).join(''), 'Writing the file.Done.');
   // the 2nd request must rebuild the history correctly
   const h = requests[1].body.messages;
@@ -243,7 +244,12 @@ const delta = (d, finish = null) => ({ choices: [{ delta: d, finish_reason: fini
   const big = 'x'.repeat(5000), hist = [{ role: 'user', content: 'q' }];
   for (let i = 0; i < 6; i++) hist.push({ role: 'assistant', content: null, tool_calls: [{ id: 't' + i, type: 'function', function: { name: 'read_file', arguments: '{}' } }] }, { role: 'tool', tool_call_id: 't' + i, content: big + i });
   hist.push({ role: 'user', content: 'sum up' });
-  await runAgent({ ...base, messages: hist });
+  // a roomy context keeps old output as it was (rewriting history would break the provider's prompt cache)
+  await runAgent({ ...base, messages: hist.map((m) => ({ ...m })) });
+  assert.ok(requests[0].body.messages.filter((m) => m.role === 'tool').every((m) => m.content.length >= 5000), 'no trimming while the context is far from full');
+  requests.length = 0; events.length = 0;
+  // past half of the context limit, old output is trimmed
+  await runAgent({ ...base, contextTokens: 10000, messages: hist });
   const toolMsgs = requests[0].body.messages.filter((m) => m.role === 'tool');
   assert.strictEqual(toolMsgs.length, 6);
   assert(toolMsgs[0].content.length < 1500 && /trimmed to save tokens/.test(toolMsgs[0].content) && toolMsgs[2].content.length < 1500);
@@ -263,7 +269,7 @@ const delta = (d, finish = null) => ({ choices: [{ delta: d, finish_reason: fini
     { role: 'assistant', content: null, tool_calls: [{ id: 's1', type: 'function', function: { name: 'edit_file', arguments: bigArgs } }] }, { role: 'tool', tool_call_id: 's1', content: 'Edited a.js' }];
   for (let i = 2; i < 5; i++) h2.push({ role: 'assistant', content: null, tool_calls: [{ id: 's' + i, type: 'function', function: { name: 'list_dir', arguments: '{}' } }] }, { role: 'tool', tool_call_id: 's' + i, content: 'ok' + i });
   h2.push({ role: 'user', content: 'go on' });
-  await runAgent({ ...base, messages: h2 });
+  await runAgent({ ...base, contextTokens: 6000, messages: h2 }); // under context pressure
   const sent2 = requests[0].body.messages;
   const rd = sent2.find((m) => m.role === 'tool' && m.tool_call_id === 's0');
   assert(rd.content.length < 300 && /a\.js/.test(rd.content), 'stale read cleared: ' + rd.content);
@@ -284,11 +290,13 @@ const delta = (d, finish = null) => ({ choices: [{ delta: d, finish_reason: fini
   assert(notes.some((t) => /summarized and it carries on/.test(t)), 'carried on after a summary: ' + notes.join(' | '));
   assert(notes.some((t) => /^Stopped:/.test(t)), 'stops when it keeps going without changes: ' + notes.join(' | '));
   assert(requests.some((r) => JSON.stringify(r.body.messages).includes('SUMMARY-MARK')), 'the summary reached the model');
-  // 3b-5) the 40-step limit does not cut off a run that keeps changing things: it is summarized and goes on
+  // 3b-5) the 40-step limit does not cut off a run that keeps changing things; with room in the context it just goes on
+  // (no summary call, no notice), and it is summarized only when the context is filling up
   mode = 'steps'; requests.length = 0; events.length = 0;
   await runAgent({ ...base, messages: [{ role: 'user', content: 'many steps' }] });
   assert(!events.some((e) => e.type === 'notice' && /Tool loop stopped/.test(e.text)), 'no hard stop');
-  assert(events.some((e) => e.type === 'notice' && /task carries on/.test(e.text)), 'carried on past 40 steps');
+  assert(!events.some((e) => e.type === 'notice' && /summarized/.test(e.text)), 'no summary while the context has room');
+  assert(requests.length > 40, 'carried on past 40 steps');
   assert.strictEqual(events.filter((e) => e.type === 'chunk').map((e) => e.text).join(''), 'steps done');
   mode = 'trim';
   // 3c) transient tool_use_failed is retried, tools are not switched off

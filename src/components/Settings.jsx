@@ -468,6 +468,7 @@ export function SettingsModal({ settings, groups = [], projects = [], providers 
               <Group title="Saving tokens">
                 <SwitchRow label="Switch heavy tools on only when needed" description="Computer control, browser control, terminal, media, phone, scheduling, helper agents and Make are sent only after the assistant asks for them. Files, web, memory and notes are always on." checked={s.toolsLazy !== false} onChange={put('toolsLazy')} />
                 <SwitchRow label="Switch connectors on only when needed" description="Connector tools are sent only after the assistant asks for that app." checked={s.connectorsLazy !== false} onChange={put('connectorsLazy')} />
+                <SwitchRow label="Code mode" description="The assistant does multi-step work (files, documents, diagrams, connectors) by writing one short program instead of many tool calls. Uses far fewer tokens; actions still ask for approval as usual." checked={s.mcpCodeMode === true} onChange={put('mcpCodeMode')} />
               </Group>
               <Group title="Compact">
                 <SwitchRow label="Compact long chats automatically" description="When a chat fills most of the model's context window, the earlier messages are summarized once into a card in the chat and the latest messages stay as they are. Later messages build on that card, so the summary is not rewritten every turn. Works with every model." checked={s.autoCompact !== false} onChange={put('autoCompact')} />
@@ -487,6 +488,7 @@ export function SettingsModal({ settings, groups = [], projects = [], providers 
               </Group>
               <Group title="Skills and learning">
                 <SwitchRow label="Skills" description="Artemis can load your saved instructions for tasks you repeat." checked={s.skillsEnabled !== false} onChange={put('skillsEnabled')} />
+                <SwitchRow label="Plugins" description="Artemis can build small apps for itself (new tools and panels) and use the ones you keep on the Skills page." checked={s.pluginsEnabled !== false} onChange={put('pluginsEnabled')} />
                 <SwitchRow label="Let Artemis learn by itself" description="It saves a skill after a task you are likely to repeat and improves skills when you correct it. Off = it asks before saving. Not used in incognito chats or scheduled tasks." checked={s.autoLearn !== false} onChange={put('autoLearn')} />
                 {s.autoLearn !== false && (
                   <Row label="Learning model" description="After a task with several steps this model decides whether it is worth saving as a skill. You always see the skill first and choose Allow or Deny. A small, cheap model is enough.">

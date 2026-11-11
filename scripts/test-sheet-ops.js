@@ -1,0 +1,20 @@
+const assert = require('assert');
+(async () => {
+  const O = await import('../src/lib/sheet-ops.mjs');
+  assert.strictEqual(O.coerce('12'), 12); assert.strictEqual(O.coerce('012'), '012'); assert.strictEqual(O.coerce(' '), '');
+  const rows = [['n', 'v'], ['b', 2], ['a', 10], ['', 1]];
+  assert.deepStrictEqual(O.sortRows(rows, 1, 1, true).map((r) => r[1]), ['v', 1, 2, 10]);
+  assert.deepStrictEqual(O.sortRows(rows, 0, 1, true).map((r) => r[0]), ['n', 'a', 'b', ''], 'empty cells last');
+  assert.deepStrictEqual(O.withCells([['a']], [[2, 1, 'x']]), [['a'], [], ['', 'x']]);
+  assert.deepStrictEqual(O.insertRows([[1], [2]], 1), [[1], [], [2]]);
+  assert.deepStrictEqual(O.deleteRows([[1], [2], [3]], 1, 1), [[1], [3]]);
+  assert.deepStrictEqual(O.insertCols([[1, 2]], 1), [[1, '', 2]]);
+  assert.deepStrictEqual(O.deleteCols([[1, 2, 3]], 0, 1), [[3]]);
+  assert.deepStrictEqual(O.fillDownChanges([[5], [], []], { r1: 0, r2: 2, c1: 0, c2: 0 }), [[1, 0, 5], [2, 0, 5]]);
+  assert.deepStrictEqual(O.clearChanges([['a', ''], ['b']], { r1: 0, r2: 1, c1: 0, c2: 1 }), [[0, 0, ''], [1, 0, '']]);
+  assert.strictEqual(O.rangeTsv({ r1: 0, r2: 1, c1: 0, c2: 1 }, (r, c) => (r === 1 && c === 1 ? 'a\tb' : r + '' + c)), '00\t01\n10\t"a\tb"');
+  const st = O.rangeStats({ r1: 0, r2: 2, c1: 0, c2: 0 }, (r) => [3, 'x', '5'][r], 2);
+  assert.deepStrictEqual(st, { cnt: 3, n: 2, sum: 8, avg: 4 });
+  assert.deepStrictEqual(O.norm({ r1: 3, r2: 1, c1: 0, c2: 2 }), { r1: 1, r2: 3, c1: 0, c2: 2 });
+  console.log('sheet-ops tests passed');
+})().catch((e) => { console.error(e); process.exit(1); });

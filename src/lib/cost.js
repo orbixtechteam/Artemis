@@ -5,6 +5,7 @@ let EXTRA = {};
 export const setExtraPrices = (m) => { EXTRA = m || {}; };
 const priceOf = (model) => EXTRA[model];
 export const costOf = (r) => {
+  if (typeof r.usd === 'number' && r.usd >= 0) return r.usd; // the provider's own bill for the request (OpenRouter usage.cost)
   const p = priceOf(r.model); if (!p) return 0;
   const prompt = r.prompt || 0, c = Math.min(r.cached || 0, prompt), w = Math.min(r.cacheWrite || 0, prompt - c);
   return ((prompt - c - w) * p[0] + c * p[0] * 0.1 + w * p[0] * 1.25 + (r.completion || 0) * p[1]) / 1e6;

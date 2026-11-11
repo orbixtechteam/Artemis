@@ -69,6 +69,18 @@ API keys: Settings → Providers (stored encrypted per provider).
 
 **App lock and speaker recognition.** `electron/lock.js` (state, scrypt, lockdown, Touch ID, `isBlockedChannel`) and `electron/speaker.js` + `speaker-fbank.js` + `voice-gate.js` (offline CAM++ in the main process, pure-JS Kaldi fbank) are factories with injected dependencies, tested by `scripts/test-lock.js` and `scripts/test-speaker.js`. `main.js` wraps `ipcMain.handle` so blocked channels throw while locked (`store:*`, `settings:get`, `sentinel:*` reads, `voice:*` and all `lock:*`/`speaker:*` stay open so the page keeps booting and Sentinel keeps hearing its owner); `electron/ipc/lock.js` additionally refuses settings changes while locked. The UI is `LockHost.jsx` (lock screen, password prompt, webcam snap) and `settings/SecurityTab.jsx`. Scheduled tasks run `unattended` and are never gated by the lock. Do not run `pnpm install` from a Linux shell in this folder (it replaces the Mac `node_modules`).
 
+**Files the assistant hands over, links and viewers.**
+- `electron/deliverables.js`: the `present_files` tool and automatic file cards. A successful `write_file` / `write_spreadsheet` of a deliverable type (csv, xlsx, docx, pdf, images…, not source code) sends a `files` event; the renderer stores it as `step.files` and `components/FileCard.jsx` draws the cards. `deliverables.PROMPT` is the system-prompt text about presenting and linking files.
+- `electron/links.js`: resolves links the model writes (`[x](<path>)`, `~/`, `file://`, relative to the project folder, then the Files folder) and serves media over the `artemis-file://` protocol (images, video, audio, PDF only; protected paths refused through `tools.isSensitive`). IPC: `files:resolve-link`, `files:open-link`, `files:save-as`, `files:drag-out`. Renderer side: `src/lib/file-links.js`.
+- Generated images and videos go to `<project>/generated`, else `<Files>/Generated` (`generatedDir` in `main.js`).
+- `src/components/Lightbox.jsx` (opened with `openLightbox()` from `src/lib/viewer-bus.js`) shows every image: answers, attachments, screenshots, generated media. Zoom math is `src/lib/zoom.mjs` (shared with later PDF and whiteboard views).
+- `src/components/viewers/TableView.jsx` is the CSV / sheet read view (column facts in `src/lib/table-model.mjs`). File type labels and icons: `src/lib/file-types.js`.
+- Chat scrolling: `src/lib/stick.js` wires DOM events to the pure `src/lib/follow-model.mjs`. Only reader gestures change follow intent; never add `content-visibility` to messages again.
+- Page tabs (Settings, Memory, Usage, Connectors) carry `view: 'chat'` too: find a chat's tab with `findChatTab` / `isChatTab` from `src/lib/tabs.mjs`, never with `s.view === 'chat'` alone.
+- Claude Code / Codex with Artemis tools: the MCP server answers `tools/call` as SSE with progress every 15 s, and the CLIs get a one-day tool timeout, so questions and approvals can wait for the person.
+
+The full roadmap is `docs/ARTEMIS_PLAN.md`.
+
 ## Repo gotchas
 
 - Packaging only includes `dist/renderer/**`, `electron/**` and `package.json` (`build.files`). Anything the main process needs at runtime must live under `electron/`.
@@ -76,3 +88,9 @@ API keys: Settings → Providers (stored encrypted per provider).
 - pnpm only: `pnpm-lock.yaml` is the one lockfile. Do not add `package-lock.json`.
 - UI/system-prompt strings are English; test fixtures include non-ASCII English text (accented Latin characters, emoji), which the file tools must preserve (UTF-8, CSV written with BOM).
 - Terminal and computer tools are approval-gated but the command blocklist in `shell.js` is not a sandbox. Treat web, file and screenshot content as untrusted input (the system prompt already tells the model so).
+
+## Docs, whiteboards, code mode, plugins (2026-11)
+- `.md` with a path opens in `src/components/doc/DocEditor.jsx` (TipTap 3, Markdown kept on disk); `.excalidraw` opens in `board/BoardView.jsx` (lazy loaded). Both save through `files:write-text` and reload through `useFileWatch`.
+- Excalidraw fonts are copied by the `artemis-excalidraw-fonts` plugin in `vite.config.mjs`; `window.EXCALIDRAW_ASSET_PATH` points at `./excalidraw/`.
+- Code mode: `electron/code-mode.js` (host) and `electron/code-runner-src.js` (child, run with `node -e`). Never give the child file, process or eval access; connector calls go back through `tools.run` so approvals apply.
+- Plugins: `electron/plugins.js` (folder per plugin in `<userData>/plugins`, `plugin.json`), tools named `plugin__<slug>__<tool>`, the `plugin_manager` tool, IPC in `electron/ipc/plugins.js`.

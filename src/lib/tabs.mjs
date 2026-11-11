@@ -76,3 +76,18 @@ export function nextAfterClose(ts, id) {
 export function closeOthers(ts, id) {
   return orderTabs(ts).filter((x) => x.id === id || x.pinned);
 }
+
+/**
+ * A tab that shows a chat. Page tabs (Settings, Memory, Usage, Connectors) also carry view 'chat' and the id of the chat
+ * that was open underneath them, so `view === 'chat'` alone is not enough: without the modal check, picking that chat
+ * in the sidebar jumped to the Settings tab.
+ */
+export function isChatTab(t) {
+  return !!t && !!t.s && t.s.view === 'chat' && !t.s.modal;
+}
+
+/** The tab that shows this chat (not a page tab sitting on top of it), skipping exceptId. */
+export function findChatTab(ts, chatId, exceptId = null) {
+  if (!chatId) return null;
+  return (Array.isArray(ts) ? ts : []).find((t) => t.id !== exceptId && isChatTab(t) && t.s.chatId === chatId) || null;
+}

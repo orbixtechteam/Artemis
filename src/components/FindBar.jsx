@@ -97,7 +97,7 @@ function paint() {
 
 /**
  * Scroll the match into the middle of the list (and of any scrolling box inside it, e.g. a wide code block), only when it is not already in view.
- * Scrolling up first tells the list's stick-to-bottom logic (lib/stick.js watchIntent) that the user scrolled away, so it does not snap back.
+ * Scrolling up first tells the list's stick-to-bottom logic (lib/stick.js) that the user scrolled away, so it does not snap back.
  */
 function reveal(container, range) {
   if (!container || !range) return;

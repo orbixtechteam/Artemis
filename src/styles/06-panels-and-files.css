@@ -74,7 +74,7 @@
 .quick-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 18px 12px; }
 
 /* file viewer */
-.editor-more { padding: 10px 14px; color: #8b93a3; font-size: var(--fs-sm); border-top: 1px solid #252a33; }
+.editor-more { padding: 10px 14px; color: var(--code-muted); font-size: var(--fs-sm); border-top: 1px solid var(--line); }
 .sp-sheets { padding: 8px 12px 0; margin: 0; }
 .datatable { display: flex; flex-direction: column; gap: 8px; height: 100%; min-height: 0; }
 .dt-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -118,6 +118,7 @@
 /* expanded file viewer takes the whole window next to the sidebar, like Claude */
 .side-panel.wide.full { flex: 1 1 auto; width: auto; max-width: none; border-left: 0; }
 .side-panel.wide.full .sp-body { max-width: 980px; width: 100%; margin-left: auto; margin-right: auto; }
+.side-panel.wide.full .sp-body.edge { max-width: none; margin-top: 0; } /* whiteboards, sheets and PDFs use the whole window; documents keep a reading width */
 .side-panel.wide.full .fp-head { padding-left: max(12px, calc((100% - 980px) / 2)); padding-right: max(12px, calc((100% - 980px) / 2)); }
 .side-panel.wide.full .resize-grip { display: none; }
 /* an expanded artifact (web page, dashboard) uses the full width */
