@@ -20,6 +20,7 @@ const PAGES = [
   [/\b(logs?)\b/, 'logs', 'Logs'],
   [/\b(automations?)\b/, 'automations', 'Automations'],
   [/\b(skills?)\b/, 'skills', 'Skills'],
+  [/\b(plugins?)\b/, 'plugins', 'Plugins'],
   [/\b(projects?)\b/, 'projects', 'Projects'],
   [/\b(scheduled|schedules?)\b/, 'schedule', 'Scheduled'],
   [/\b(memory|memories)\b/, 'memory', 'Memory'],

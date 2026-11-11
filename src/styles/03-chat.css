@@ -57,26 +57,27 @@
 .code-head button:hover { color: var(--code-fg); background: var(--fill); }
 .codeblock pre { margin: 0; padding: 12px 14px; overflow-x: auto; font: 13px/1.55 var(--font-mono); }
 .codeblock code, .md pre code { background: none; padding: 0; color: var(--code-fg); font: inherit; }
-.editor-wrap { height: 100%; min-height: 0; display: flex; flex-direction: column; background: #16181d; border: 1px solid #2b303b; border-radius: 12px; overflow: hidden; }
-.editor-toolbar { flex: none; height: 42px; display: flex; align-items: center; gap: 10px; padding: 0 14px; color: #9da5b4; background: #1a1d24; border-bottom: 1px solid #2b303b; font: 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.editor-wrap { height: 100%; min-height: 0; display: flex; flex-direction: column; background: var(--code-bg); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.editor-toolbar { flex: none; height: 42px; display: flex; align-items: center; gap: 10px; padding: 0 14px; color: var(--code-muted); background: var(--code-head); border-bottom: 1px solid var(--line); font: 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .editor-dots { display: flex; gap: 5px; margin-right: 4px; }
 .editor-dots i { width: 9px; height: 9px; border-radius: 50%; display: block; background: #e66b5d; }
 .editor-dots i:nth-child(2) { background: #e5b85c; } .editor-dots i:nth-child(3) { background: #63c174; }
-.editor-language { color: #d7dce5; font-weight: 600; }
-.editor-count { margin-left: auto; color: #697180; }
-.code-editor { flex: 1; margin: 0; padding: 12px 0; overflow: auto; color: #d6deeb; background: transparent; font: 12.5px/1.6 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; tab-size: 2; }
+.editor-language { color: var(--code-fg); font-weight: 600; }
+.editor-count { margin-left: auto; color: var(--code-muted); }
+.code-editor { flex: 1; margin: 0; padding: 12px 0; overflow: auto; color: var(--code-fg); background: transparent; font: 12.5px/1.6 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; tab-size: 2; }
 .code-editor code { display: block; min-width: 0; }
 .code-line { display: flex; min-height: 20px; white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; }
 .code-line:hover { background: rgba(255,255,255,.04); }
-.line-no { width: 44px; flex: none; padding-right: 12px; text-align: right; user-select: none; color: #586170; }
+.line-no { width: 44px; flex: none; padding-right: 12px; text-align: right; user-select: none; color: var(--code-muted); opacity: .7; }
 .line-text { flex: 1; min-width: 0; padding-left: 4px; padding-right: 16px; }
-.code-editor .hljs-comment, .code-editor .hljs-quote { color: #6a9955; }
-.code-editor .hljs-keyword, .code-editor .hljs-selector-tag, .code-editor .hljs-literal { color: #c586c0; }
-.code-editor .hljs-string, .code-editor .hljs-attr, .code-editor .hljs-template-variable { color: #ce9178; }
-.code-editor .hljs-title, .code-editor .hljs-title.function_, .code-editor .hljs-name { color: #dcdcaa; }
-.code-editor .hljs-number, .code-editor .hljs-variable, .code-editor .hljs-symbol { color: #b5cea8; }
-.code-editor .hljs-built_in, .code-editor .hljs-type { color: #4ec9b0; }
-.code-editor .hljs-punctuation { color: #d4d4d4; }
+.code-editor .hljs-comment, .code-editor .hljs-quote { color: var(--hl-comment); font-style: italic; }
+.code-editor .hljs-keyword, .code-editor .hljs-selector-tag, .code-editor .hljs-literal, .code-editor .hljs-doctag { color: var(--hl-keyword); }
+.code-editor .hljs-string, .code-editor .hljs-regexp { color: var(--hl-string); }
+.code-editor .hljs-title, .code-editor .hljs-title.function_, .code-editor .hljs-title.class_, .code-editor .hljs-section { color: var(--hl-title); }
+.code-editor .hljs-number, .code-editor .hljs-attr, .code-editor .hljs-attribute, .code-editor .hljs-operator { color: var(--hl-number); }
+.code-editor .hljs-built_in, .code-editor .hljs-variable, .code-editor .hljs-template-variable, .code-editor .hljs-params, .code-editor .hljs-symbol, .code-editor .hljs-type { color: var(--hl-built); }
+.code-editor .hljs-meta, .code-editor .hljs-name, .code-editor .hljs-tag, .code-editor .hljs-bullet { color: var(--hl-meta); }
+.code-editor .hljs-punctuation { color: var(--code-fg); }
 .side-panel .sp-body:has(.editor-wrap) { padding: 10px 12px 12px; }
 
 /* tool cards */

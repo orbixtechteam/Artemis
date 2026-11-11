@@ -16,6 +16,10 @@ const modelOf = (model) => String(model || '').slice(PREFIX.length).split(':').s
 
 // Claude Code's tool names, as Artemis's, so the room labels them the same way ("Read file", "Searched the web" …).
 const CLAUDE_TOOLS = { Read: 'read_file', Write: 'write_file', Edit: 'edit_file', MultiEdit: 'edit_file', NotebookEdit: 'edit_file', Bash: 'run_command', Glob: 'search_files', Grep: 'search_files', LS: 'list_dir', WebSearch: 'web_search', WebFetch: 'web_fetch' };
+/** How long one Artemis tool call may take inside Claude Code / Codex: a person answering a question or an approval card. */
+const TOOL_WAIT_MS = 24 * 3600 * 1000;
+/** Environment for a CLI run with Artemis tools: no wall-clock or idle cut-off for our tools (the server sends progress). */
+const TOOL_WAIT_ENV = { MCP_TOOL_TIMEOUT: String(TOOL_WAIT_MS), CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT: '0' };
 const HIDDEN_CLAUDE = new Set(['ToolSearch', 'TodoWrite']); // Claude Code's own bookkeeping (loading MCP tools, its to-do list), not work
 const claudeStep = (name, input) => {
   const n = String(name || '');
@@ -53,11 +57,27 @@ const resultText = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.map(
 /** Reads Claude Code's stream-json, one parsed line at a time. Returns the final text when the run ends. */
 function claudeReader(onStep, onUsage) {
   let final = null, error = '';
+  // With --include-partial-messages text and thinking arrive as stream_event deltas first; the complete assistant message
+  // that follows repeats them, so its text/thinking is skipped for a message that streamed (tool calls still come from it).
+  let streamed = new Set(); // message ids whose text was streamed
+  let open = null;          // id of the message streaming now
   return {
     line(j) {
+      if (j.type === 'stream_event' && j.event && !j.parent_tool_use_id) {
+        const ev = j.event;
+        if (ev.type === 'message_start') { open = (ev.message && ev.message.id) || `m${streamed.size}`; onStep({ type: 'step' }); }
+        else if (ev.type === 'content_block_delta' && ev.delta && open) {
+          if (ev.delta.type === 'text_delta' && ev.delta.text) { streamed.add(open); onStep({ type: 'text', text: ev.delta.text }); }
+          else if (ev.delta.type === 'thinking_delta' && ev.delta.thinking) { streamed.add(open); onStep({ type: 'thinking', text: ev.delta.thinking }); }
+        }
+        return;
+      }
       if (j.type === 'assistant' && j.message && Array.isArray(j.message.content)) {
-        onStep({ type: 'step' });
+        const mid = j.message.id;
+        const already = !!mid && (streamed.has(mid) || mid === open);
+        if (!already) onStep({ type: 'step' });
         for (const c of j.message.content) {
+          if (already && (c.type === 'text' || c.type === 'thinking' || c.type === 'redacted_thinking')) continue;
           if (c.type === 'thinking' || c.type === 'redacted_thinking') onStep({ type: 'thinking', ...(c.thinking ? { text: c.thinking } : {}) });
           else if (c.type === 'text' && c.text) onStep({ type: 'text', text: c.text });
           else if (c.type === 'tool_use' && !HIDDEN_CLAUDE.has(c.name)) { const st = claudeStep(c.name, c.input); onStep({ type: 'tool', id: c.id, name: st.name, args: st.args, ...(st.bridged ? { bridged: true } : {}) }); }
@@ -123,10 +143,11 @@ function argsFor(kind, { mcp, askWrites, system, folder, model, server = 'team',
   }
   if (kind === 'claude') {
     return [
-      '-p', '--output-format', 'stream-json', '--verbose',
+      '-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', // token-by-token text, not one block per message
       // a chat keeps one Claude Code session (as Claude Desktop does): later turns resume it and hit the prompt cache
       ...(session && session.id ? (session.resume ? ['--resume', session.id] : ['--session-id', session.id]) : ['--no-session-persistence']),
-      '--strict-mcp-config', '--mcp-config', JSON.stringify({ mcpServers: { [server]: { type: 'http', url: mcp.url, headers: { Authorization: `Bearer ${mcp.token}` } } } }),
+      // timeout: a tool may wait for the person (approval cards, questions) for as long as they need: one day, in ms
+      '--strict-mcp-config', '--mcp-config', JSON.stringify({ mcpServers: { [server]: { type: 'http', url: mcp.url, headers: { Authorization: `Bearer ${mcp.token}` }, timeout: TOOL_WAIT_MS } } }),
       '--allowedTools', `mcp__${server}`, // our tools never ask here (Artemis asks itself when a tool needs it); Claude Code's own tools follow the permission mode
       '--permission-prompt-tool', `mcp__${server}__${server}_permission`,
       '--permission-mode', permissionMode || (askWrites ? 'manual' : 'acceptEdits'),
@@ -141,6 +162,7 @@ function argsFor(kind, { mcp, askWrites, system, folder, model, server = 'team',
     '-c', `mcp_servers.${server}.url=${JSON.stringify(mcp.url)}`,
     '-c', `mcp_servers.${server}.bearer_token_env_var="ARTEMIS_TEAM_TOKEN"`,
     '-c', `mcp_servers.${server}.default_tools_approval_mode="approve"`, // exec never asks, so our tools must be allowed up front
+    '-c', `mcp_servers.${server}.tool_timeout_sec=${Math.round(TOOL_WAIT_MS / 1000)}`, // a question for the person can take a while
     ...(model ? ['-m', model] : [])
   ];
 }
@@ -182,7 +204,7 @@ function createCliAgents(deps) {
     if (!o.folder || !fs.existsSync(o.folder)) throw new Error(`The working folder does not exist: ${o.folder || '(none)'}`);
     const args = argsFor(kind, o);
     if (kind === 'codex') args.push([o.system, o.prompt].filter(Boolean).join('\n\n'));
-    const env = { ...env0, PATH: [path.dirname(bin), ...DIRS, env0.PATH || ''].join(path.delimiter), ...(o.mcp ? { ARTEMIS_TEAM_TOKEN: o.mcp.token } : {}) };
+    const env = { ...env0, PATH: [path.dirname(bin), ...DIRS, env0.PATH || ''].join(path.delimiter), ...(o.mcp ? { ARTEMIS_TEAM_TOKEN: o.mcp.token, ...TOOL_WAIT_ENV } : {}) };
     delete env.ELECTRON_RUN_AS_NODE; delete env.ELECTRON_NO_ATTACH_CONSOLE;
     const stripped = KEY_VARS[kind].filter((k) => k in env);
     for (const k of stripped) delete env[k];

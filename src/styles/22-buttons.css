@@ -1,0 +1,28 @@
+/* One look for every icon button (Claude style): a quiet square that tints on hover, never a heavy block. The tint mixes
+   the text colour into transparent, so it reads the same on any surface (panel, hovered card, menu, light or dark). */
+:root { --btn-tint: color-mix(in srgb, var(--text) 7%, transparent); --btn-tint-2: color-mix(in srgb, var(--text) 11%, transparent); }
+
+:is(.icon-btn, .fc-btn, .doc-outline-btn, .shtabs-icon, .fbar-btn, .fbar-caret, .pc-open, .plug-open, .pdfv-btn, .sp-btn:not(.primary), .code-head button, .actions button) {
+  border: 0; box-shadow: none; transition: background-color .12s ease, color .12s ease;
+}
+:is(.icon-btn, .fc-btn, .doc-outline-btn, .shtabs-icon, .fbar-btn, .fbar-caret, .pdfv-btn, .code-head button, .actions button):hover:not(:disabled) { background: var(--btn-tint); color: var(--text); }
+:is(.icon-btn, .fc-btn, .doc-outline-btn, .shtabs-icon, .fbar-btn, .fbar-caret, .pdfv-btn, .code-head button, .actions button):active:not(:disabled) { background: var(--btn-tint-2); }
+
+/* file card actions: small, round-cornered, on the card's own hover colour */
+.fc-actions { gap: 4px; margin-right: -4px; }
+.fc-btn { width: 30px; height: 30px; padding: 0; border-radius: 8px; color: var(--muted); }
+.file-card:hover { background: var(--fill); }
+.file-card:hover .fc-btn:hover { background: var(--btn-tint-2); color: var(--text); }
+
+/* outlined text buttons (Open, Copy, Edit): the border stays, the fill tints */
+:is(.pc-open, .plug-open, .sp-btn:not(.primary)) { border: 1px solid var(--line); }
+:is(.pc-open, .plug-open, .sp-btn:not(.primary)):hover:not(:disabled) { background: var(--btn-tint); border-color: var(--line-2); }
+
+/* icon-only buttons: the base button padding (6px 12px) pushed the icon off centre inside a fixed 30 px box.
+   No padding, a centring grid, and a block svg (no baseline gap) put every icon dead centre of its hover square. */
+:is(.icon-btn, .fc-btn, .doc-outline-btn, .shtabs-icon, .fbar-btn, .fbar-caret, .lb-btn, .pdfv-btn) {
+  padding: 0; display: inline-grid; place-items: center; line-height: 0; min-width: 30px; min-height: 30px;
+}
+:is(.icon-btn, .fc-btn, .doc-outline-btn, .shtabs-icon, .fbar-btn, .fbar-caret, .lb-btn, .pdfv-btn) > svg { display: block; flex: none; }
+.fbar-btn, .fbar-caret { line-height: 1; } /* B / I / U letters keep their text line */
+.icon-btn.mic-more { min-width: 18px; padding: 0 2px !important; } /* the small language caret beside the mic stays narrow */

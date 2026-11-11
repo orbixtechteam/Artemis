@@ -1,4 +1,5 @@
 import { startDrag, clamp, loadWidth, saveWidth } from './lib/resize.js';
+import { compactLimit } from './lib/compact-threshold.mjs';
 import { installDropGuard } from './lib/attach.js';
 import { applyTextSize, applySettingsTheme, loadThemes, SYSTEM_THEME, TEXT_SIZES } from './lib/themes.js';
 import { families as paletteFamilies, customThemes } from './lib/palette.mjs';
@@ -27,7 +28,7 @@ import ErrorBoundary from './components/ErrorBoundary.jsx';
 import TabBar, { ContextMenu } from './components/TabBar.jsx';
 import TitleText from './components/TitleText.jsx';
 import ChatHead from './components/ChatHead.jsx';
-import { orderTabs as orderTabList, moveTab, shiftTab, setPinned, closeOthers as closeOtherTabs } from './lib/tabs.mjs';
+import { orderTabs as orderTabList, moveTab, shiftTab, setPinned, closeOthers as closeOtherTabs, isChatTab, findChatTab } from './lib/tabs.mjs';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Sidebar from './components/Sidebar.jsx';
 import { ProjectsList, ProjectPage } from './components/ProjectsView.jsx';
@@ -60,12 +61,16 @@ import { flushAllNotes } from './lib/noteRegistry.js';
 import CommandPalette from './components/CommandPalette.jsx';
 import { matchesAccelerator, formatAccelerator } from './lib/shortcuts.mjs';
 import { FilePanel, ArtifactPanel, ProgressPanel } from './components/SidePanel.jsx';
+import Lightbox from './components/Lightbox.jsx';
+import { setLinkRoot } from './lib/file-links.js';
 import { greeting, toApiMessages, uid, contextWindowOf, chatTokens, lastCompact } from './lib/history.js';
 import { needsTitle, keepsTitle } from './lib/titles.mjs';
 import LockHost from './components/LockHost.jsx';
 import { stripFences, codeOnly } from './lib/clip.mjs';
 
 const api = window.api;
+/** A model that runs on the user's Claude Code / Codex login, so it needs no API provider. */
+const isCliModel = (m) => /^cli:/.test(String(m || ''));
 
 const lastStep = (m, fn) => { const steps = [...m.steps]; steps[steps.length - 1] = fn(steps[steps.length - 1]); return { ...m, steps }; };
 const patchTool = (m, id, fn) => ({ ...m, steps: m.steps.map((s) => ({ ...s, toolCalls: s.toolCalls.map((t) => {
@@ -201,7 +206,7 @@ export default function App() {
   // A tab remembers what it shows: a page (chat, notes, terminal, browser, …), which chat, and an open Settings / Memory / Usage / Connectors window.
   // The live state (view, currentId, modal) always belongs to the active tab, and is copied back into it on every change.
   const TAB_MODALS = ['settings', 'memory', 'usage', 'connectors']; // these open as pages in a tab
-  const PAGE_VIEWS = ['home', 'browser', 'schedule', 'skills', 'logs', 'automations', 'agents', 'graph', 'files', 'artifacts'];
+  const PAGE_VIEWS = ['home', 'browser', 'schedule', 'skills', 'plugins', 'logs', 'automations', 'agents', 'graph', 'files', 'artifacts'];
   const SPLIT_KINDS = ['chat', 'note', ...TAB_MODALS, ...PAGE_VIEWS]; // anything in here can sit in the second half of a split view
   const kindOf = (sn) => (sn.modal && TAB_MODALS.includes(sn.modal) ? sn.modal : sn.view);
   const [tabs, setTabs] = useState(null);
@@ -232,7 +237,7 @@ export default function App() {
   const splitWith = (id) => { const t = (tabsRef.current || []).find((x) => x.id === id); if (t && SPLIT_KINDS.includes(kindOf(t.s)) && id !== activeRef.current) setSplitTab(id); };
   const splitChat = (chatId) => { // open a chat next to the current one
     if (chatId === currentRef.current) return;
-    const ex = (tabsRef.current || []).find((t) => t.s.view === 'chat' && t.s.chatId === chatId);
+    const ex = findChatTab(tabsRef.current, chatId);
     if (ex) { if (ex.id !== activeRef.current) setSplitTab(ex.id); return; }
     const t = mkTab({ view: 'chat', chatId, modal: null, settingsTab: 'general' }); setTabs((ts) => [...(ts || []), t]); setSplitTab(t.id);
   };
@@ -247,7 +252,7 @@ export default function App() {
   };
   // an empty chat that no tab shows yet (or a new one)
   const freshChat = (projectId = null) => {
-    const open = new Set((tabsRef.current || []).filter((t) => t.s.view === 'chat').map((t) => t.s.chatId));
+    const open = new Set((tabsRef.current || []).filter(isChatTab).map((t) => t.s.chatId));
     const ex = chatsRef.current.find((c) => !c.incognito && !c.messages.length && (c.projectId || null) === projectId && !open.has(c.id));
     if (ex) return ex.id;
     const c = { id: uid(), title: 'New chat', model: defaultModel(settings, providers), projectId, messages: [], updatedAt: Date.now() };
@@ -324,7 +329,7 @@ export default function App() {
   useEffect(() => { // a chat that was deleted or was an incognito chat: its tab goes too
     if (!tabs || !activeTab || !loaded) return;
     const ids = new Set(chats.map((c) => c.id));
-    const dead = tabs.filter((t) => t.id !== activeTab && t.s.view === 'chat' && t.s.chatId && !ids.has(t.s.chatId));
+    const dead = tabs.filter((t) => t.id !== activeTab && isChatTab(t) && t.s.chatId && !ids.has(t.s.chatId));
     if (dead.length) setTabs((ts) => ts.filter((t) => !dead.includes(t)));
   }, [chats]);
 
@@ -520,7 +525,7 @@ export default function App() {
 
   // right-click menus: sidebar pages and chats, and ⌘-click to open in a new tab
   const NAV = {
-    home: { view: 'home' }, projects: { view: 'projects' }, schedule: { view: 'schedule' }, skills: { view: 'skills' }, agents: { view: 'agents' }, automations: { view: 'automations' },
+    home: { view: 'home' }, projects: { view: 'projects' }, schedule: { view: 'schedule' }, skills: { view: 'skills' }, plugins: { view: 'plugins' }, agents: { view: 'agents' }, automations: { view: 'automations' },
     logs: { view: 'logs' }, terminal: { view: 'terminal' }, browser: { view: 'browser' }, graph: { view: 'graph' }, notes: { view: 'notes' }, files: { view: 'files' }, artifacts: { view: 'artifacts' },
     memory: { modal: 'memory' }, usage: { modal: 'usage' }, connectors: { modal: 'connectors' }, settings: { modal: 'settings' }
   };
@@ -923,6 +928,7 @@ export default function App() {
     return () => { window.removeEventListener('aid-browser-open', h); off?.(); };
   }, []);
   const project = chat && projects.find((p) => p.id === chat.projectId);
+  setLinkRoot(project && project.folder); // file links in answers resolve against the open chat's project first
 
   useEffect(() => {
     (async () => {
@@ -941,7 +947,7 @@ export default function App() {
       setLoaded(true);
       api.providersList().then(applyProviders).catch(() => {});
       api.mcpStatus().then((l) => setConnectorCount(l.filter((x) => x.state === 'connected').length)).catch(() => {});
-      if (!s.hasApiKey) setModal('settings');
+      if (!s.hasApiKey && !isCliModel(s.model)) setModal('settings'); // Claude Code / Codex users need no API provider
     })();
   }, []);
 
@@ -1071,7 +1077,7 @@ export default function App() {
         if (m.steps.some((x) => x.toolCalls.some((t) => t.id === ev.id))) return patchTool(m, ev.id, set);
         return lastStep(m, (x) => ({ ...x, toolCalls: [...x.toolCalls, set({ id: ev.id, name: 'ask_user', args: {}, startedAt: now })] })); // Claude Code's AskUserQuestion has its own id
       }); break;
-      case 'tool:answered': patch((m) => patchTool(m, ev.id, (t) => (t.status !== 'question' ? t : { ...t, status: ev.answers ? 'done' : 'cancelled', endedAt: Date.now(),
+      case 'tool:answered': patch((m) => patchTool(m, ev.id, (t) => (t.status !== 'question' ? t : { ...t, status: ev.answers ? 'done' : 'cancelled', endedAt: Date.now(), answers: ev.answers || null,
         result: ev.answers ? Object.entries(ev.answers).map(([q, a]) => `${q} -> ${a}`).join('\n') : 'Not answered.' }))); break;
       case 'tool:approval': patch((m) => patchTool(m, ev.id, (t) => ({ ...t, status: 'awaiting', session: ev.session, category: ev.category, agent: ev.agent, summary: ev.summary }))); actionsRef.current.askVoiceApproval?.(ev, st.chatId); break;
       case 'tool:result': if (voiceApproval.current && voiceApproval.current.id === ev.id) voiceApproval.current = null; patch((m) => patchTool(m, ev.id, (t) => ({ ...t, status: ev.denied ? 'denied' : ev.ok ? 'done' : 'error', result: ev.text, image: ev.image, endedAt: now }))); break;
@@ -1086,6 +1092,11 @@ export default function App() {
         if (currentRef.current === st.chatId) setPanel({ type: 'artifact', id: ev.id });
         break;
       case 'media': patch((m) => lastStep(m, (s) => ({ ...s, media: [...(s.media || []), { kind: ev.kind, path: ev.path, prompt: ev.prompt, model: ev.model }] }))); break;
+      case 'files': patch((m) => lastStep(m, (s) => { // file cards: present_files, or a deliverable a write tool made (one card per path, the latest wins)
+        const byPath = new Map((s.files || []).map((f) => [f.path, f]));
+        for (const it of ev.items || []) if (it && it.path) byPath.set(it.path, it.kind === 'plugin' ? { kind: 'plugin', path: it.path, name: it.name, slug: it.slug, description: it.description, tools: it.tools, panels: it.panels } : { path: it.path, name: it.name, size: it.size, ext: it.ext });
+        return { ...s, files: [...byPath.values()] };
+      })); break;
       case 'brain': patch((m) => ({ ...m, brain: { name: ev.name, role: ev.role, model: ev.model } })); break;
       case 'council': patch((m) => ({ ...m, council: { votes: ev.votes, verdict: ev.verdict, tokens: ev.tokens } })); if (ev.verdict && ev.verdict.answerer) updateChat(st.chatId, { councilPick: ev.verdict.answerer }); break;
       case 'council:start': patch((m) => ({ ...m, council: { pending: true } })); break;
@@ -1163,7 +1174,7 @@ export default function App() {
   // Sidebar navigation: from a Settings / Memory / Usage / Connectors page tab it opens a new tab instead of being swallowed
   const navView = (v) => { if (TAB_MODALS.includes(modal)) openTab({ view: v, chatId: currentRef.current, modal: null, settingsTab: 'general' }); else setView(v); };
   const select = (id) => {
-    const other = (tabsRef.current || []).find((t) => t.id !== activeRef.current && t.s.view === 'chat' && t.s.chatId === id);
+    const other = findChatTab(tabsRef.current, id, activeRef.current);
     if (other) { activateTab(other.id); return; } // already open in another tab: go there
     if (TAB_MODALS.includes(modal)) { openTab({ view: 'chat', chatId: id, modal: null, settingsTab: 'general' }); return; } // a page is open: the chat gets its own tab
     // incognito chats vanish as soon as you leave them
@@ -1260,7 +1271,7 @@ export default function App() {
 
   const sendTo = (c, text, atts, opts) => {
     if (!c || isRunning(c.id) || compacting) return false;
-    if (!settings.hasApiKey) { setModal('settings'); return false; }
+    if (!settings.hasApiKey && !isCliModel(c.model)) { setModal('settings'); return false; }
     if (held[c.id]) setHeld((h) => ({ ...h, [c.id]: false }));
     const user = { id: uid(), role: 'user', content: text, attachments: atts, createdAt: Date.now(), ...(opts && opts.mentions && opts.mentions.length ? { mentions: opts.mentions } : {}) };
     if (!c.messages.length && !c.incognito) updateChat(c.id, { title: (text || atts[0]?.name || 'New chat').replace(/\s+/g, ' ').slice(0, 48) });
@@ -1341,7 +1352,7 @@ export default function App() {
     finally { setCompacting(''); }
   };
   // Automatic compact (like Claude Code): once, before a message is sent, when the chat fills ~80% of the model's window. The summary stays in the chat as a card, so later turns reuse it.
-  const needsCompact = (c) => settings.autoCompact !== false && canCompact(c) && chatTokens(c.messages) > Number(settings.compactAt || 80) / 100 * contextWindowOf(c.model || settings.model);
+  const needsCompact = (c) => settings.autoCompact !== false && canCompact(c) && chatTokens(c.messages) > compactLimit(contextWindowOf(c.model || settings.model), settings.compactAt || 80, settings.maxTokens); // same trigger as the run itself (electron/core/context.js)
   actionsRef.current.compact = compactChat;
   useEffect(() => {
     if (compacting) return;
@@ -1712,10 +1723,18 @@ export default function App() {
   useEffect(() => {
     const h = (e) => {
       const result = Array.isArray(e.detail) ? { chats: e.detail, projects: [], memory: [] } : (e.detail || {});
+      // projects first (an existing one with the same importKey is updated: instructions, folder), then chats are placed in them
+      const keyToId = new Map();
       setProjects((ps) => {
-        const have = new Set(ps.map((p) => p.importKey).filter(Boolean));
-        const fresh = (result.projects || []).filter((p) => !p.importKey || !have.has(p.importKey));
-        return fresh.length ? [...ps, ...fresh] : ps;
+        const byKey = new Map(ps.filter((p) => p.importKey).map((p) => [p.importKey, p]));
+        let out = ps;
+        for (const p of result.projects || []) {
+          const { docCount, description, updatedAt, ...clean } = p;
+          const old = p.importKey && byKey.get(p.importKey);
+          if (old) { keyToId.set(p.importKey, old.id); out = out.map((x) => (x.id === old.id ? { ...x, instructions: clean.instructions || x.instructions, folder: clean.folder || x.folder } : x)); }
+          else { keyToId.set(p.importKey, clean.id); out = [...out, clean]; }
+        }
+        return out;
       });
       setMemory((ms) => {
         const have = new Set(ms.map((m) => m.text));
@@ -1724,13 +1743,28 @@ export default function App() {
         return fresh.length ? [...ms, ...fresh] : ms;
       });
       setChats((cs) => {
-        const have = new Set(cs.map((c) => c.importKey).filter(Boolean));
-        const fresh = (result.chats || []).filter((c) => !have.has(c.importKey));
-        return fresh.length ? [...cs, ...fresh] : cs;
+        const place = (c) => { const { projectImportKey, ...rest } = c; return projectImportKey && keyToId.get(projectImportKey) ? { ...rest, projectId: keyToId.get(projectImportKey) } : rest; };
+        const byKey = new Map(cs.filter((c) => c.importKey).map((c) => [c.importKey, c]));
+        let out = cs; const fresh = [];
+        for (const c of result.chats || []) {
+          const old = byKey.get(c.importKey);
+          if (!old) fresh.push(place(c));
+          else if (old.imported && (c.updatedAt || 0) > (old.updatedAt || 0) && old.messages.length === (old.importedCount ?? -1)) out = out.map((x) => (x.id === old.id ? { ...place(c), id: old.id, projectId: x.projectId || place(c).projectId } : x)); // changed in Claude since; never a chat continued here
+          else if (c.projectImportKey && !old.projectId && keyToId.get(c.projectImportKey)) out = out.map((x) => (x.id === old.id ? { ...x, projectId: keyToId.get(c.projectImportKey) } : x));
+        }
+        return fresh.length ? [...out, ...fresh] : out;
       });
     };
+    // "From Claude account": the main process reads the account; chats already here are not fetched again unless changed
+    const acc = async (e) => {
+      const known = {};
+      for (const c of chatsRef.current) if (c.importKey) known[c.importKey] = c.updatedAt || 0;
+      const r = await api.importClaudeAccount(known).catch((err) => ({ ok: false, error: String(err && err.message || err) }));
+      e.detail.resolve(r);
+    };
     window.addEventListener('aid-import', h);
-    return () => window.removeEventListener('aid-import', h);
+    window.addEventListener('aid-import-account', acc);
+    return () => { window.removeEventListener('aid-import', h); window.removeEventListener('aid-import-account', acc); };
   }, []);
 
   // Conversations coming from the phone (Telegram) show up as a chat here, live.
@@ -1789,6 +1823,24 @@ export default function App() {
 
   const openLibFile = async (rel) => { const r = await api.libPreview(rel); if (r && r.file) setPreviewFile(r.file); };
   const useLibFile = (rel) => { window.__pendingLibAttach = [...(window.__pendingLibAttach || []), rel]; navView('home'); setTimeout(() => window.dispatchEvent(new Event('artemis:attach-file')), 50); };
+  // "Ask Artemis" in a viewer (selected cells, a doc passage): the selection goes into the open chat's composer
+  useEffect(() => {
+    const h = (e) => {
+      const d = e.detail || {};
+      if (d.attachment) window.dispatchEvent(new CustomEvent('artemis:composer-attach', { detail: { chatId: currentRef.current, attachment: d.attachment } }));
+      else if (d.text) window.dispatchEvent(new CustomEvent('artemis:composer-fill', { detail: { chatId: currentRef.current, text: d.text, append: true } }));
+    };
+    window.addEventListener('artemis:ask-selection', h);
+    return () => window.removeEventListener('artemis:ask-selection', h);
+  }, []);
+  // "Ask Artemis to build one" on pages outside a chat: go to the chat and start the message
+  const navRef = useRef(null);
+  navRef.current = navView;
+  useEffect(() => {
+    const h = (e) => { const d = e.detail || {}; navRef.current('home'); setTimeout(() => window.dispatchEvent(new CustomEvent('artemis:composer-fill', { detail: { chatId: currentRef.current, text: d.text || '' } })), 120); };
+    window.addEventListener('artemis:start-chat', h);
+    return () => window.removeEventListener('artemis:start-chat', h);
+  }, []);
   // file preview requests from chips / tool cards
   const projectRef = useRef(null);
   projectRef.current = project;
@@ -1872,11 +1924,11 @@ export default function App() {
     open: (sn) => { if (sn.view === 'terminal' && !termRef.current.tabs.length) newTermTab(); openTab({ view: 'chat', chatId: currentRef.current, modal: null, settingsTab: 'general', ...sn }); },
     splitChat, regen: (m, c) => regenerate(m, c), deleteMsg: (cid, mid) => deleteMessage(cid, mid), isRunning,
     openLink: (url) => { setBrowser((b) => ({ ...b, url })); if (viewRef.current === 'browser') api.browserNavigate(url); else setView('browser'); },
-    openChat: (id) => { const o = (tabsRef.current || []).find((t) => t.s.view === 'chat' && t.s.chatId === id); if (o) activateTab(o.id); else openTab({ view: 'chat', chatId: id, modal: null, settingsTab: 'general' }); },
+    openChat: (id) => { const o = findChatTab(tabsRef.current, id); if (o) activateTab(o.id); else openTab({ view: 'chat', chatId: id, modal: null, settingsTab: 'general' }); },
     go: (sn) => { if (sn.view) setView(sn.view); },
     goNav: (k) => { const sn = NAV[k]; if (!sn) return; if (k === 'terminal' && !termRef.current.tabs.length) newTermTab(); if (sn.view) { setModal(null); setView(sn.view); } if (sn.modal) { if (sn.modal === 'settings') setSettingsTab('general'); setModal(sn.modal); } }
   };
-  const VIEW_INFO = { home: ['Home', 'home'], projects: ['Projects', 'folders'], schedule: ['Scheduled', 'clock'], skills: ['Skills', 'sparkle'], agents: ['Agents', 'layers'], automations: ['Automations', 'bolt'], logs: ['Logs', 'code'], graph: ['Graph', 'graph'], notes: ['Notes', 'file'], files: ['Files', 'folder'], artifacts: ['Artifacts', 'artifact'], terminal: ['Terminal', 'terminal'], browser: ['Browser', 'globe'] };
+  const VIEW_INFO = { home: ['Home', 'home'], projects: ['Projects', 'folders'], schedule: ['Scheduled', 'clock'], skills: ['Skills', 'sparkle'], plugins: ['Plugins', 'plug'], agents: ['Agents', 'layers'], automations: ['Automations', 'bolt'], logs: ['Logs', 'code'], graph: ['Graph', 'graph'], notes: ['Notes', 'file'], files: ['Files', 'folder'], artifacts: ['Artifacts', 'artifact'], terminal: ['Terminal', 'terminal'], browser: ['Browser', 'globe'] };
   const MODAL_INFO = { settings: ['Settings', 'sliders'], memory: ['Memory', 'bulb'], usage: ['Usage', 'chart'], connectors: ['Connectors', 'plug'] };
   const tabInfo = (t) => {
     const sn = t.s;
@@ -1970,7 +2022,7 @@ export default function App() {
     if (kind === 'browser') return <BrowserPanel full url={browser.url} onUrl={(u) => setBrowser((b) => ({ ...b, url: u }))} onClose={split ? close : () => setView('chat')} agent={browserAgent} onStopAgent={() => { if (browserAgent) api.abort(browserAgent.requestId); }} />;
     if (kind === 'schedule') return <SchedulesView projects={projects} models={groups} />;
     if (kind === 'skills') return <SkillsView projects={projects} />;
-    if (kind === 'artifacts') return <ArtifactsView chats={chats}
+    if (kind === 'artifacts' || kind === 'plugins') return <ArtifactsView chats={chats} initialSection={kind === 'plugins' ? 'plugins' : 'artifacts'}
       onDelete={(cid, id) => { setChats((cs) => cs.map((c) => { if (c.id !== cid || !c.artifacts || !c.artifacts[id]) return c; const { [id]: _gone, ...rest } = c.artifacts; return { ...c, artifacts: rest }; })); setPanel((p) => (p && p.type === 'artifact' && p.id === id ? null : p)); }}
       onOpen={(cid, id) => { const p = { type: 'artifact', id, chatId: cid }; if (cid === currentRef.current) setPanel(p); else nextPanel.current = p; select(cid); }} />;
     if (kind === 'logs') return <LogsView />;
@@ -2004,6 +2056,7 @@ export default function App() {
     { id: 'sched', group: 'Go to', label: 'Scheduled tasks', icon: 'clock', run: () => setView('schedule') },
     { id: 'artifacts', group: 'Go to', label: 'Artifacts', icon: 'artifact', run: () => setView('artifacts') },
     { id: 'skills', group: 'Go to', label: 'Skills', icon: 'sparkle', run: () => setView('skills') },
+    { id: 'plugins', group: 'Go to', label: 'Plugins', icon: 'plug', run: () => setView('plugins') },
     { id: 'agents', group: 'Go to', label: 'Agents', icon: 'layers', run: () => setView('agents') },
     { id: 'automations', group: 'Go to', label: 'Automations', icon: 'bolt', run: () => setView('automations') },
     { id: 'browser', group: 'Go to', label: 'Browser', icon: 'globe', run: () => setView('browser') },
@@ -2050,7 +2103,7 @@ export default function App() {
       <LockHost sentinel={sent.state} />
 
       <CommandPalette open={palette} onClose={() => setPalette(false)} chats={chats} onOpenChat={select} onOpenNote={openNote} onOpenFile={openLibFile}
-        onOpenChatTab={(id) => { const o = (tabsRef.current || []).find((t) => t.s.view === 'chat' && t.s.chatId === id); if (o) activateTab(o.id); else openTab({ view: 'chat', chatId: id, modal: null, settingsTab: 'general' }); }}
+        onOpenChatTab={(id) => { const o = findChatTab(tabsRef.current, id); if (o) activateTab(o.id); else openTab({ view: 'chat', chatId: id, modal: null, settingsTab: 'general' }); }}
         onOpenNoteTab={(p) => noteActions.open(p, 'tab')} actions={paletteActions} />
 
       <main className="main" style={wide && panel && (panel.type === 'file' || (chatView && panel.type === 'artifact')) ? { display: 'none' } : undefined}>
@@ -2172,6 +2225,7 @@ export default function App() {
       {modal === 'permissions' && <PermissionsModal firstRun={!settings.permissionsAsked} onClose={() => { if (!settings.permissionsAsked) { api.setSettings({ permissionsAsked: true }); setSettings((x) => ({ ...x, permissionsAsked: true })); } setModal(null); }} />}
       {modal === 'profile' && <ProfileModal settings={settings} avatar={avatar} onAvatar={setAvatar} onSave={async (patch) => { setSettings(await api.setSettings(patch)); setModal(null); }} onClose={() => setModal(null)} />}
       <ContextMenu menu={ctx} onClose={() => setCtx(null)} />
+      <Lightbox />
       {modal && modal.project && (modal.project === 'new' || editingProject) && (
         <ProjectModal project={editingProject} onSave={saveProject} onDelete={deleteProject} onClose={() => setModal(null)} />
       )}

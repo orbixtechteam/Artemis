@@ -294,9 +294,20 @@ export default function Composer({ streaming, onSend, onStop, queue = [], queueH
     try { parsed = await filesToAttachments(files); } catch (e) { parsed = [{ kind: 'error', name: files[0].name, error: (e && e.message) || String(e) }]; }
     setAtts((a) => { const i = a.findIndex((x) => x.pending === tag); const rest = a.filter((x) => x.pending !== tag); if (i < 0) return [...rest, ...parsed]; rest.splice(Math.min(i, rest.length), 0, ...parsed); return rest; });
   };
+  // "Ask Artemis" in a sheet or doc: the selection becomes a chip above the box (one per range; the same range again replaces it)
+  useEffect(() => {
+    const h = (e) => {
+      const d = e.detail || {}; if (d.chatId !== chatId || !d.attachment) return;
+      const a = { ...d.attachment, key: 'sel' + Date.now().toString(36) };
+      setAtts((list) => [...list.filter((x) => !(x.kind === 'selection' && x.name === a.name && x.source === a.source)), a]);
+      setTimeout(() => { const el = ta.current; if (el) el.focus(); }, 0);
+    };
+    window.addEventListener('artemis:composer-attach', h);
+    return () => window.removeEventListener('artemis:composer-attach', h);
+  }, [chatId]);
   // suggestion chips on an empty chat put their text here
   useEffect(() => {
-    const h = (e) => { const d = e.detail || {}; if (d.chatId !== chatId) return; setText(d.text || ''); setTimeout(() => { const el = ta.current; if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }, 0); };
+    const h = (e) => { const d = e.detail || {}; if (d.chatId !== chatId) return; setText((t) => (d.append && t.trim() ? t.replace(/\s+$/, '') + '\n\n' + (d.text || '') : d.text || '')); setTimeout(() => { const el = ta.current; if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }, 0); };
     window.addEventListener('artemis:composer-fill', h);
     return () => window.removeEventListener('artemis:composer-fill', h);
   }, [chatId]);
@@ -426,7 +437,7 @@ export default function Composer({ streaming, onSend, onStop, queue = [], queueH
           </div>
         )}
         <textarea
-          ref={ta} rows={1} value={text} autoFocus className={hasMirror ? 'has-mirror' : undefined}
+          ref={ta} rows={1} value={text} autoFocus className={hasMirror ? 'has-mirror' : undefined + "h-1/3"}
           onScroll={syncMirror}
           placeholder={disabledReason || placeholder || 'Message Artemis…'}
           aria-label="Message"

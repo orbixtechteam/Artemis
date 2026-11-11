@@ -37,6 +37,7 @@ const assert = require('assert');
 {
   const { withCache, cacheable } = require('../electron/agent.js');
   assert.ok(cacheable('anthropic/claude-sonnet-5.5') && cacheable('amazon/nova-2-lite-v1') && !cacheable('openai/gpt-6-sol'));
+  assert.ok(cacheable('claude-opus-5-5') && cacheable('us.anthropic.claude-sonnet-5-5') && cacheable('prov:x:claude-haiku-5-5') && !cacheable('deepseek/deepseek-v4.1-flash'), 'Claude under any provider id');
   const msgs = [{ role: 'system', content: 'sys' }, { role: 'user', content: 'hi' }, { role: 'assistant', content: null, tool_calls: [{ id: '1', type: 'function', function: { name: 'x', arguments: '{}' } }] }, { role: 'tool', tool_call_id: '1', content: 'result' }];
   const out = withCache(msgs);
   assert.deepStrictEqual(out[0].content, [{ type: 'text', text: 'sys', cache_control: { type: 'ephemeral' } }]);

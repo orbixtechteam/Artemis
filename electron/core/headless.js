@@ -222,7 +222,7 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
     const root = project && project.folder ? project.folder : filesDir();
     try {
       await runAgent({
-        sessionId: chatId, userData: dataDir, mentions: [],
+        sessionId: chatId, userData: dataDir, spillDir: require('path').join(dataDir, 'spill'), mentions: [],
         baseUrl: route.baseUrl, key: route.key, model: route.model, noToolCalls: !!route.noTools, messages, maxTokens: st.maxTokens || 8192, reasoningEffort: st.reasoningEffort || '',
         custom: [st.systemPrompt || '', system].filter(Boolean).join('\n\n'), personality: personality.text(st), userName: st.profileName || '', userAbout: st.profileAbout || '', userLocation: st.profileLocation || '',
         project, root, defaultRoot: !(project && project.folder),
@@ -231,7 +231,7 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
         shellEnabled: st.shellEnabled !== false && (!!sandbox() || (allowShell && !restrict)),
         computer: computer && st.computerEnabled !== false && !restrict && !unattended ? computer : null,
         browser: browserOn && st.browserTools !== false && !restrict && !unattended && browserAvailable() ? browserFor() : null,
-        mcp: mcp && st.connectorsEnabled !== false ? (sandbox() ? hideHostShellTools(agentMcp()) : agentMcp()) : null, mcpLazy: st.connectorsLazy !== false, lazyTools: st.toolsLazy !== false, fullFileAccess: st.fullFileAccess !== false,
+        mcp: mcp && st.connectorsEnabled !== false ? (sandbox() ? hideHostShellTools(agentMcp()) : agentMcp()) : null, mcpLazy: st.connectorsLazy !== false, mcpCodeMode: st.mcpCodeMode === true, lazyTools: st.toolsLazy !== false, fullFileAccess: st.fullFileAccess !== false,
         phone: remote ? remote.phone() : null,
         schedule: unattended ? null : { list: () => sched.list(), save: (j) => sched.save(j), remove: (id) => sched.remove(id), hooks: hooksTools, heartbeat: heartbeatTools },
         teams: unattended ? (watchTeamId ? scopedTeams({ list: async () => teams.list(), projects: () => readJson('projects', []), start: async (id) => teams.start(id) }, watchTeamId) : null) : {

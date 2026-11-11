@@ -14,7 +14,7 @@ const PROJECT_DESC = 200, PROJECT_BODY = 8000;
 // is set), the phone, memory and scheduling. Deleting files and computer control are never available to agents.
 const GROUPS = {
   read: ['list_dir', 'read_file', 'search_files'],
-  write: ['write_file', 'edit_file', 'write_spreadsheet', 'update_cells', 'create_folder', 'move_file'],
+  write: ['write_file', 'edit_file', 'write_spreadsheet', 'create_document', 'create_diagram', 'update_cells', 'create_folder', 'move_file'],
   web: ['web_search', 'web_fetch'],
   chats: ['search_chats', 'read_chat'],
   make: ['make_*'],

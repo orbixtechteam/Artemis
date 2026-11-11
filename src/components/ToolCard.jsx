@@ -1,5 +1,7 @@
 import React, { memo, useEffect, useRef, useState } from 'react';
 import { openPreview } from '../lib/preview.js';
+import { openLightbox } from '../lib/viewer-bus.js';
+import AskCard, { AskSummary } from './chat/AskCard.jsx';
 import { lineDiff, withContext } from '../lib/diff.js';
 import { Icon } from './Icons.jsx';
 
@@ -32,6 +34,7 @@ const LABELS = {
   list_schedules: ['clock', 'Listed scheduled tasks'],
   delete_schedule: ['trash', 'Deleted a scheduled task'],
   create_artifact: ['artifact', 'Created artifact'],
+  present_files: ['file', 'Shared'],
   generate_image: ['image', 'Generated image'],
   generate_video: ['video', 'Generated video'],
   memory_save: ['bulb', 'Saved to memory'],
@@ -71,6 +74,7 @@ const FILE_TOOLS = new Set(['write_file', 'edit_file', 'write_spreadsheet', 'upd
 export function target(tc) {
   const a = tc.args || {};
   if (tc.name === 'move_file') return `${a.from} to ${a.to}`;
+  if (tc.name === 'present_files') return [].concat(a.files || []).map((f) => String(f).split('/').pop()).join(', ');
   if (tc.name === 'memory_save') return a.text;
   if (tc.name === 'memory_forget') return a.id;
   if (tc.name === 'use_skill' || tc.name === 'create_skill' || tc.name === 'update_skill') return a.name || '';
@@ -209,60 +213,6 @@ function Approve({ tc, onDecide }) {
   );
 }
 
-/**
- * ask_user / Claude Code's AskUserQuestion: one block per question with its options (one pick, or several with multiSelect)
- * and an "Other" field for a typed answer. Send hands { [question]: answer } to main; Skip leaves the choice to the assistant.
- */
-function Ask({ tc }) {
-  const qs = tc.questions || [];
-  const [pick, setPick] = useState(() => qs.map(() => []));
-  const [other, setOther] = useState(() => qs.map(() => ''));
-  const [sent, setSent] = useState(null);
-  const answerOf = (i) => [...pick[i], ...(other[i].trim() ? [other[i].trim()] : [])].join(', ');
-  const ready = qs.every((_, i) => answerOf(i));
-  const toggle = (i, label) => setPick((p) => p.map((cur, j) => (j !== i ? cur : qs[i].multiSelect ? (cur.includes(label) ? cur.filter((x) => x !== label) : [...cur, label]) : cur[0] === label ? [] : [label])));
-  const submit = (skip) => {
-    const answers = {};
-    if (!skip) qs.forEach((q, i) => { answers[q.question] = answerOf(i); });
-    setSent(skip ? 'skipped' : answers);
-    window.api.answer(tc.id, skip ? null : answers);
-  };
-  if (sent) return (
-    <div className="ask done">
-      {sent === 'skipped' ? <div className="ask-note">Skipped: the assistant picks for you.</div>
-        : qs.map((q) => <div key={q.question} className="ask-done-row"><span className="ask-q">{q.question}</span><span className="ask-a">{sent[q.question]}</span></div>)}
-    </div>
-  );
-  return (
-    <div className="ask" data-pending="1">
-      {qs.map((q, i) => (
-        <div key={i} className="ask-item" role="group" aria-label={q.question}>
-          {q.header && <div className="ask-head">{q.header}</div>}
-          <div className="ask-q">{q.question}{q.multiSelect && <span className="ask-multi"> (pick any)</span>}</div>
-          <div className="ask-opts">
-            {q.options.map((o) => {
-              const on = pick[i].includes(o.label);
-              return (
-                <button type="button" key={o.label} className={`ask-opt ${on ? 'on' : ''}`} aria-pressed={on} onClick={() => toggle(i, o.label)}>
-                  <span className={`ask-mark ${q.multiSelect ? 'box' : 'dot'}`}>{on && <Icon name="check" size={11} />}</span>
-                  <span className="ask-txt"><span className="ask-label">{o.label}</span>{o.description && <span className="ask-desc">{o.description}</span>}</span>
-                </button>
-              );
-            })}
-            <input className="ask-other" value={other[i]} placeholder="Other: type your own answer" aria-label="Other answer"
-              onChange={(e) => { const v = e.target.value; setOther((p) => p.map((x, j) => (j === i ? v : x))); if (v && !q.multiSelect) setPick((p) => p.map((x, j) => (j === i ? [] : x))); }}
-              onKeyDown={(e) => { if (e.key === 'Enter' && ready) { e.preventDefault(); submit(false); } }} />
-          </div>
-        </div>
-      ))}
-      <div className="approve-actions">
-        <button type="button" className="primary" disabled={!ready} onClick={() => submit(false)}>Send answer</button>
-        <button type="button" className="secondary" onClick={() => submit(true)}>Skip</button>
-      </div>
-    </div>
-  );
-}
-
 /** Splits a step's tool calls into single cards and runs of 2+ finished read-only calls. */
 export function groupToolCalls(list) {
   const out = []; let run = [];
@@ -342,7 +292,19 @@ function AgentCard({ a, onDecide }) {
   );
 }
 
+const ASK_TOOLS = new Set(['ask_user', 'AskUserQuestion']);
+
 function ToolCard({ tc, onDecide }) {
+  const status = tc.status;
+  // questions are their own card, not a tool row (chat/AskCard.jsx)
+  if (ASK_TOOLS.has(tc.name) && tc.questions) {
+    if (status === 'question') return <AskCard id={tc.id} questions={tc.questions} />;
+    if ((status === 'done' && tc.answers) || status === 'cancelled') return <AskSummary questions={tc.questions} answers={status === 'done' ? tc.answers : null} />;
+  }
+  return <ToolRow tc={tc} onDecide={onDecide} />;
+}
+
+function ToolRow({ tc, onDecide }) {
   const status = tc.status;
   const [open, setOpen] = useState(status === 'error');
   const prev = useRef(status);
@@ -358,7 +320,11 @@ function ToolCard({ tc, onDecide }) {
       <button className="tool-head" onClick={() => setOpen(!open)} aria-expanded={open}>
         <span className="tool-icon"><Icon name={icon} size={15} /></span>
         <span className="tool-label">{label}</span>
-        <span className={`tool-target ${mono ? 'mono' : ''}`} title={tgt}>{mono ? midTrunc(tgt, 72) : tgt}</span>
+        {tc.status === 'done' && FILE_TOOLS.has(tc.name) && tc.args?.path
+          ? <span role="link" tabIndex={0} className={`tool-target file-target ${mono ? 'mono' : ''}`} title={`Open ${tgt}`}
+              onClick={(e) => { e.stopPropagation(); openPreview({ project: true, path: tc.args.path }); }}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); e.preventDefault(); openPreview({ project: true, path: tc.args.path }); } }}>{mono ? midTrunc(tgt, 72) : tgt}</span>
+          : <span className={`tool-target ${mono ? 'mono' : ''}`} title={tgt}>{mono ? midTrunc(tgt, 72) : tgt}</span>}
         {badge && <span className={`badge ${status}`}>{badge}</span>}
         {dur > 0 && <span className="tool-dur">{fmtDur(dur)}</span>}
         <StatusIcon status={status} />
@@ -367,16 +333,8 @@ function ToolCard({ tc, onDecide }) {
       {status === 'error' && tc.result && <div className="tool-err-line">{firstLine(tc.result)}</div>}
       {tc.agents && tc.agents.length > 0 && <div className="agent-list">{tc.agents.filter(Boolean).map((a, i) => <AgentCard key={i} a={a} onDecide={onDecide} />)}</div>}
       {status === 'awaiting' && <Approve tc={tc} onDecide={onDecide} />}
-      {status === 'question' && <Ask tc={tc} />}
-      {tc.status === 'done' && FILE_TOOLS.has(tc.name) && tc.args?.path && (
-        <div className="file-actions">
-          <button onClick={() => openPreview({ project: true, path: tc.args.path })}>Preview</button>
-          <button onClick={() => openPreview({ project: true, path: tc.args.path, action: 'open' })}>Open</button>
-          <button onClick={() => openPreview({ project: true, path: tc.args.path, action: 'reveal' })}>Open folder</button>
-          <button onClick={() => openPreview({ project: true, path: tc.args.path, action: 'phone' })}>Send to phone</button>
-        </div>
-      )}
-      {tc.image && !awaiting && <img className="shot" src={tc.image} alt="screenshot" />}
+      {status === 'question' && <AskCard id={tc.id} questions={tc.questions} />}
+      {tc.image && !awaiting && <img className="shot" src={tc.image} alt="screenshot" onClick={() => openLightbox([{ src: tc.image, name: 'Screenshot' }], 0)} />}
       {open && !awaiting && (
         <div className="tool-body">
           <Preview tc={tc} />

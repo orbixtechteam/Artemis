@@ -1,7 +1,7 @@
 {
   "name": "artemis",
   "productName": "Artemis",
-  "version": "1.7.20",
+  "version": "1.8.0",
   "description": "Artemis is an open-source desktop AI agent that lives on your laptop. It reads your files, runs commands, browses the web, and remembers what you tell it. You pick the model, you keep the data, you approve every action.",
   "keywords": [
     "ai",
@@ -28,7 +28,7 @@
     "start": "npm run build && electron .",
     "dist": "npm run build && electron-builder",
     "release": "bash scripts/release-install.sh",
-    "test": "node scripts/test-sessions.js && node scripts/test-mediastore.js && node scripts/test-workspace.js && node scripts/test-gateway.js && node scripts/test-sandbox.js && node scripts/test-service.js && node scripts/test-pwbrowser.js && node scripts/test-editor.js && node scripts/test-artemis-tools.js && node scripts/test-tools.js && node scripts/test-browser.js && node scripts/test-agent.js && node scripts/test-extra.js && node scripts/test-mcp.js && node scripts/test-mcp-oauth.js && node scripts/test-teamstatus.js && node scripts/test-main.js && node scripts/test-control.js && node scripts/test-media.js && node scripts/test-import.js && node scripts/test-files.js && node scripts/test-sheet.js && node scripts/test-formula.js && node scripts/test-compact.js && node scripts/test-themes.js && node scripts/test-palette.js && node scripts/test-icon-refresh.js && node scripts/test-limits.js && node scripts/test-scheduler.js && node scripts/test-automation.js && node scripts/test-permissions.js && node scripts/test-providers.js && node scripts/test-amount.js && node scripts/test-skills.js && node scripts/test-learn.js && node scripts/test-make.js && node scripts/test-autolink.js && node scripts/test-subagents.js && node scripts/test-teams.js && node scripts/test-cli-agents.js && node scripts/test-sentinel.js && node scripts/test-wakeword.js && node scripts/test-updater.js && node scripts/test-voice.js && node scripts/test-tts.js && node scripts/test-sentinel-commands.js && node scripts/test-tghtml.js && node scripts/test-terminal.js && node scripts/test-notes.js && node scripts/test-claude-usage.js && node scripts/test-personality.js && node scripts/test-brains.js && node scripts/test-think.js && node scripts/test-memory.js && node scripts/test-search.js && node scripts/test-tabs.js && node scripts/test-listfilter.js && node scripts/test-shortcuts.js && node scripts/test-mentions.js && node scripts/test-find.js && node scripts/test-titles.js && node scripts/test-lock.js && node scripts/test-speaker.js",
+    "test": "node scripts/test-sessions.js && node scripts/test-mediastore.js && node scripts/test-workspace.js && node scripts/test-gateway.js && node scripts/test-sandbox.js && node scripts/test-service.js && node scripts/test-pwbrowser.js && node scripts/test-editor.js && node scripts/test-artemis-tools.js && node scripts/test-tools.js && node scripts/test-browser.js && node scripts/test-agent.js && node scripts/test-extra.js && node scripts/test-mcp.js && node scripts/test-mcp-oauth.js && node scripts/test-teamstatus.js && node scripts/test-main.js && node scripts/test-control.js && node scripts/test-media.js && node scripts/test-import.js && node scripts/test-files.js && node scripts/test-sheet.js && node scripts/test-formula.js && node scripts/test-compact.js && node scripts/test-themes.js && node scripts/test-palette.js && node scripts/test-icon-refresh.js && node scripts/test-limits.js && node scripts/test-scheduler.js && node scripts/test-automation.js && node scripts/test-permissions.js && node scripts/test-providers.js && node scripts/test-amount.js && node scripts/test-skills.js && node scripts/test-learn.js && node scripts/test-make.js && node scripts/test-autolink.js && node scripts/test-subagents.js && node scripts/test-teams.js && node scripts/test-cli-agents.js && node scripts/test-sentinel.js && node scripts/test-wakeword.js && node scripts/test-updater.js && node scripts/test-voice.js && node scripts/test-tts.js && node scripts/test-sentinel-commands.js && node scripts/test-tghtml.js && node scripts/test-terminal.js && node scripts/test-notes.js && node scripts/test-claude-usage.js && node scripts/test-personality.js && node scripts/test-brains.js && node scripts/test-think.js && node scripts/test-memory.js && node scripts/test-search.js && node scripts/test-tabs.js && node scripts/test-stick.js && node scripts/test-zoom.js && node scripts/test-links.js && node scripts/test-deliverables.js && node scripts/test-table-model.js && node scripts/test-sheet-format.js && node scripts/test-sheet-ops.js && node scripts/test-context.js && node scripts/test-file-watch.js && node scripts/test-listfilter.js && node scripts/test-shortcuts.js && node scripts/test-mentions.js && node scripts/test-find.js && node scripts/test-titles.js && node scripts/test-lock.js && node scripts/test-speaker.js && node scripts/test-doc-outline.js && node scripts/test-board-scene.js && node scripts/test-code-mode.js && node scripts/test-plugins.js && node scripts/test-docx-write.js && node scripts/test-doc-model.js && node scripts/test-diagram.js",
     "selftest:computer": "node scripts/computer-selftest.js",
     "migrate:ares": "node scripts/migrate-ares-to-artemis.js",
     "gateway": "node bin/artemis.js gateway",
@@ -38,13 +38,29 @@
     "artemis": "bin/artemis.js"
   },
   "dependencies": {
+    "@excalidraw/excalidraw": "^0.18.1",
+    "@tiptap/extension-image": "^3.33.0",
+    "@tiptap/extension-placeholder": "^3.33.0",
+    "@tiptap/extension-table": "^3.33.0",
+    "@tiptap/extension-table-cell": "^3.33.0",
+    "@tiptap/extension-table-header": "^3.33.0",
+    "@tiptap/extension-table-row": "^3.33.0",
+    "@tiptap/extension-task-item": "^3.33.0",
+    "@tiptap/extension-task-list": "^3.33.0",
+    "@tiptap/pm": "^3.33.0",
+    "@tiptap/react": "^3.33.0",
+    "@tiptap/starter-kit": "^3.33.0",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-web-links": "^0.11.0",
     "@xterm/xterm": "^5.5.0",
+    "docx": "^9.15.3",
+    "exceljs": "^4.4.0",
     "jszip": "^3.10.1",
     "mammoth": "^1.8.0",
     "onnxruntime-node": "^1.30.0",
     "pdf-parse": "^1.1.1",
+    "pdfjs-dist": "^6.5.438",
+    "tiptap-markdown": "^0.9.0",
     "vosk-browser": "0.0.8",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
@@ -64,7 +80,7 @@
     "wait-on": "^8.0.0"
   },
   "build": {
-    "copyright": "Copyright © 2026 Orbix Lab",
+    "copyright": "Copyright \u00a9 2026 Orbix Lab",
     "appId": "dev.orbixlabs.artemis",
     "productName": "Artemis",
     "asarUnpack": [
@@ -99,7 +115,7 @@
       "identity": null,
       "extendInfo": {
         "NSMicrophoneUsageDescription": "Artemis uses the microphone when you press the mic button to turn your speech into text.",
-        "NSCameraUsageDescription": "Artemis can take one photo with the camera when someone tries to get into a locked Artemis, if you turn that on in Settings → Security."
+        "NSCameraUsageDescription": "Artemis can take one photo with the camera when someone tries to get into a locked Artemis, if you turn that on in Settings \u2192 Security."
       }
     },
     "dmg": {
