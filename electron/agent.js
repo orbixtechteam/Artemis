@@ -11,7 +11,9 @@ const DEFAULT_CONTEXT_TOKENS = 40000;   // when the history grows past this, the
 const DEFAULT_RUN_BUDGET = 1500000;      // tokens one run may use in total (all steps together)
 const KEEP_RECENT_TOOLS = 4;
 const REPEAT_REMIND = new Set([3, 5, 8]); // identical repeated calls get a reminder at these counts
-const REPEAT_STOP = 12;                   // and stop the run after this many
+const REPEAT_STOP = 12;
+const MAX_EXTENSIONS = 6;                 // a run that keeps making progress gets up to 6 more rounds of MAX_ITERATIONS steps (280 in all)
+const PROGRESS_MIN = 8;                   // fresh successful tool calls in a round that count as progress                   // and stop the run after this many
 const KEEP_IMAGES = 2;
 const KEEP_USER_IMAGES = 6;
 
@@ -287,8 +289,24 @@ const LOCAL_STALL_MS = 600000; // a local server may first have to load the mode
 const stallFor = (url) => (/^https?:\/\/(localhost|127\.|0\.0\.0\.0|\[::1\]|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/i.test(String(url || '')) ? LOCAL_STALL_MS : STALL_MS);
 const CTX_ERR = /context.length|context_length|maximum context|context window|prompt is too long|too long|too many tokens/i;
 
+// Errors worth waiting out: rate limits, overloaded or restarting servers, gateways (Cloudflare 52x), Anthropic's 529.
+const TRANSIENT_STATUS = new Set([408, 425, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524, 529]);
+const MAX_ATTEMPTS = 5;
+/** How long to wait before attempt n+1: the server's Retry-After when it gives one (capped), else 1.5 s, 3 s, 6 s, 12 s. */
+function retryDelay(attempt, res) {
+  const ra = res && res.headers && res.headers.get && res.headers.get('retry-after');
+  const sec = ra && /^\d+(\.\d+)?$/.test(ra) ? Number(ra) : ra ? (Date.parse(ra) - Date.now()) / 1000 : NaN;
+  if (Number.isFinite(sec) && sec >= 0) return Math.min(30000, Math.max(500, sec * 1000));
+  return Math.min(12000, 1500 * 2 ** attempt);
+}
+const sleepFor = (ms, signal) => new Promise((resolve, reject) => {
+  const t = setTimeout(resolve, ms);
+  if (signal) signal.addEventListener('abort', () => { clearTimeout(t); reject(Object.assign(new Error('aborted'), { name: 'AbortError' })); }, { once: true });
+});
+
 async function streamOnce({ url, key, body, signal, send, strip, stallMs = STALL_MS }) {
-  // A dropped connection ("fetch failed") is retried twice before giving up; the real cause (DNS, reset, timeout) goes into the message.
+  // A dropped connection and a transient server error (429, 5xx, 529 overloaded) are retried with backoff before giving
+  // up, so a short outage does not end the run; the real cause goes into the message when it does.
   let res;
   for (let attempt = 0; ; attempt++) {
     try {
@@ -298,15 +316,22 @@ async function streamOnce({ url, key, body, signal, send, strip, stallMs = STALL
         body: JSON.stringify(body),
         signal
       });
-      break;
     } catch (e) {
       if (signal?.aborted || e?.name === 'AbortError') throw e;
-      if (attempt < 2) { await new Promise((r) => setTimeout(r, 1500 * (attempt + 1))); if (signal?.aborted) throw e; continue; }
+      if (attempt < MAX_ATTEMPTS - 1) { if (send && attempt >= 1) send({ type: 'notice', text: 'Connection lost, retrying…' }); await sleepFor(retryDelay(attempt), signal); continue; }
       let host = ''; try { host = new URL(url).host; } catch {}
       const c = e?.cause;
       const why = c ? [c.code, c.message].filter(Boolean).join(' ') : '';
       throw new Error(`Could not reach ${host || 'the provider'}${why ? ` (${why})` : ''}. Check your internet/VPN and the provider's base URL.`);
     }
+    if (!res.ok && TRANSIENT_STATUS.has(res.status) && attempt < MAX_ATTEMPTS - 1) {
+      const wait = retryDelay(attempt, res);
+      try { await res.body?.cancel(); } catch {}
+      if (send && attempt >= 1) send({ type: 'notice', text: `The provider is busy (HTTP ${res.status}), retrying…` });
+      await sleepFor(wait, signal);
+      continue;
+    }
+    break;
   }
   if (!res.ok) {
     let msg = `HTTP ${res.status}`;
@@ -806,9 +831,11 @@ async function runAgent(opts) {
   let toolsOn = !!opts.toolsEnabled && !opts.noToolCalls; // a server that ignores tool calls is never promised any
   let cacheOn = opts.promptCache !== false && cacheable(model);
   const budget = opts.runTokenBudget || DEFAULT_RUN_BUDGET;
+  let progressSince = 0, wrapAsked = false; // fresh successful tool calls since the last extension; the last-step wrap-up was asked
   let spent = 0, spentBase = 0, softResets = 0, wroteSince = false; // spent counts cache-discounted tokens; spentBase/softResets: runs that were summarized and continued
   const seenCalls = new Map();
   const repeats = new Map(); // tool call id -> repeat count that earned a reminder
+  const freshCalls = new Set(); // ids of tool calls made for the first time with those arguments (progress, not a repeat)
   // reading the same page again after a click or typing is not a loop: browser reads count per page state
   const BROWSER_LOOKS = new Set(['browser_read_page', 'browser_screenshot', 'browser_get_text', 'browser_find', 'browser_tabs', 'browser_console', 'browser_network', 'browser_wait']);
   let browserMoves = 0;
@@ -1009,11 +1036,18 @@ async function runAgent(opts) {
       // Last step of the allowance: a run that has been changing things is summarized and given another round (up to 4 times) instead of being cut off.
       // The context is summarized only when it is actually filling up; otherwise the run just gets more steps (no extra
       // model call, no notice): a step count says nothing about how full the context is.
-      if (iter === maxIter - 1 && !opts.isSub && opts.autoCompact !== false && stepExt < 4 && (stepExt === 0 ? wrote : wroteSince)) {
+      // "Making progress" is writing files OR doing new, successful work (fresh tool calls that worked): an analysis that only
+      // reads and runs commands is progress too. Loops are caught separately (repeat reminders and REPEAT_STOP).
+      if (iter === maxIter - 1 && !opts.isSub && opts.autoCompact !== false && stepExt < MAX_EXTENSIONS && (wroteSince || progressSince >= PROGRESS_MIN)) {
         const full = meter.measure(history, fixedTok) > (opts.contextTokens || runLimit) * 0.6;
         let ok = !full;
         if (full) { try { ok = await summarizeHistory(history, { ...sumRoute, signal, limitTokens: 1000, onUsage: opts.onUsage, onCompact: opts.isSub ? null : opts.onCompact }); } catch (e) { if (signal?.aborted) throw e; } }
-        if (ok) { stepExt++; maxIter += MAX_ITERATIONS; wroteSince = false; if (full) { meter.reset(); send({ type: 'notice', text: 'Long task: the earlier steps were summarized to make room, and the work carries on.' }); } }
+        if (ok) { stepExt++; maxIter += MAX_ITERATIONS; wroteSince = false; progressSince = 0; if (full) { meter.reset(); send({ type: 'notice', text: 'Long task: the earlier steps were summarized to make room, and the work carries on.' }); } }
+      }
+      // the run's very last step: no more tool work, the model writes its answer from what it has (instead of the run just ending)
+      if (iter === maxIter - 1 && !opts.isSub && !opts.cli && toolsOn && !wrapAsked) {
+        wrapAsked = true;
+        history.push({ role: 'user', content: `[Artemis: this is the last step of this run (${maxIter} steps). Do not call any tools now. Write your final answer from what you have: the results so far, what is done, and what is left (so the user can say "continue"). Name any files you made.]` });
       }
       if (iter > 0) send({ type: 'step:new' });
       const f = effFlags();
@@ -1227,7 +1261,7 @@ async function runAgent(opts) {
       if (spent - spentBase > budget) {
         // Over the budget: summarize and carry on (up to 3 times, and only while the run keeps changing things) instead of just stopping.
         let carried = compactedAt === iter; // the context was just summarized this step: that is the carry-over
-        if (!carried && !opts.isSub && opts.autoCompact !== false && softResets < 3 && (softResets === 0 || wroteSince) && spent < budget * 4) {
+        if (!carried && !opts.isSub && opts.autoCompact !== false && softResets < 3 && (softResets === 0 || wroteSince || progressSince >= PROGRESS_MIN) && spent < budget * 4) {
           try { carried = await summarizeHistory(history, { ...sumRoute, signal, limitTokens: 1000, onUsage: opts.onUsage, onCompact: opts.isSub ? null : opts.onCompact }); } catch (e) { if (signal?.aborted) throw e; }
         }
         if (!carried) {
@@ -1276,6 +1310,7 @@ async function runAgent(opts) {
         const times = (seenCalls.get(sig) || 0) + 1; seenCalls.set(sig, times);
         if (times > REPEAT_STOP) { send({ type: 'notice', text: `Stopped: the model kept repeating the same ${tc.name} call.` }); return false; }
         if (REPEAT_REMIND.has(times)) repeats.set(tc.id, times);
+        if (times === 1) freshCalls.add(tc.id);
         return true;
       };
       // Several read-only calls in one reply run at once; anything that writes or may ask the user runs one by one.
@@ -1302,6 +1337,7 @@ async function runAgent(opts) {
           else if (!wrote && exploreCalls >= 8 && (exploreCalls - 8) % 4 === 0) text += `\n[${exploreCalls} read/search calls so far and nothing has changed. Stop exploring: make the change now, or ask the user one short question if the target is unclear.]`;
         }
         if (WRITE_TOOLS.has(tc.name) && r.ok) wrote = wroteSince = true;
+        if (r.ok && freshCalls.has(tc.id)) progressSince++;
         // "not found" from a read is an answer (the file is not there yet), not a broken tool: it does not count toward the stop
         const missing = !r.ok && /^(read_file|list_dir|search_files|read_spreadsheet)$/.test(tc.name) && /\b(File|Folder) not found\b|does not exist|no such file/i.test(String(r.text || ''));
         // ...but a run that only guesses paths still ends: 6 misses in a row count as 3 failures

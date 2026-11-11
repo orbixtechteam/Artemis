@@ -59,7 +59,7 @@ const { runCode, describeTools } = require('../electron/code-mode');
   // Artemis's own tools from a program: tools.artemis.create_diagram / create_document / read_file, with approval
   const os = require('os'), fsx = require('fs'), px = require('path');
   const root = fsx.mkdtempSync(px.join(os.tmpdir(), 'cm-'));
-  const own = require('../electron/tools').definitions({ hasFolder: true }).filter((d) => ['read_file', 'create_diagram', 'create_document', 'run_command'].includes(d.function.name));
+  const own = require('../electron/tools').definitions({ hasFolder: true, shellEnabled: true }).filter((d) => ['read_file', 'create_diagram', 'create_document', 'run_command'].includes(d.function.name));
   const sent = [], okd = [];
   const c2 = { root, toolDefs: own, session: new Set(), send: (e) => sent.push(e), approve: async (q) => { okd.push(q.name); return true; } };
   r = await tools.run('connector_tools', { query: 'diagram' }, c2); assert.match(r.text, /tools\.artemis\.create_diagram\(\{path: string/);
@@ -72,7 +72,8 @@ const { runCode, describeTools } = require('../electron/code-mode');
   assert.ok(fsx.existsSync(px.join(root, 'flow.excalidraw')) && fsx.existsSync(px.join(root, 'r.docx')));
   assert.deepStrictEqual(okd, ['create_diagram', 'create_document'], 'each write asked for approval');
   assert.strictEqual(sent.filter((e) => e.type === 'files').length, 2, 'file cards for both');
-  r = await tools.run('run_code', { code: 'return await tools.artemis.run_command({ command: "ls" })' }, c2); assert.ok(!r.ok, 'the shell is not reachable from a program');
+  r = await tools.run('run_code', { code: 'return typeof tools.artemis.run_command' }, c2); assert.strictEqual(r.text, 'function', 'shell commands are callable (with approval) when offered');
+  r = await tools.run('run_code', { code: 'return typeof tools.artemis.delete_file' }, c2); assert.strictEqual(r.text, 'undefined', 'deleting stays a direct, visible tool call');
   fsx.rmSync(root, { recursive: true, force: true });
   console.log('code-mode tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });
