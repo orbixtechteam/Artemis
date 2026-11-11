@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import PluginsView from './PluginsView.jsx';
 import { Icon } from './Icons.jsx';
 import { ArtifactPanel } from './SidePanel.jsx';
 import { askConfirm } from '../lib/dialog.js';
@@ -37,9 +38,12 @@ function Thumb({ a }) {
 }
 
 /** Every artifact from every chat in one place, newest chat first. Opening one shows it full page; its Chat button jumps to the chat with the artifact panel open. */
-export default function ArtifactsView({ chats, onOpen, onDelete }) {
+export default function ArtifactsView({ chats, onOpen, onDelete, initialSection = 'artifacts' }) {
   const [q, setQ] = useState('');
-  const [kind, setKind] = useState('all');
+  const [hasPlugins, setHasPlugins] = useState(false);
+  useEffect(() => { const load = () => api.pluginsList().then((l) => setHasPlugins(!!(l && l.length))).catch(() => {}); load(); const off = api.onPluginsChanged && api.onPluginsChanged(load); return () => off && off(); }, []);
+  const [kind, setKind] = useState(initialSection === 'plugins' ? 'plugins' : 'all');
+  useEffect(() => { if (initialSection === 'plugins') setKind('plugins'); }, [initialSection]);
   const [menu, setMenu] = useState(null); // right-click menu on a card
   const [open, setOpen] = useState(null); // { chatId, id }: the artifact shown full page, like Claude
   const items = useMemo(() => {
@@ -74,10 +78,11 @@ export default function ArtifactsView({ chats, onOpen, onDelete }) {
       <div className="art-bar">
         <div className="art-tabs">
           {kinds.map((k) => <button key={k} className={`art-tab ${kind === k ? 'on' : ''}`} onClick={() => setKind(k)}>{k === 'all' ? 'All' : KIND[k]}</button>)}
+          <button className={`art-tab ${kind === 'plugins' ? 'on' : ''}`} onClick={() => setKind('plugins')}>Plugins</button>
         </div>
-        <label className="art-search"><Icon name="search" size={15} /><input type="search" placeholder="Search" aria-label="Search artifacts" value={q} onChange={(e) => setQ(e.target.value)} /></label>
+        <label className="art-search"><Icon name="search" size={15} /><input type="search" placeholder="Search" aria-label={kind === 'plugins' ? 'Search plugins' : 'Search artifacts'} value={q} onChange={(e) => setQ(e.target.value)} /></label>
       </div>
-      {shown.length === 0 ? (
+      {kind === 'plugins' ? <PluginsView q={q} /> : shown.length === 0 && !(kind === 'all' && hasPlugins) ? (
         <div className="muted art-empty">{items.length ? 'No match.' : 'No artifacts yet. Ask Artemis to build a page, a document or a table and it will show up here.'}</div>
       ) : (
         <div className="art-grid">
@@ -101,6 +106,7 @@ export default function ArtifactsView({ chats, onOpen, onDelete }) {
           ))}
         </div>
       )}
+      {kind === 'all' && hasPlugins && <><h2 className="art-sub">Plugins</h2><PluginsView q={q} compact /></>}
       <ContextMenu menu={menu} onClose={() => setMenu(null)} />
     </div>
   );

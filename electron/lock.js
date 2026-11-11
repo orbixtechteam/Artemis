@@ -69,7 +69,7 @@ function sensitiveCategory(info) {
   if (cat === 'shell') return 'shell';
   if (cat === 'computer') return 'computer';
   if (cat.startsWith('mcp:')) return 'connectorWrite';
-  if (/^(library_write|library_edit|notes_write|notes_append|notes_edit|write_file|edit_file|write_spreadsheet|update_cells|move_file)$/.test(name)) return 'write';
+  if (/^(library_write|library_edit|notes_write|notes_append|notes_edit|write_file|edit_file|write_spreadsheet|create_document|create_diagram|update_cells|move_file)$/.test(name)) return 'write';
   return null;
 }
 

@@ -64,5 +64,14 @@ const assert = require('assert');
   assert.deepStrictEqual(F.highlight('', []), []);
   const r = F.rank('nt', [{ label: 'Agents' }, { label: 'New tab' }, { label: 'Close' }], (x) => x);
   assert.deepStrictEqual(r.map((x) => x.item.label), ['New tab', 'Agents']);
+  // a page tab (Settings) sits on top of a chat id: it must never be taken for that chat's tab
+  const page = { id: 'set', s: { view: 'chat', chatId: 'c1', modal: 'settings' } };
+  const chatTab = { id: 'c', s: { view: 'chat', chatId: 'c1', modal: null } };
+  assert.strictEqual(T.isChatTab(page), false);
+  assert.strictEqual(T.isChatTab(chatTab), true);
+  assert.strictEqual(T.findChatTab([page], 'c1'), null);
+  assert.strictEqual(T.findChatTab([page, chatTab], 'c1').id, 'c');
+  assert.strictEqual(T.findChatTab([page, chatTab], 'c1', 'c'), null);
+  assert.strictEqual(T.findChatTab([chatTab], ''), null);
   console.log('tabs + fuzzy tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

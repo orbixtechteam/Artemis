@@ -42,5 +42,21 @@ const assert = require('assert');
   // MIN/MAX over a range too big to spread into arguments
   const many = [['=MAX(A2:A300001)', '=MIN(A2:A300001)']]; for (let i = 0; i < 300000; i++) many.push([i - 7]);
   const mv = t(many); assert.strictEqual(formatValue(mv(0, 0, 0)), '299992'); assert.strictEqual(formatValue(mv(0, 0, 1)), '-7');
+  // whole-column and whole-row ranges, on this sheet and on another (=COUNTIF(Data!D:D,A2) from an agent-made dashboard)
+  const book = createEvaluator([
+    { name: 'Data', rows: [['ID', 'Dept', 'Pay'], [1, 'Eng', 10], [2, 'Ops', 20], [3, 'Eng', 30]] },
+    { name: 'Dash', rows: [['Eng', '=COUNTIF(Data!B:B,A1)', '=SUMIF(Data!B:B,A1,Data!C:C)', '=SUM(Data!C:C)', "=SUM('Data'!A:C)", '=SUM(Data!2:2)', '=COUNTA(Data!1:1)'],
+      ['=SUM(A3:A4)', '=SUM(C:C)', 'x'], [5], [6]] },
+    { name: 'Q1', rows: [[7]] }
+  ]);
+  assert.strictEqual(formatValue(book(1, 0, 1)), '2');
+  assert.strictEqual(formatValue(book(1, 0, 2)), '40');
+  assert.strictEqual(formatValue(book(1, 0, 3)), '60');
+  assert.strictEqual(formatValue(book(1, 0, 4)), '66');
+  assert.strictEqual(formatValue(book(1, 1, 1)), '40'); // C:C on its own sheet, the text cell skipped
+  assert.strictEqual(formatValue(book(1, 0, 5)), '11');
+  assert.strictEqual(formatValue(book(1, 0, 6)), '3');
+  assert.strictEqual(formatValue(book(1, 1, 0)), '11');
+  assert.strictEqual(formatValue(createEvaluator([{ name: 'A', rows: [['=Q1!A1*2']] }, { name: 'Q1', rows: [[4]] }])(0, 0, 0)), '8'); // a sheet named like a cell
   console.log('formula: all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

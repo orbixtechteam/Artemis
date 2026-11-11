@@ -1,0 +1,77 @@
+/* Artemis Docs: a Markdown file edited like a Claude Doc. Theme tokens only, so it follows light and dark. */
+.doc { position: relative; display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--panel); }
+.doc-top { position: absolute; inset: 0 0 auto 0; z-index: 5; display: flex; align-items: center; gap: 8px; padding: 10px 14px; pointer-events: none; }
+.doc-top > * { pointer-events: auto; }
+.doc-grow { flex: 1; }
+.doc-outline-btn { width: 32px; height: 32px; display: grid; place-items: center; border: 0; border-radius: 9px; background: transparent; color: var(--muted); cursor: pointer; }
+.doc-outline-btn:hover, .doc-outline-btn.on { background: var(--fill); color: var(--text); }
+.doc-mode { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--text); font: inherit; font-size: 13px; cursor: pointer; }
+.doc-mode:hover { background: var(--fill); }
+.doc-status { font-size: 12px; color: var(--muted); }
+.doc-status.error { color: var(--danger, #d4483b); }
+.doc-outline { position: absolute; top: 50px; left: 12px; z-index: 5; width: 220px; max-height: calc(100% - 140px); overflow: auto; padding: 6px; border-radius: 12px; background: var(--elev); box-shadow: var(--menu-shadow); }
+.doc-outline-item { display: block; width: 100%; text-align: left; border: 0; background: transparent; color: var(--text-2); font: inherit; font-size: 13px; padding: 6px 8px; border-radius: 7px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doc-outline-item:hover { background: var(--fill); color: var(--text); }
+.doc-outline-item.l1 { font-weight: 600; color: var(--text); }
+.doc-outline-item.l3 { padding-left: 20px; } .doc-outline-item.l4 { padding-left: 32px; }
+.doc-outline-empty { padding: 8px; font-size: 13px; color: var(--muted); }
+.doc-scroll { flex: 1; min-height: 0; overflow: auto; padding-top: 30px; }
+.doc .docpage { padding-bottom: 140px; }
+.doc-editable { outline: none; caret-color: var(--accent); }
+.doc-editable p.is-empty::before, .doc-editable h1.is-empty::before { content: attr(data-placeholder); float: left; height: 0; color: var(--muted); pointer-events: none; }
+.doc-editable p.is-editor-empty:first-child::before { content: attr(data-placeholder); float: left; height: 0; color: var(--muted); pointer-events: none; }
+.doc-editable ::selection { background: color-mix(in srgb, var(--accent) 26%, transparent); }
+.doc-editable img { max-width: 100%; border-radius: 10px; }
+.doc-editable img.ProseMirror-selectednode { outline: 2px solid var(--accent); }
+.doc-editable ul[data-type="taskList"] { list-style: none; padding-left: 4px; }
+.doc-editable ul[data-type="taskList"] li { display: flex; gap: 8px; align-items: flex-start; }
+.doc-editable ul[data-type="taskList"] li > label { margin-top: 4px; }
+.doc-editable ul[data-type="taskList"] li[data-checked="true"] > div { color: var(--muted); text-decoration: line-through; }
+.doc-editable table { border-collapse: collapse; width: 100%; margin: 16px 0; table-layout: fixed; overflow: hidden; }
+.doc-editable th, .doc-editable td { position: relative; border: 1px solid var(--line); padding: 7px 10px; vertical-align: top; min-width: 60px; }
+.doc-editable th { background: var(--fill); font-weight: 600; text-align: left; }
+.doc-editable .selectedCell::after { content: ''; position: absolute; inset: 0; background: color-mix(in srgb, var(--accent) 14%, transparent); pointer-events: none; }
+.doc-editable .column-resize-handle { position: absolute; right: -2px; top: 0; bottom: 0; width: 4px; background: var(--accent); pointer-events: none; }
+.doc-editable.resize-cursor, .doc .resize-cursor { cursor: col-resize; }
+.doc-editable blockquote { border-left: 3px solid var(--line-2); margin: 14px 0; padding-left: 14px; color: var(--text-2); }
+.doc-editable pre { background: var(--code-bg); color: var(--code-fg); border-radius: 10px; padding: 12px 14px; font-size: 13.5px; overflow: auto; }
+.doc-editable code { font-family: var(--font-mono, ui-monospace, monospace); font-size: .9em; background: var(--fill); border-radius: 5px; padding: 1px 5px; }
+.doc-editable pre code { background: none; padding: 0; }
+.doc-editable hr { border: 0; border-top: 1px solid var(--line); margin: 26px 0; }
+.doc-editable a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.doc-bar { bottom: 18px; }
+.doc-tt { font-family: var(--font-serif); font-size: 17px; } .doc-tt small { font-size: 12px; }
+.fbar-btn.on { background: var(--fill-2); }
+
+/* Whiteboard (Excalidraw). The canvas brings its own UI; we only size it and blend its chrome into the panel. */
+.board { position: relative; height: 100%; min-height: 360px; }
+.board .excalidraw { --color-primary: var(--accent); --ui-font: inherit; height: 100%; }
+.board .excalidraw.theme--dark { --island-bg-color: var(--elev); }
+.board-status { position: absolute; right: 14px; bottom: 12px; z-index: 4; font-size: 12px; color: var(--muted); pointer-events: none; }
+
+/* Plugins page */
+.plug-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.plug-chip { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px; border-radius: 999px; background: var(--fill); color: var(--text-2); font: inherit; font-size: 12px; border: 0; }
+.plug-chip.btn { cursor: pointer; color: var(--text); border: 1px solid var(--line); background: var(--panel); }
+.plug-chip.btn:hover { background: var(--fill); }
+.sched-badge.err { color: var(--danger, #d4483b); }
+.art-sections { display: flex; gap: 4px; margin: 4px 0 14px; border-bottom: 1px solid var(--line); }
+.art-sections button { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 12px; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; background: transparent; color: var(--muted); font: inherit; font-size: 14px; font-weight: 500; cursor: pointer; }
+.art-sections button:hover { color: var(--text); }
+.art-sections button.on { color: var(--text); border-bottom-color: var(--text); }
+.plug-actions { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 14px; }
+.plug-empty { margin-top: 10px; }
+.plug-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+.plug-card { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); overflow: hidden; }
+.plug-card.off .plug-face { opacity: .55; }
+.plug-face { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 16px 16px 12px; border: 0; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.plug-face:hover:not(:disabled) { background: var(--fill); }
+.plug-tile { width: 42px; height: 42px; display: grid; place-items: center; margin-bottom: 8px; border-radius: 11px; background: color-mix(in srgb, #7c5cd6 14%, transparent); color: #7c5cd6; }
+.plug-name { font-weight: 600; font-size: 15px; display: flex; gap: 6px; align-items: center; }
+.plug-desc { color: var(--text-2); font-size: 13px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.plug-sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.plug-foot { display: flex; align-items: center; gap: 8px; padding: 8px 10px 10px 16px; border-top: 1px solid var(--line); }
+.plug-grow { flex: 1; }
+.plug-open { height: 30px; padding: 0 14px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); color: var(--text); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.plug-open:hover:not(:disabled) { background: var(--fill); }
+.art-sub { margin: 28px 0 12px; font-size: 15px; font-weight: 600; color: var(--text-2); }

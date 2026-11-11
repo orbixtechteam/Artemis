@@ -4,6 +4,7 @@ const path = require('path');
 const os = require('os');
 const { Worker } = require('worker_threads');
 const files = require('./files');
+const deliverables = require('./deliverables');
 const web = require('./web');
 const shell = require('./shell');
 const browserLib = require('./browser');
@@ -25,7 +26,7 @@ function outlineOf(text, name) {
   return `${name}: ${lines.length} lines, ${text.length} characters. Too big to send whole, so here is the start and an outline (line: declaration).\n\n${head}\n…\n\n${out.join('\n')}${cut ? '\n…[outline cut: find a name with search_files]' : ''}\n\nRead only what you need with start_line/end_line (for example 120-220), or find the spot with search_files. Pass full=true to read the whole file anyway.`;
 }
 
-const WRITE_TOOLS = new Set(['library_write', 'library_edit', 'library_delete', 'notes_write', 'notes_append', 'notes_edit', 'write_file', 'edit_file', 'write_spreadsheet', 'update_cells', 'move_file', 'delete_file']);
+const WRITE_TOOLS = new Set(['library_write', 'library_edit', 'library_delete', 'notes_write', 'notes_append', 'notes_edit', 'write_file', 'edit_file', 'write_spreadsheet', 'create_document', 'create_diagram', 'update_cells', 'move_file', 'delete_file']);
 const ALWAYS_ASK = new Set(['delete_file', 'library_delete']);
 // These change what Artemis does by itself later (an endpoint on the internet, a check that costs tokens): asked every time.
 /** A model as people write it in a prompt ("Claude Code", "codex") as the id Artemis uses; ids pass through. */
@@ -66,6 +67,9 @@ function definitions({ teamsEnabled, makeEnabled, hasFolder, memoryEnabled, memo
     id: { type: 'string', description: 'Existing artifact id to update; omit to create a new one' },
     append: { type: 'boolean', description: 'With an existing id: add content to the end of the artifact instead of replacing it. Use it to build a long page in several calls (the first call creates it, the next ones append the rest).' }
   }, ['title', 'type', 'content']));
+  defs.push(fn('present_files', 'Shows finished files to the user as file cards in the chat (open, download, show in folder). Use it for the deliverables they asked for, once the files are final.', {
+    files: { type: 'array', items: { type: 'string' }, description: 'Paths of existing files: relative to the project folder or the Files library, or absolute. Usually the 1-2 main deliverables, at most 4.' }
+  }, ['files']));
   if (hasFolder) {
     defs.push(
       fn('list_dir', 'Lists files and folders in the project folder.', {
@@ -105,6 +109,18 @@ function definitions({ teamsEnabled, makeEnabled, hasFolder, memoryEnabled, memo
           }
         }
       }, ['path', 'sheets']),
+      fn('create_document', 'Creates a document file from Markdown: .docx (Word), .pdf, or .md (requires approval). Write the content as Markdown (headings, **bold**, lists, tables, > quotes, code, ![](image paths)); Artemis lays it out. Use this instead of writing a script to build Word or PDF files.', {
+        path: { type: 'string', description: 'e.g. report.docx, report.pdf, notes.md' },
+        markdown: { type: 'string', description: 'The whole document as Markdown' },
+        title: { type: 'string', description: 'Document title (metadata); the first # heading is the visible title' }
+      }, ['path', 'markdown']),
+      fn('create_diagram', 'Creates a whiteboard diagram (.excalidraw) such as a flowchart, process, org chart or architecture from nodes and edges; Artemis lays it out (requires approval). Use this instead of writing coordinates or a script. Shapes: round (step, default), box, diamond (decision), ellipse (start / end). Colors: blue, green, red, yellow, violet, gray, orange, teal.', {
+        path: { type: 'string', description: 'e.g. login-flow.excalidraw' },
+        title: { type: 'string' },
+        direction: { type: 'string', enum: ['down', 'right'], description: 'Flow direction (default down)' },
+        nodes: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, label: { type: 'string' }, shape: { type: 'string', enum: ['round', 'box', 'diamond', 'ellipse'] }, color: { type: 'string' } }, required: ['id', 'label'] } },
+        edges: { type: 'array', items: { type: 'object', properties: { from: { type: 'string' }, to: { type: 'string' }, label: { type: 'string', description: 'e.g. Yes / No' } }, required: ['from', 'to'] } }
+      }, ['path', 'nodes', 'edges']),
       fn('update_cells', 'Updates specific cells in an existing Excel/CSV file (requires approval).', {
         path: { type: 'string' }, sheet: { type: 'string' },
         cells: { type: 'array', items: { type: 'object', properties: { cell: { type: 'string', description: 'like A1' }, value: {} }, required: ['cell', 'value'] } }
@@ -478,6 +494,7 @@ const SENSITIVE = new RegExp('(^|/)(' + [
 function isSensitive(real, ctx) {
   const unix = real.split(path.sep).join('/');
   if (SENSITIVE.test(unix)) return true;
+  if (ctx && ctx.spillDir) { let sp = ctx.spillDir; try { sp = fs.realpathSync(sp); } catch {} if (!outside(sp, real)) return false; } // big tool results saved for the model to read back
   const own = ctx && (ctx.userData || ctx.userDataDir);
   if (own) { let o = own; try { o = fs.realpathSync(own); } catch {} if (!outside(o, real)) return true; }
   return false;
@@ -642,6 +659,9 @@ function summarize(name, args) {
   switch (name) {
     case 'use_tools': return 'Switch on tools: ' + [].concat(args.names || []).join(', ');
     case 'use_connector': return 'Switch on the connector ' + String(args.name || '');
+    case 'run_code': return 'Run a program that uses the connectors';
+    case 'plugin_manager': return ({ save: 'Save the plugin ', remove: 'Remove the plugin ', enable: 'Switch on the plugin ', disable: 'Switch off the plugin ', test: 'Test the plugin ' }[args.action] || 'Plugins: ' + String(args.action || '') + ' ') + String(args.name || (args.manifest && args.manifest.name) || '');
+    case 'connector_tools': return 'Look up connector tools' + (args.query ? ': ' + String(args.query) : '');
     case 'ask_user': return 'Question for you';
     case 'lock_app': return 'Lock Artemis';
     case 'compact_chat': return 'Compact this chat';
@@ -662,6 +682,8 @@ function summarize(name, args) {
     case 'write_file': return `Write ${args.path} (${(args.content || '').length} characters)`;
     case 'edit_file': return `Edit ${args.path}`;
     case 'write_spreadsheet': return `Create spreadsheet ${args.path}`;
+    case 'create_document': return `Create document ${args.path}`;
+    case 'create_diagram': return `Create diagram ${args.path}`;
     case 'update_cells': return `Update ${(args.cells || []).length} cells in ${args.path}`;
     case 'move_file': return `${args.from} → ${args.to}`;
     case 'delete_file': return `Delete ${args.path}`;
@@ -687,6 +709,7 @@ function summarize(name, args) {
     }
     case 'send_to_phone': return 'Send to your phone' + (args.file_path ? `: ${args.file_path}` : args.screenshot ? ': screenshot' : '');
     case 'create_artifact': return `Create artifact: ${args.title || ''}`;
+    case 'present_files': return `Share files: ${[].concat(args.files || []).map((f) => String(f).split('/').pop()).join(', ')}`;
     case 'use_skill': return `Use skill: ${args.name || ''}`;
     case 'create_skill': return `Save new skill: ${args.name || ''}`;
     case 'update_skill': return `Update skill: ${args.name || ''}`;
@@ -763,6 +786,50 @@ async function withLocks(keys, fn) {
 const resolveStrict = resolveSafe;
 /** "Full file access" setting: any absolute or ~ path on the computer, no project-folder fence. */
 const openPath = (root, p = '.') => path.resolve(root || os.homedir(), expandHome(p || '.'));
+/** What a run_code program can call: Artemis tools offered in this step (as artemis__<name>) and the connectors. */
+function codeDefs(ctx) {
+  const allow = require('./code-mode').ARTEMIS_IN_CODE;
+  const own = (ctx.toolDefs || []).filter((d) => allow.has(d.function.name)).map((d) => ({ ...d, function: { ...d.function, name: 'artemis__' + d.function.name } }));
+  return [...own, ...(ctx.mcp ? ctx.mcp.definitions() : [])];
+}
+
+/** A plugin asks once per task before it runs (it can reach the web and the connectors). */
+async function pluginGate(ctx, plugin, { name, args }) {
+  if (ctx.autoAll) return true;
+  const cat = 'plugin:' + plugin.slug;
+  ctx.session = ctx.session || new Set();
+  if (ctx.session.has(cat)) return true;
+  const ok = await ctx.approve({ name, args, summary: `Use the plugin ${plugin.name}`, category: cat, session: true });
+  if (ok) ctx.session.add(cat);
+  return ok;
+}
+const PLUGIN_WEB_MAX = 2 * 1024 * 1024;
+/** What a plugin program may reach: the web (public addresses only, unless private fetch is allowed) and connector tools via the normal path. */
+function pluginHooks(ctx) {
+  return {
+    signal: ctx.signal,
+    names: ctx.mcp ? ctx.mcp.definitions().map((d) => d.function.name) : [],
+    call: (n, a) => run(n, a, ctx),
+    web: (url, o) => pluginWebFetch(url, o, { signal: ctx.signal, allowPrivate: ctx.allowPrivateFetch })
+  };
+}
+
+/** web() for plugin programs and plugin windows: http(s) only, public addresses unless allowed, 20 s, 2 MB. */
+async function pluginWebFetch(url, o = {}, { signal, allowPrivate = false } = {}) {
+  const u = new URL(String(url));
+  if (!/^https?:$/.test(u.protocol)) throw new Error('web() supports http and https only');
+  if (!allowPrivate) await web.assertPublic(u.hostname);
+  const ac = new AbortController(); const t = setTimeout(() => ac.abort(), 20000);
+  const stop = () => ac.abort(); if (signal) signal.addEventListener('abort', stop);
+  try {
+    const body = o.body == null ? undefined : typeof o.body === 'string' ? o.body : JSON.stringify(o.body);
+    const res = await fetch(u, { method: String(o.method || 'GET').toUpperCase(), headers: o.headers || (body && typeof o.body !== 'string' ? { 'content-type': 'application/json' } : undefined), body, signal: ac.signal, redirect: 'follow' });
+    const buf = Buffer.from(await res.arrayBuffer());
+    const headers = {}; res.headers.forEach((v, k) => { headers[k] = v; });
+    return { status: res.status, ok: res.ok, headers, url: res.url, text: buf.subarray(0, PLUGIN_WEB_MAX).toString('utf8') };
+  } finally { clearTimeout(t); if (signal) signal.removeEventListener('abort', stop); }
+}
+
 async function run(name, args, ctx) {
   const resolveSafe = (r, p) => (ctx && ctx.fullAccess ? openPath(r, p) : resolveStrict(r, p));
   if (WRITE_TOOLS.has(name) && ctx && ctx.root) {
@@ -877,6 +944,14 @@ async function runTool(name, args, ctx) {
         if (!ok) return { ok: true, denied: true, text: 'The user declined this action. Ask what they want before continuing.' };
         ctx.session.add(cat);
       }
+    }
+    if (name.startsWith('plugin__')) {
+      if (!ctx.plugins) throw new Error('Plugins are not available here (they are off in Settings, or this is a helper agent).');
+      const hit = ctx.plugins.find(name);
+      if (!hit) throw new Error(`Plugin tool not found or switched off: ${name}. Use plugin_manager list.`);
+      const okd = await pluginGate(ctx, hit.plugin, { name, args });
+      if (!okd) return { ok: true, denied: true, text: 'The user declined this plugin. Ask what they want before continuing.' };
+      return await ctx.plugins.run(name, args, pluginHooks(ctx));
     }
     if (name.startsWith('browser_')) {
       if (!ctx.browser) throw new Error('The integrated browser is not available here (it is off in Settings, or this is a scheduled, phone or helper-agent run).');
@@ -1001,6 +1076,7 @@ async function runTool(name, args, ctx) {
           if (out.switched) note = ' — saved as UTF-8: the text has characters windows-1254 cannot store';
           else if (enc && (enc.encoding !== 'utf8' || enc.bom)) note = ` (kept ${enc.encoding}${enc.bom ? ' with BOM' : ''})`;
         }
+        if (!args.append) { const card = deliverables.autoCard(abs); if (card) ctx.send?.({ type: 'files', items: [card], auto: true }); }
         return { ok: true, text: `${args.append ? 'Appended to' : existed ? 'Overwritten' : 'Created'}: ${rel(root, abs)} (${Buffer.byteLength(args.content)} bytes)${note}` };
       }
       case 'edit_file': {
@@ -1030,7 +1106,40 @@ async function runTool(name, args, ctx) {
       case 'write_spreadsheet': {
         const abs = resolveSafe(root, args.path);
         const r = files.writeSpreadsheet(abs, args.sheets);
+        { const card = deliverables.autoCard(abs); if (card) ctx.send?.({ type: 'files', items: [card], auto: true }); }
         return { ok: true, text: `Spreadsheet written: ${rel(root, abs)} (${r.sheets} sheets)` };
+      }
+      case 'create_document': {
+        const abs = resolveSafe(root, args.path);
+        const ext = path.extname(abs).toLowerCase();
+        const md = String(args.markdown || '');
+        if (!md.trim()) throw new Error('markdown is empty');
+        fs.mkdirSync(path.dirname(abs), { recursive: true });
+        if (ext === '.md' || ext === '.markdown') fs.writeFileSync(abs, md.endsWith('\n') ? md : md + '\n');
+        else if (ext === '.docx' || ext === '.pdf') {
+          const doc = require('./doc-model').mdToDoc(md);
+          const local = (src) => path.resolve(path.dirname(abs), String(src).replace(/^file:\/\//i, ''));
+          const readLocal = (src) => { const p = realish(local(src)); if (isSensitive(p, ctx)) return null; return fs.readFileSync(p); };
+          let buf;
+          if (ext === '.docx') buf = await require('./docx-write').docxFromDoc(doc, { readLocal, title: args.title || path.basename(abs, ext) });
+          else {
+            if (!ctx.printPdf) throw new Error('PDF export is not available here; make a .docx instead.');
+            const imgSrc = (src) => (/^(https?:|data:)/i.test(src) ? src : require('url').pathToFileURL(local(src)).href);
+            buf = await ctx.printPdf(require('./doc-model').docToHtml(doc, { title: args.title || path.basename(abs, ext), imgSrc }));
+          }
+          fs.writeFileSync(abs, buf);
+        } else throw new Error('Use a .docx, .pdf or .md file name.');
+        { const card = deliverables.autoCard(abs); if (card) ctx.send?.({ type: 'files', items: [card], auto: true }); }
+        return { ok: true, text: `Document written: ${rel(root, abs)}` };
+      }
+      case 'create_diagram': {
+        let abs = resolveSafe(root, args.path);
+        if (!/\.excalidraw$/i.test(abs)) abs = abs.replace(/\.[^./\\]*$/, '') + '.excalidraw';
+        const scene = require('./diagram').buildDiagram(args);
+        fs.mkdirSync(path.dirname(abs), { recursive: true });
+        fs.writeFileSync(abs, JSON.stringify(scene, null, 1));
+        { const card = deliverables.autoCard(abs); if (card) ctx.send?.({ type: 'files', items: [card], auto: true }); }
+        return { ok: true, text: `Diagram written: ${rel(root, abs)} (${(args.nodes || []).length} shapes, ${(args.edges || []).length} arrows). It opens as an editable whiteboard.` };
       }
       case 'update_cells': {
         const abs = resolveSafe(root, args.path);
@@ -1180,6 +1289,41 @@ async function runTool(name, args, ctx) {
         const head = fresh.length ? `Switched on: ${fresh.join(', ')}. Their tools are available now.` : `Already switched on: ${ok.join(', ')}. Do not call use_tools again, use those tools now.`;
         return { ok: true, text: head + (bad.length ? ` Not available: ${notAvail}. Do not ask for these again; carry on without them and tell the user.` : '') };
       }
+      case 'plugin_manager': {
+        if (!ctx.plugins) throw new Error('Plugins are not available here.');
+        const pl = ctx.plugins, act = String(args.action || '');
+        const show = (p) => `${p.name} (${p.slug}) ${p.ok ? (p.enabled ? 'on' : 'off') : 'BROKEN: ' + p.error} — ${p.description || ''}` + (p.ok ? `\n  tools: ${p.tools.map((t) => 'plugin__' + p.slug.replace(/-/g, '_') + '__' + t.name).join(', ') || '-'}; panels: ${p.panels.map((x) => x.title).join(', ') || '-'}` : '');
+        if (act === 'list') { const l = pl.list(); return { ok: true, text: l.length ? l.map(show).join('\n') : 'No plugins yet. Folder: ' + pl.dir }; }
+        if (act === 'get') { const p = pl.get(args.name); if (!p) throw new Error('No plugin called ' + args.name); return { ok: true, text: show(p) + '\n\n' + Object.entries(p.files).map(([k, v]) => `--- ${k}\n${v}`).join('\n\n') }; }
+        if (act === 'test') {
+          const p = pl.get(args.name); if (!p || !p.ok) throw new Error('No working plugin called ' + args.name);
+          const full = require('./plugins').fullName(p.slug, args.tool || (p.tools[0] && p.tools[0].name) || '');
+          const r = await pl.run(full, args.args || {}, pluginHooks(ctx));
+          return { ok: true, text: (r.ok ? 'Tool ran. Output:\n' : 'Tool FAILED. Fix it and save again:\n') + r.text };
+        }
+        if (!ctx.autoApprove) {
+          const ok = await ctx.approve({ name, args: { action: act, name: args.name || (args.manifest && args.manifest.name) }, summary: summarize(name, args) });
+          if (!ok) return { ok: true, denied: true, text: 'The user declined this plugin change.' };
+        }
+        if (act === 'save') {
+          const r = pl.save({ manifest: args.manifest, files: args.files || {}, replace: !!args.replace });
+          ctx.send?.({ type: 'files', items: [{ kind: 'plugin', path: r.root, name: r.manifest.name, slug: r.slug, description: r.manifest.description, tools: r.manifest.tools.length, panels: r.manifest.panels.length }] }); // a card with Open in the chat
+          return { ok: true, text: `Saved plugin "${r.manifest.name}" in ${r.root}. Tools: ${r.manifest.tools.map((t) => require('./plugins').fullName(r.slug, t.name)).join(', ') || 'none'}; panels: ${r.manifest.panels.map((x) => x.title).join(', ') || 'none'}. Test each tool with action "test" now. The user opens it from the card in the chat or Artifacts → Plugins; it runs in its own window.` };
+        }
+        const p = pl.list().find((x) => x.slug === require('./plugins').slugOf(args.name) || String(x.name).toLowerCase() === String(args.name || '').toLowerCase());
+        if (!p) throw new Error('No plugin called ' + args.name);
+        if (act === 'remove') { pl.remove(p.slug); return { ok: true, text: `Removed ${p.name}.` }; }
+        if (act === 'enable' || act === 'disable') { pl.setEnabled(p.slug, act === 'enable'); return { ok: true, text: `${p.name} is ${act === 'enable' ? 'on' : 'off'}.` }; }
+        throw new Error('Unknown action: ' + act);
+      }
+      case 'connector_tools': {
+        return { ok: true, text: require('./code-mode').describeTools(codeDefs(ctx), { query: args.query, limit: 40 }) };
+      }
+      case 'run_code': {
+        const names = codeDefs(ctx).map((d) => d.function.name);
+        // every call takes the normal path (approvals, read-only vs write, locks), never a shortcut
+        return await require('./code-mode').runCode(args.code, { names, signal: ctx.signal, call: (n, a) => run(n.startsWith('artemis__') ? n.slice(9) : n, a, ctx) });
+      }
       case 'use_connector': {
         if (!ctx.mcp || !ctx.mcp.resolveSlug) throw new Error('Connectors are not available here.');
         const slug = ctx.mcp.resolveSlug(args.name);
@@ -1217,6 +1361,11 @@ async function runTool(name, args, ctx) {
         if (r && r.ok && acts.includes('record_screen_start')) { const m = /Recording the screen to (.+?)(?: \(|\. )/.exec(r.text || ''); ctx.send?.({ type: 'notice', text: `Screen recording started${m ? ': ' + m[1] : ''}. Cmd+Shift+Esc stops it.` }); }
         if (r && r.ok && acts.includes('record_screen_stop')) ctx.send?.({ type: 'notice', text: 'Screen recording stopped.' });
         return r;
+      }
+      case 'present_files': {
+        const items = deliverables.resolveForPresent(args.files, ctx, { resolveSafe, isSensitive: (r) => isSensitive(r, ctx) });
+        ctx.send?.({ type: 'files', items });
+        return { ok: true, text: `Shown to the user as file cards: ${items.map((i) => i.name).join(', ')}. Do not repeat their content in the reply.` };
       }
       case 'create_artifact': {
         const type = ['html', 'svg', 'markdown', 'code', 'spreadsheet'].includes(args.type) ? args.type : 'markdown';
@@ -1562,4 +1711,4 @@ async function runTool(name, args, ctx) {
   }
 }
 
-module.exports = { definitions, normQuestions, run, clip, modelId, resolveSafe, WRITE_TOOLS, SESSION_TOOLS, jobsOf, withLocks, lockKey, walk, browserApproval, summarize };
+module.exports = { pluginWebFetch, definitions, normQuestions, run, clip, modelId, resolveSafe, isSensitive, WRITE_TOOLS, SESSION_TOOLS, jobsOf, withLocks, lockKey, walk, browserApproval, summarize };
