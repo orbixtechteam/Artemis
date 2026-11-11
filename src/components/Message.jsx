@@ -1,4 +1,5 @@
 import React, { memo, useEffect, useRef, useState } from 'react';
+import { canResume } from '../lib/resume.mjs';
 import Markdown from './Markdown.jsx';
 import ToolCard, { ToolGroup, groupToolCalls } from './ToolCard.jsx';
 import ErrorBoundary from './ErrorBoundary.jsx';
@@ -175,8 +176,9 @@ export function ThinkBlock({ text, live, ms, start }) {
 }
 
 /** A failed answer: what happened in plain words, the raw text on demand, and the action that fixes it. */
-function ErrorCard({ text, onAction }) {
-  const c = classifyError(text);
+function ErrorCard({ text, onAction, resumable = false }) {
+  const c0 = classifyError(text);
+  const c = resumable && c0.action === 'retry' ? { ...c0, label: 'Continue', hint: (c0.hint ? c0.hint + ' ' : '') + 'The steps already done are kept.' } : c0;
   const raw = String(text || '');
   return (
     <div className={`error-card ${c.kind}`} role="alert">
@@ -224,7 +226,7 @@ function MessageView({ m, live, chatId, h, canDelete = true, artifacts }) {
   const waiting = live && !lastParts.text && !(lastParts.thinking && thinkMode() !== 'hidden') && !toolBusy;
   const onAction = (a) => {
     if (!h) return;
-    if (a === 'retry') h.regenerate && h.regenerate(chatId, m);
+    if (a === 'retry') { if (canResume(m) && h.resume) h.resume(chatId, m); else if (h.regenerate) h.regenerate(chatId, m); }
     else if (a === 'compact') h.compact && h.compact(chatId);
     else if (a === 'providers') h.openSettings && h.openSettings('providers');
   };
@@ -246,7 +248,7 @@ function MessageView({ m, live, chatId, h, canDelete = true, artifacts }) {
       ))}
       {waiting && <Thinking since={m.createdAt} />}
       {m.notices?.map((n, i) => <div key={i} className="notice">{n}</div>)}
-      {m.error && <ErrorCard text={m.error} onAction={live ? undefined : onAction} />}
+      {m.error && <ErrorCard text={m.error} onAction={live ? undefined : onAction} resumable={canResume(m)} />}
       {!live && (
         <div className="actions">
           <CopyButton getText={() => stripFences(assistantText(m))} />
