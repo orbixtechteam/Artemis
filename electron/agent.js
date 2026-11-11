@@ -289,8 +289,24 @@ const LOCAL_STALL_MS = 600000; // a local server may first have to load the mode
 const stallFor = (url) => (/^https?:\/\/(localhost|127\.|0\.0\.0\.0|\[::1\]|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/i.test(String(url || '')) ? LOCAL_STALL_MS : STALL_MS);
 const CTX_ERR = /context.length|context_length|maximum context|context window|prompt is too long|too long|too many tokens/i;
 
+// Errors worth waiting out: rate limits, overloaded or restarting servers, gateways (Cloudflare 52x), Anthropic's 529.
+const TRANSIENT_STATUS = new Set([408, 425, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524, 529]);
+const MAX_ATTEMPTS = 5;
+/** How long to wait before attempt n+1: the server's Retry-After when it gives one (capped), else 1.5 s, 3 s, 6 s, 12 s. */
+function retryDelay(attempt, res) {
+  const ra = res && res.headers && res.headers.get && res.headers.get('retry-after');
+  const sec = ra && /^\d+(\.\d+)?$/.test(ra) ? Number(ra) : ra ? (Date.parse(ra) - Date.now()) / 1000 : NaN;
+  if (Number.isFinite(sec) && sec >= 0) return Math.min(30000, Math.max(500, sec * 1000));
+  return Math.min(12000, 1500 * 2 ** attempt);
+}
+const sleepFor = (ms, signal) => new Promise((resolve, reject) => {
+  const t = setTimeout(resolve, ms);
+  if (signal) signal.addEventListener('abort', () => { clearTimeout(t); reject(Object.assign(new Error('aborted'), { name: 'AbortError' })); }, { once: true });
+});
+
 async function streamOnce({ url, key, body, signal, send, strip, stallMs = STALL_MS }) {
-  // A dropped connection ("fetch failed") is retried twice before giving up; the real cause (DNS, reset, timeout) goes into the message.
+  // A dropped connection and a transient server error (429, 5xx, 529 overloaded) are retried with backoff before giving
+  // up, so a short outage does not end the run; the real cause goes into the message when it does.
   let res;
   for (let attempt = 0; ; attempt++) {
     try {
@@ -300,15 +316,22 @@ async function streamOnce({ url, key, body, signal, send, strip, stallMs = STALL
         body: JSON.stringify(body),
         signal
       });
-      break;
     } catch (e) {
       if (signal?.aborted || e?.name === 'AbortError') throw e;
-      if (attempt < 2) { await new Promise((r) => setTimeout(r, 1500 * (attempt + 1))); if (signal?.aborted) throw e; continue; }
+      if (attempt < MAX_ATTEMPTS - 1) { if (send && attempt >= 1) send({ type: 'notice', text: 'Connection lost, retrying…' }); await sleepFor(retryDelay(attempt), signal); continue; }
       let host = ''; try { host = new URL(url).host; } catch {}
       const c = e?.cause;
       const why = c ? [c.code, c.message].filter(Boolean).join(' ') : '';
       throw new Error(`Could not reach ${host || 'the provider'}${why ? ` (${why})` : ''}. Check your internet/VPN and the provider's base URL.`);
     }
+    if (!res.ok && TRANSIENT_STATUS.has(res.status) && attempt < MAX_ATTEMPTS - 1) {
+      const wait = retryDelay(attempt, res);
+      try { await res.body?.cancel(); } catch {}
+      if (send && attempt >= 1) send({ type: 'notice', text: `The provider is busy (HTTP ${res.status}), retrying…` });
+      await sleepFor(wait, signal);
+      continue;
+    }
+    break;
   }
   if (!res.ok) {
     let msg = `HTTP ${res.status}`;

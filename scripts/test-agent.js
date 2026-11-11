@@ -53,6 +53,10 @@ const delta = (d, finish = null) => ({ choices: [{ delta: d, finish_reason: fini
         if (n > 46) return sse(res, [delta({ content: 'steps done' }, 'stop')]);
         return sse(res, [delta({ tool_calls: [{ index: 0, id: 'w' + n, function: { name: 'write_file', arguments: JSON.stringify({ path: 'steps.txt', content: 'x' + n }) } }] }), delta({}, 'tool_calls')]);
       }
+      if (mode === 'busy') { // overloaded twice (with Retry-After: 0), then answers
+        if (n <= 2) { res.writeHead(n === 1 ? 529 : 503, { 'content-type': 'application/json', 'retry-after': '0' }); return res.end(JSON.stringify({ error: { message: 'Overloaded' } })); }
+        return sse(res, [delta({ content: 'after retry' }, 'stop')]);
+      }
       if (mode === 'readsteps' || mode === 'wrap') { // analysis only (fresh reads, never a write); 'wrap' answers only when told it is the last step
         const last = JSON.stringify(b.messages[b.messages.length - 1] || {});
         if (mode === 'wrap' && /last step of this run/.test(last)) return sse(res, [delta({ content: 'final summary' }, 'stop')]);
@@ -304,6 +308,11 @@ const delta = (d, finish = null) => ({ choices: [{ delta: d, finish_reason: fini
   assert(!events.some((e) => e.type === 'notice' && /summarized/.test(e.text)), 'no summary while the context has room');
   assert(requests.length > 40, 'carried on past 40 steps');
   assert.strictEqual(events.filter((e) => e.type === 'chunk').map((e) => e.text).join(''), 'steps done');
+  // 3b-5b) a busy provider (529 / 503) is waited out instead of failing the run
+  mode = 'busy'; requests.length = 0; events.length = 0;
+  await runAgent({ ...base, messages: [{ role: 'user', content: 'hi' }] });
+  assert.strictEqual(events.filter((e) => e.type === 'chunk').map((e) => e.text).join(''), 'after retry');
+  assert.ok(!events.some((e) => e.type === 'error'), 'no error shown');
   // 3b-6) an analysis that never writes but keeps doing new work also gets more steps (it used to stop at 40)
   mode = 'readsteps'; requests.length = 0; events.length = 0;
   await runAgent({ ...base, messages: [{ role: 'user', content: 'analyse' }] });
