@@ -129,7 +129,7 @@ const RUN_CODE_DEF = {
   type: 'function',
   function: {
     name: 'run_code',
-    description: 'Runs a short JavaScript program (async; top-level await works) that uses Artemis\'s tools and the connectors. Call a tool with '
+    description: 'Runs a short JavaScript program (JavaScript, not Python: use arr.length, JSON.parse, for...of; async, top-level await works) that uses Artemis\'s tools and the connectors. Call a tool with '
       + '`await tools.artemis.<tool>({...args})` (files, documents, diagrams, spreadsheets, web, notes) or `await tools.<server>.<tool>({...args})` (connectors): '
       + 'it returns parsed JSON when the tool answers JSON, else its text, and throws on errors. '
       + 'Only what you console.log or return comes back to you, so filter, join and summarise inside the program instead of printing raw listings. '
@@ -147,11 +147,11 @@ const CONNECTOR_TOOLS_DEF = {
 };
 const PROMPT = 'Code mode is on. When a task needs more than one tool call (reading several files, turning data into a file, '
   + 'calling connectors, looping over items), do it in ONE run_code program: tools.artemis.* for files, documents (create_document), '
-  + 'diagrams (create_diagram), spreadsheets and the web, tools.<server>.* for connectors. Look up exact names and arguments with connector_tools. '
+  + 'diagrams (create_diagram), spreadsheets, shell commands (run_command, still asks first) and the web, tools.<server>.* for connectors. Look up exact names and arguments with connector_tools. '
   + 'Keep data inside the program and print only a short result. Single quick reads may still use the normal tools. Never write Python or shell '
   + 'scripts to generate documents, PDFs, spreadsheets or diagrams.';
 /** Artemis tools a program may call as tools.artemis.<name> (approvals still apply to each call). */
-const ARTEMIS_IN_CODE = new Set(['read_file', 'list_dir', 'search_files', 'write_file', 'edit_file', 'write_spreadsheet', 'update_cells', 'create_document', 'create_diagram',
+const ARTEMIS_IN_CODE = new Set(['read_file', 'list_dir', 'search_files', 'write_file', 'edit_file', 'write_spreadsheet', 'update_cells', 'create_document', 'create_diagram', 'run_command',
   'create_folder', 'move_file', 'web_search', 'web_fetch', 'library_list', 'library_search', 'library_read', 'notes_list', 'notes_search', 'notes_read', 'memory_search']);
 
 module.exports = { runCode, describeTools, sigOf, RUN_CODE_DEF, CONNECTOR_TOOLS_DEF, PROMPT, MAX_CALLS, ARTEMIS_IN_CODE };
