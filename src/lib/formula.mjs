@@ -7,6 +7,19 @@ class Err { constructor(code) { this.code = code; } toString() { return this.cod
 export const isErr = (v) => v instanceof Err;
 const E = (c) => new Err(c);
 
+const ALL = 1048575; // whole column / row ranges (D:D, 2:2) end here; evaluation clamps to the data that exists
+
+/** A cell (B3), whole-column range (D:D, A:C) or whole-row range (2:5) at the start of s, or null. */
+function readRef(s, sheet) {
+  let m = /^\$?([A-Za-z]{1,3}):\$?([A-Za-z]{1,3})(?![A-Za-z0-9_(!])/.exec(s);
+  if (m) { const a = colIndex(m[1]), b = colIndex(m[2]); return { len: m[0].length, tok: { k: 'range', sheet, r1: 0, r2: ALL, c1: Math.min(a, b), c2: Math.max(a, b) } }; }
+  m = /^\$?(\d+):\$?(\d+)(?![0-9A-Za-z.])/.exec(s);
+  if (m && +m[1] > 0 && +m[2] > 0) { const a = +m[1] - 1, b = +m[2] - 1; return { len: m[0].length, tok: { k: 'range', sheet, r1: Math.min(a, b), r2: Math.max(a, b), c1: 0, c2: ALL } }; }
+  m = /^\$?([A-Za-z]{1,3})\$?(\d+)(?![A-Za-z0-9_(!])/.exec(s);
+  if (m) return { len: m[0].length, tok: { k: 'ref', sheet, c: colIndex(m[1]), r: +m[2] - 1 } };
+  return null;
+}
+
 function tokenize(src) {
   const t = []; let i = 0;
   while (i < src.length) {
@@ -14,14 +27,15 @@ function tokenize(src) {
     if (/\s/.test(ch)) { i++; continue; }
     if (ch === '"') { let j = i + 1, s = ''; while (j < src.length && !(src[j] === '"' && src[j + 1] !== '"')) { if (src[j] === '"') { s += '"'; j += 2; } else s += src[j++]; } t.push({ k: 'str', v: s }); i = j + 1; continue; }
     if (/[0-9.]/.test(ch)) { const m = /^(\d+\.?\d*|\.\d+)(e[+-]?\d+)?/i.exec(src.slice(i)); if (!m) throw E('#VALUE!'); t.push({ k: 'num', v: parseFloat(m[0]) }); i += m[0].length; continue; }
-    if (ch === "'") { const j = src.indexOf("'", i + 1); if (j < 0) throw E('#REF!'); const name = src.slice(i + 1, j); i = j + 1; if (src[i] === '!') { i++; const m = /^\$?([A-Za-z]{1,3})\$?(\d+)/.exec(src.slice(i)); if (!m) throw E('#REF!'); t.push({ k: 'ref', sheet: name, c: colIndex(m[1]), r: +m[2] - 1 }); i += m[0].length; continue; } throw E('#NAME?'); }
+    if (ch === "'") { const j = src.indexOf("'", i + 1); if (j < 0) throw E('#REF!'); const name = src.slice(i + 1, j); i = j + 1; if (src[i] === '!') { i++; const x = readRef(src.slice(i), name); if (!x) throw E('#REF!'); t.push(x.tok); i += x.len; continue; } throw E('#NAME?'); }
+    if (/[0-9$A-Za-z]/.test(ch) && (t.length === 0 || t[t.length - 1].k === 'op')) { const x = readRef(src.slice(i)); if (x && (x.tok.k === 'range' || /[A-Za-z$]/.test(ch))) { t.push(x.tok); i += x.len; continue; } }
     if (/[A-Za-z_$]/.test(ch)) {
-      const m = /^(\$?[A-Za-z]{1,3}\$?\d+)(?![A-Za-z0-9_(])/.exec(src.slice(i));
+      const m = /^(\$?[A-Za-z]{1,3}\$?\d+)(?![A-Za-z0-9_(!])/.exec(src.slice(i));
       if (m) { const mm = /^\$?([A-Za-z]{1,3})\$?(\d+)$/.exec(m[1]); t.push({ k: 'ref', c: colIndex(mm[1]), r: +mm[2] - 1 }); i += m[0].length; continue; }
       const w = /^[A-Za-z_][A-Za-z0-9_.]*/.exec(src.slice(i));
       if (!w) throw E('#NAME?');
       i += w[0].length;
-      if (src[i] === '!') { i++; const m2 = /^\$?([A-Za-z]{1,3})\$?(\d+)/.exec(src.slice(i)); if (!m2) throw E('#REF!'); t.push({ k: 'ref', sheet: w[0], c: colIndex(m2[1]), r: +m2[2] - 1 }); i += m2[0].length; continue; }
+      if (src[i] === '!') { i++; const x = readRef(src.slice(i), w[0]); if (!x) throw E('#REF!'); t.push(x.tok); i += x.len; continue; }
       t.push({ k: src[i] === '(' ? 'fn' : 'name', v: w[0].toUpperCase() }); continue;
     }
     const two = src.slice(i, i + 2);
@@ -49,6 +63,7 @@ function parse(tokens) {
     if (!tk) throw E('#VALUE!');
     if (tk.k === 'num') return { t: 'num', v: tk.v };
     if (tk.k === 'str') return { t: 'str', v: tk.v };
+    if (tk.k === 'range') return { t: 'range', sheet: tk.sheet, r1: tk.r1, c1: tk.c1, r2: tk.r2, c2: tk.c2 };
     if (tk.k === 'ref') {
       if (isOp(':')) { next(); const b = next(); if (!b || b.k !== 'ref') throw E('#REF!'); return { t: 'range', sheet: tk.sheet, r1: Math.min(tk.r, b.r), c1: Math.min(tk.c, b.c), r2: Math.max(tk.r, b.r), c2: Math.max(tk.c, b.c) }; }
       return { t: 'ref', sheet: tk.sheet, r: tk.r, c: tk.c };
@@ -234,7 +249,11 @@ export function createEvaluator(sheets) {
       case 'ref': { const s = n.sheet ? byName(n.sheet) : si; return cellValue(s, n.r, n.c); }
       case 'range': {
         const s = n.sheet ? byName(n.sheet) : si; const values = [];
-        for (let r = n.r1; r <= n.r2; r++) for (let c = n.c1; c <= n.c2; c++) values.push(cellValue(s, r, c));
+        const rows = sheets[s].rows;
+        const r2 = n.r2 >= ALL ? rows.length - 1 : n.r2; // a whole column covers the rows that exist
+        let c2 = n.c2;
+        if (c2 >= ALL) { c2 = -1; for (let r = n.r1; r <= Math.min(r2, rows.length - 1); r++) if (rows[r] && rows[r].length - 1 > c2) c2 = rows[r].length - 1; }
+        for (let r = n.r1; r <= r2; r++) for (let c = n.c1; c <= c2; c++) values.push(cellValue(s, r, c));
         return { __range: true, values };
       }
       case 'neg': return -num(evalAst(n.e, si));

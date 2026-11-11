@@ -30,8 +30,11 @@ export function viewKind(a) {
   const ext = extOf(a.name);
   if (ext === 'csv' || ext === 'tsv' || ext === 'tab') return 'table';
   if (ext === 'md' || ext === 'markdown') return 'markdown';
+  if (ext === 'excalidraw' && a.path) return 'board';                 // whiteboard (board/BoardView.jsx)
   if (ext === 'html' || ext === 'htm') return 'html';
   if (ext === 'svg') return 'svg';
+  if ((a.kind === 'pdf' || ext === 'pdf') && a.path) return 'pdf';     // page view (viewers/PdfView.jsx)
+  if ((a.kind === 'docx' || ext === 'docx') && a.path) return 'docx';  // document view (viewers/DocxView.jsx)
   if (a.kind === 'binary' || a.kind === 'archive' || a.kind === 'pdf' || a.kind === 'docx' || a.kind === 'pptx') return 'text';
   return 'code';
 }

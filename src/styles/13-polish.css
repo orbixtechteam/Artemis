@@ -10,9 +10,7 @@
 .md code { font: .87em/1.5 var(--font-mono); }
 .md pre code, .codeblock code { font: inherit; }
 .bubble { font-size: var(--fs-body); line-height: 1.55; letter-spacing: -.008em; border-radius: 20px; padding: 9px 16px; }
-/* long chats: skip layout and paint of messages far off screen (the last one always renders, so following the end stays exact) */
-.messages > .msg { content-visibility: auto; contain-intrinsic-size: auto 400px; }
-.messages > .msg:last-child, .messages > .msg.live { content-visibility: visible; contain-intrinsic-size: none; }
+/* messages stay fully laid out: guessed heights (content-visibility) moved the list under a reader scrolling up */
 
 /* ---- syntax colours (theme aware: the variables switch between a light and a dark palette in 01-base.css) ---- */
 .codeblock .hljs, .md pre code.hljs { background: transparent; color: var(--code-fg); padding: 0; }

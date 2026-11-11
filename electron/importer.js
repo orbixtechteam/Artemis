@@ -45,18 +45,58 @@ function fromChatGPT(conv) {
   return { key: 'chatgpt:' + (conv.conversation_id || conv.id || conv.title), title: conv.title, model: conv.default_model_slug, updated: conv.update_time || conv.create_time, messages };
 }
 
+/** The messages of the branch the user last saw: from the current leaf back through parent_message_uuid (Claude keeps
+ *  every edit / retry as a branch). Without branch data the list is used as it is. */
+function claudeBranch(conv) {
+  const list = Array.isArray(conv.chat_messages) ? conv.chat_messages : [];
+  if (!list.some((m) => m && m.parent_message_uuid)) return list;
+  const byId = new Map(list.map((m) => [m.uuid, m]));
+  let leaf = conv.current_leaf_message_uuid && byId.get(conv.current_leaf_message_uuid);
+  if (!leaf) { // newest message without children
+    const parents = new Set(list.map((m) => m.parent_message_uuid));
+    leaf = list.filter((m) => !parents.has(m.uuid)).sort((a, b) => ms(b.created_at) - ms(a.created_at))[0];
+  }
+  const out = [], seen = new Set();
+  for (let m = leaf; m && !seen.has(m.uuid); m = byId.get(m.parent_message_uuid)) { seen.add(m.uuid); out.push(m); }
+  return out.reverse();
+}
+
+/** Files attached to a Claude message: their extracted text comes along as attachments; files without text keep a note. */
+function claudeAttachments(m) {
+  const out = [], names = new Set();
+  for (const a of [...(m.attachments || []), ...(m.files || []), ...(m.files_v2 || [])]) {
+    if (!a || typeof a !== 'object') continue;
+    const name = String(a.file_name || a.name || 'attachment').slice(0, 120);
+    if (names.has(name)) continue;
+    names.add(name);
+    const text = typeof a.extracted_content === 'string' ? a.extracted_content : '';
+    if (text.trim()) out.push({ kind: 'text', name, text: text.slice(0, 200000), truncated: text.length > 200000 });
+    else if (a.file_kind === 'image' || /\.(png|jpe?g|gif|webp)$/i.test(name)) out.push({ kind: 'note', name, text: null, missing: true });
+  }
+  return out;
+}
+
 function fromClaude(conv) {
   const messages = [];
-  for (const m of conv.chat_messages || []) {
+  for (const m of claudeBranch(conv)) {
+    if (!m || typeof m !== 'object') continue;
     let text = '';
-    if (Array.isArray(m.content) && m.content.length) text = m.content.filter((c) => c.type === 'text' && c.text).map((c) => c.text).join('\n\n');
+    if (Array.isArray(m.content) && m.content.length) text = m.content.filter((c) => c && c.type === 'text' && c.text).map((c) => c.text).join('\n\n');
     if (!text) text = m.text || '';
     text = text.trim();
-    if (!text) continue;
+    const atts = m.sender === 'human' ? claudeAttachments(m) : [];
+    if (!text && !atts.length) continue;
     const t = ms(m.created_at);
-    messages.push(m.sender === 'human' ? user(text, t) : asst(text, t));
+    if (m.sender === 'human') {
+      const missing = atts.filter((a) => a.missing).map((a) => a.name);
+      const msg = user(text + (missing.length ? `${text ? '\n\n' : ''}[attached in Claude: ${missing.join(', ')}]` : ''), t);
+      const kept = atts.filter((a) => !a.missing);
+      if (kept.length) msg.attachments = kept;
+      messages.push(msg);
+    } else messages.push(asst(text, t));
   }
-  return { key: 'claude:' + conv.uuid, title: conv.name, messages, updated: conv.updated_at || conv.created_at };
+  const project = conv.project_uuid || (conv.project && conv.project.uuid) || conv.project_id || '';
+  return { key: 'claude:' + conv.uuid, title: conv.name, messages, updated: conv.updated_at || conv.created_at, project: project ? 'claude-project:' + project : '', model: conv.model || '' };
 }
 
 /** Takes the parsed JSON of a conversations file; returns chats in the app's format. */
@@ -74,7 +114,7 @@ function convert(list, fallbackModel) {
     chats.push({
       id: uid(), importKey: r.key, imported: r.key.split(':')[0],
       title: String(r.title || r.messages[0].content || 'Imported chat').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Imported chat',
-      model: fallbackModel, projectId: null, messages: r.messages, updatedAt: ms(r.updated)
+      model: fallbackModel, projectId: null, ...(r.project ? { projectImportKey: r.project } : {}), messages: r.messages, importedCount: r.messages.length, updatedAt: ms(r.updated)
     });
   }
   if (!chats.length && !source) throw new Error('No ChatGPT or Claude conversations found in this file.');
@@ -129,7 +169,7 @@ async function parseClaudeManifest(manifest, fallbackModel, download = async (ur
   }
   const out = convert(lists, fallbackModel);
   out.projects = normalizeProjects(projectRecords);
-  out.memory = [...new Map(memoryRecords.filter(Boolean).map((text) => [text, { id: uid(), text: text.slice(0, 500), createdAt: Date.now() }])).values()];
+  out.memory = memoryItems(memoryRecords);
   return out;
 }
 
@@ -143,15 +183,32 @@ function collectMemoryRecords(value, out) {
   }
 }
 
-function normalizeProjects(records) {
+/** Claude projects → Artemis projects. docs (the project knowledge) come back as { name, text } for the caller to write
+ *  into the project's folder; memory is the project's memory text, when the export has it. */
+function normalizeProjects(records, projectMemories = {}) {
   const seen = new Set();
   return records.map((p) => {
     const name = String(p.name || p.title || 'Imported project').trim();
     const key = String(p.uuid || p.id || name);
     if (seen.has(key)) return null;
     seen.add(key);
-    return { id: uid(), importKey: 'claude-project:' + key, name, instructions: String(p.instructions || p.description || p.prompt || '').trim(), folder: '' };
+    const instructions = String(p.prompt_template || p.instructions || p.custom_instructions || p.prompt || '').trim();
+    const docs = (Array.isArray(p.docs) ? p.docs : []).map((d) => ({ name: String(d.filename || d.file_name || d.name || 'document.md').replace(/[\\/:*?"<>|]/g, '_').slice(0, 120), text: typeof d.content === 'string' ? d.content : '' })).filter((d) => d.text);
+    return { id: uid(), importKey: 'claude-project:' + key, name, description: String(p.description || '').trim(), instructions, folder: '', docs, memory: typeof projectMemories[key] === 'string' ? projectMemories[key] : '', updatedAt: ms(p.updated_at || p.created_at) };
   }).filter(Boolean);
+}
+
+/** memories.json: [{ conversations_memory: "...", project_memories: { uuid: "..." } }] → { general: [lines], projects: { uuid: text } } */
+function claudeMemories(values) {
+  const general = [], projects = {};
+  for (const v of values) for (const m of Array.isArray(v) ? v : [v]) {
+    if (!m || typeof m !== 'object') continue;
+    if (typeof m.conversations_memory === 'string') {
+      for (const part of m.conversations_memory.split(/\n{2,}|\n(?=[-*•] )/)) { const t = part.replace(/^[-*•]\s*/, '').trim(); if (t.length > 3) general.push(t); }
+    }
+    if (m.project_memories && typeof m.project_memories === 'object') Object.assign(projects, m.project_memories);
+  }
+  return { general, projects };
 }
 
 async function readJsonFiles(buffer) {
@@ -168,17 +225,35 @@ async function readJsonFiles(buffer) {
   return out;
 }
 
+const isProject = (v) => v && typeof v === 'object' && !v.chat_messages && !v.mapping && (v.prompt_template !== undefined || Array.isArray(v.docs)) && (v.name || v.title);
+const isMemory = (v) => v && typeof v === 'object' && (typeof v.conversations_memory === 'string' || (v.project_memories && typeof v.project_memories === 'object'));
+
+/** buffer: an export .zip, a conversations.json (or any of the export's JSON files). */
 async function parseExport(buffer, fallbackModel) {
   let parsed = null;
   try { parsed = JSON.parse(buffer.toString('utf8')); } catch {}
   if (isManifest(parsed)) return parseClaudeManifest(parsed, fallbackModel);
-  const values = await readJsonFiles(buffer);
-  const lists = [];
-  for (const value of values) {
-    if (Array.isArray(value)) lists.push(...value);
-    else if (value && typeof value === 'object') lists.push(value);
-  }
-  return convert(lists, fallbackModel);
+  return fromJsonValues(await readJsonFiles(buffer), fallbackModel);
 }
 
-module.exports = { parseExport, convert, parseClaudeManifest };
+/** All JSON values of an export (zip entries or an unpacked folder) → { source, chats, projects, memory }. */
+function fromJsonValues(values, fallbackModel) {
+  const lists = [], projectRecords = [], memoryValues = [];
+  for (const value of values) {
+    for (const v of Array.isArray(value) ? value : [value]) {
+      if (!v || typeof v !== 'object') continue;
+      if (v.chat_messages || v.mapping) lists.push(v);
+      else if (isProject(v)) projectRecords.push(v);
+      else if (isMemory(v)) memoryValues.push(v);
+    }
+  }
+  const mem = claudeMemories(memoryValues);
+  if (!lists.length && projectRecords.length) return { source: 'Claude', chats: [], projects: normalizeProjects(projectRecords, mem.projects), memory: memoryItems(mem.general) };
+  const out = convert(lists, fallbackModel);
+  out.projects = normalizeProjects(projectRecords, mem.projects);
+  out.memory = memoryItems(mem.general);
+  return out;
+}
+const memoryItems = (texts) => [...new Map(texts.filter(Boolean).map((text) => [text, { id: uid(), text: text.slice(0, 500), createdAt: Date.now() }])).values()];
+
+module.exports = { parseExport, fromJsonValues, convert, parseClaudeManifest, fromClaude, claudeBranch, normalizeProjects };

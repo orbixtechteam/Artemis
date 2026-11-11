@@ -1,5 +1,5 @@
 const { app, BrowserWindow, ipcMain, safeStorage, shell, Menu, nativeTheme, dialog, session, screen, globalShortcut, Notification: NativeNotification, Tray, nativeImage, protocol, systemPreferences, desktopCapturer } = require('electron');
-try { protocol.registerSchemesAsPrivileged([{ scheme: 'artifact', privileges: { standard: true, secure: true } }, { scheme: 'artemis-media', privileges: { standard: true, secure: true, supportFetchAPI: true } }]); } catch {}
+try { protocol.registerSchemesAsPrivileged([{ scheme: 'artifact', privileges: { standard: true, secure: true } }, { scheme: 'artemis-media', privileges: { standard: true, secure: true, supportFetchAPI: true } }, { scheme: 'artemis-file', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }, { scheme: 'artemis-plugin', privileges: { standard: true, secure: true, supportFetchAPI: true } }]); } catch {}
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -176,6 +176,13 @@ const skills = createSkills({
   getDisabled: () => getSettings().disabledSkills || [],
   setDisabled: (list) => saveSettings({ disabledSkills: list }),
   notify: () => { try { win?.webContents.send('skills:changed'); } catch {} }
+});
+const plugins = require('./plugins').createPlugins({
+  dir: path.join(app.getPath('userData'), 'plugins'),
+  dataDir: path.join(app.getPath('userData'), 'plugin-data'),
+  getDisabled: () => getSettings().disabledPlugins || [],
+  setDisabled: (list) => saveSettings({ disabledPlugins: list }),
+  notify: () => { try { win?.webContents.send('plugins:changed'); } catch {} }
 });
 const brains = brainsLib.createBrains({
   userDir: path.join(app.getPath('userData'), 'brains'),
@@ -618,20 +625,63 @@ const logoDir = (folder) => (folder && fs.existsSync(folder) ? path.join(folder,
 
 // ---------- IPC: folders / files ----------
 
+// Claude project knowledge lands in files: <Artemis folder>/Claude Projects/<name>/ (docs + MEMORY.md), set as the project's
+// folder so the assistant reads it with its file tools. Docs travel only this far; the renderer gets counts.
+function materializeProjects(projects) {
+  const base = path.join(defaultFilesDir(), 'Claude Projects');
+  return (projects || []).map((p) => {
+    const { docs = [], memory = '', ...rest } = p;
+    if (!docs.length && !memory) return { ...rest, docCount: 0 };
+    const safe = String(p.name || 'Project').replace(/[\\/:*?"<>|]+/g, '_').replace(/^\.+/, '').trim().slice(0, 80) || 'Project';
+    const dir = path.join(base, safe);
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      for (const d of docs) { const f = path.join(dir, path.basename(d.name)); if (f.startsWith(dir + path.sep)) fs.writeFileSync(f, d.text); }
+      if (memory) fs.writeFileSync(path.join(dir, 'MEMORY.md'), '# Project memory (from Claude)\n\n' + memory + '\n');
+      return { ...rest, folder: dir, docCount: docs.length, instructions: rest.instructions + (memory ? `${rest.instructions ? '\n\n' : ''}What Claude remembered about this project is in MEMORY.md in the project folder.` : '') };
+    } catch (e) { logger.warn('import', 'Could not write project files: ' + e.message); return { ...rest, docCount: 0 }; }
+  });
+}
+// all .json files of an unpacked export folder (two levels deep)
+function readExportFolder(dir, depth = 0, out = []) {
+  for (const d of fs.readdirSync(dir, { withFileTypes: true })) {
+    const f = path.join(dir, d.name);
+    if (d.isDirectory() && depth < 2) readExportFolder(f, depth + 1, out);
+    else if (d.isFile() && /\.json$/i.test(d.name) && fs.statSync(f).size < 1024 * 1024 * 1024) { try { out.push(JSON.parse(fs.readFileSync(f, 'utf8'))); } catch {} }
+  }
+  return out;
+}
+const importResult = (out) => ({ ok: true, source: out.source, chats: out.chats, projects: materializeProjects(out.projects || []), memory: out.memory || [], skipped: out.skipped || 0 });
+
 ipcMain.handle('import:chats', async () => {
   const r = await dialog.showOpenDialog(win, {
-    title: 'Import chats (ChatGPT or Claude export)', properties: ['openFile'],
+    title: 'Import chats (ChatGPT or Claude export: the .zip, a .json, or the unpacked folder)', properties: ['openFile', 'openDirectory'],
     filters: [{ name: 'Chat export', extensions: ['zip', 'json'] }]
   });
   if (r.canceled || !r.filePaths[0]) return { canceled: true };
   try {
-    const st = fs.statSync(r.filePaths[0]);
+    const target = r.filePaths[0];
+    const st = fs.statSync(target);
+    const imp = require('./importer');
+    if (st.isDirectory()) return importResult(imp.fromJsonValues(readExportFolder(target), getSettings().model));
     if (st.size > 1024 * 1024 * 1024) throw new Error('That file is too large.');
-    const { parseExport } = require('./importer');
-    const out = await parseExport(fs.readFileSync(r.filePaths[0]), getSettings().model);
-    return { ok: true, source: out.source, chats: out.chats, projects: out.projects || [], memory: out.memory || [] };
+    return importResult(await imp.parseExport(fs.readFileSync(target), getSettings().model));
   } catch (e) { return { ok: false, error: e.message || String(e) }; }
 });
+// Straight from the user's Claude account, through the claude.ai session in the built-in browser (electron/claude-account.js)
+let accountImport = null;
+ipcMain.handle('import:claude-account', async (e, known) => {
+  if (accountImport) return { ok: false, error: 'An import is already running.' };
+  const ctrl = new AbortController(); accountImport = ctrl;
+  try {
+    const { importClaudeAccount, sessionFetcher } = require('./claude-account');
+    const out = await importClaudeAccount({ fetchJson: sessionFetcher(session.fromPartition('persist:artemis-browser')), known: known && typeof known === 'object' ? known : {}, signal: ctrl.signal, fallbackModel: getSettings().model,
+      onProgress: (p) => { try { e.sender.send('import:progress', p); } catch {} } });
+    return importResult(out);
+  } catch (err) { return { ok: false, error: err.message || String(err), needLogin: !!err.needLogin }; }
+  finally { accountImport = null; }
+});
+ipcMain.handle('import:stop', () => { if (accountImport) accountImport.abort(); return true; });
 ipcMain.handle('dialog:folder', async () => {
   const r = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'] });
   return r.canceled ? null : r.filePaths[0];
@@ -960,16 +1010,24 @@ const make = createMake({ getAuth: () => ({ token: getSecret('makeToken'), zone:
 const makeReady = () => !!getSecret('makeToken');
 
 const mediaDir = () => path.join(app.getPath('userData'), 'media');
+/** Big tool results saved for the model to read back in parts (core/context.js); folders older than 3 days are removed at start. */
+const spillDir = () => path.join(app.getPath('userData'), 'spill');
+setTimeout(() => { try { require('./core/context').cleanSpill(spillDir()); } catch {} }, 20000);
+const linksLib = require('./links');
+/** Protected paths for links and the artemis-file protocol: credentials, browser profiles and the app's data, except generated media. */
+const linkSensitive = (real) => !real.startsWith(mediaDir() + path.sep) && tools.isSensitive(real, { userData: app.getPath('userData') });
 
 /** Image/video generation through the providers picked in Settings → General (imageModel / videoModel = "prov:<provider>:<model>"). null when neither is set, so the tools stay hidden. */
-function mediaApi(settings, signal) {
+/** Where generated images and videos go: <project>/generated, else <Files>/Generated, so they are files the user can find. */
+const generatedDir = (root) => (root ? path.join(root, 'generated') : path.join(library.root(), 'Generated'));
+function mediaApi(settings, signal, outDir = mediaDir()) {
   const route = (id) => { const r = id ? providersLib.resolve(id, readProviders(), getProviderKey) : null; return r && !r.error ? r : null; };
   if (!route(settings.imageModel) && !route(settings.videoModel)) return null;
   const run = (kind, gen) => async (prompt, o = {}) => {
     const id = o.model && /^prov:/.test(o.model) ? o.model : (kind === 'video' ? settings.videoModel : settings.imageModel);
     const r = route(id);
     if (!r) throw new Error(`No ${kind} model is set up. Add a provider and pick a ${kind} model in Settings → General.`);
-    const out = await gen({ baseUrl: r.baseUrl, key: r.key, dir: mediaDir(), signal: o.signal || signal, model: r.model, prompt, size: o.size, duration: o.duration });
+    const out = await gen({ baseUrl: r.baseUrl, key: r.key, dir: outDir, signal: o.signal || signal, model: r.model, prompt, size: o.size, duration: o.duration });
     return { ...out, model: r.model };
   };
   return { image: run('image', mediaGen.generateImage), video: run('video', mediaGen.generateVideo) };
@@ -1269,8 +1327,10 @@ async function executeRun({ requestId, model: model0, messages, project, system,
       library: settings.notesAi !== false ? library : null,
       term: settings.shellEnabled && !restrict && !unattended && !sb && process.platform !== 'win32' ? termApi : null, // the terminal panel is this computer's shell: off while the sandbox is on
       browser: settings.browserTools !== false && !restrict && !unattended ? browser.agent(requestId) : null,
-      phone: phoneNow(), media: mediaApi(settings, controller.signal), mcp: settings.connectorsEnabled === false ? null : sb ? sandboxedMcp() : agentMcp(), mcpLazy: settings.connectorsLazy !== false && !runRoute.cli, fullFileAccess: settings.fullFileAccess !== false, lazyTools: settings.toolsLazy !== false && !runRoute.cli, // the CLI loads tools on demand itself
+      phone: phoneNow(), media: mediaApi(settings, controller.signal, generatedDir(root)), mcp: settings.connectorsEnabled === false ? null : sb ? sandboxedMcp() : agentMcp(), mcpLazy: settings.connectorsLazy !== false && !runRoute.cli, mcpCodeMode: settings.mcpCodeMode === true && !runRoute.cli, fullFileAccess: settings.fullFileAccess !== false, lazyTools: settings.toolsLazy !== false && !runRoute.cli, // the CLI loads tools on demand itself
       skills: settings.skillsEnabled !== false ? { index: () => skills.indexText(root), get: (n) => skills.get(n, root), save: (o) => skills.save(o, root) } : null,
+      plugins: settings.pluginsEnabled !== false && !runRoute.cli ? plugins : null,
+      printPdf,
       autoLearn: settings.autoLearn !== false && !incognito && !unattended,
       chats: settings.chatSearchEnabled !== false && !incognito ? chatsApi() : null,
       delegateEnabled: useAgents,
@@ -1305,9 +1365,9 @@ async function executeRun({ requestId, model: model0, messages, project, system,
         }
       },
       shouldStop: () => limitState().blocked,
-      runTokenBudget: Number(settings.runTokenBudget) || undefined, contextTokens: Number(settings.contextTokens) || undefined,
+      runTokenBudget: Number(settings.runTokenBudget) || undefined, contextTokens: Number(settings.contextTokens) || undefined, spillDir: spillDir(),
       toolsEnabled: toolsMode === 'on' ? true : toolsMode === 'off' ? false : settings.toolsEnabled, memoryEnabled: settings.memoryEnabled && !incognito, incognito: !!incognito,
-      onUsage: incognito ? null : (u) => recordUsage({ t: Date.now(), model: u.model || model, chat: chatId || '', project: project?.name || '', source: source || 'app', prompt: u.prompt, completion: u.completion, cached: u.cached || 0, cacheWrite: u.cacheWrite || 0, estimated: u.estimated }),
+      onUsage: incognito ? null : (u) => recordUsage({ t: Date.now(), model: u.model || model, chat: chatId || '', project: project?.name || '', source: source || 'app', prompt: u.prompt, completion: u.completion, cached: u.cached || 0, cacheWrite: u.cacheWrite || 0, ...(typeof u.usd === 'number' ? { usd: u.usd } : {}), estimated: u.estimated }),
       autoApprove: unattended ? !!allowEdits : perm !== 'ask',
       autoAll: !unattended && perm === 'auto',
       agentAutoApprove: !unattended && (perm === 'auto' || (perm === 'edits' && settings.agentWriteApproval === false)),
@@ -1728,6 +1788,16 @@ ipcMain.handle('phone:send-file', async (_e, p) => {
   if (!p || !fs.existsSync(p) || !fs.statSync(p).isFile()) return { ok: false, error: 'File not found.' };
   try { await phone.sendFile(p, path.basename(p)); return { ok: true }; } catch (e) { return { ok: false, error: e.message }; }
 });
+/** HTML → PDF with Chromium (create_document .pdf). A hidden window with scripts off; local images load from file://. */
+async function printPdf(html) {
+  const tmp = path.join(app.getPath('temp'), `artemis-print-${process.pid}-${Date.now()}.html`);
+  fs.writeFileSync(tmp, html);
+  const w = new BrowserWindow({ show: false, width: 900, height: 1200, webPreferences: { javascript: false, sandbox: true, offscreen: true } });
+  try {
+    await w.loadFile(tmp);
+    return await w.webContents.printToPDF({ pageSize: 'A4', printBackground: true, margins: { marginType: 'none' }, preferCSSPageSize: true });
+  } finally { w.destroy(); fs.rm(tmp, { force: true }, () => {}); }
+}
 function defaultFilesDir() { const docs = app.getPath('documents'); const old = path.join(docs, 'Artemis'); const d = fs.existsSync(old) ? old : path.join(docs, 'Artemis'); try { fs.mkdirSync(d, { recursive: true }); } catch {} return d; }
 
 
@@ -2346,6 +2416,11 @@ app.whenReady().then(() => {
       return new Response(r.buf, { headers: { 'content-type': r.mime, 'cache-control': 'private, max-age=31536000, immutable', 'x-content-type-options': 'nosniff' } });
     });
   } catch {}
+  try {
+    // local media by absolute path (chat links, generated images, the viewer): images, video, audio and PDF only, never protected paths
+    protocol.handle('artemis-file', (req) => linksLib.serve(req, { isSensitive: linkSensitive }));
+    protocol.handle('artemis-plugin', (req) => pluginWindows.serve(req));
+  } catch {}
   if (process.platform === 'darwin' && app.dock) {
     // Indigo icon in light mode, dark icon in dark mode; follows the app theme (nativeTheme.themeSource)
     let dockIconFile = '';
@@ -2561,6 +2636,24 @@ ipcMain.handle('remote:unpair', () => { remote.unpair(); return remote.status();
 
 // ---------- IPC handlers (one module per area, see electron/ipc/) ----------
 // Registered last so every helper they use is initialised; handlers only run later, when the renderer calls them.
+// A plugin window asks once per connector (from its panel or its tools); "Always allow" is remembered per plugin.
+async function approvePluginConnector({ slug, server, serverName }) {
+  const grants = getSettings().pluginConnectors || {};
+  if ((grants[slug] || []).includes(server)) return true;
+  const p = plugins.list().find((x) => x.slug === slug);
+  const parent = BrowserWindow.getFocusedWindow() || win;
+  const r = await dialog.showMessageBox(parent, {
+    type: 'question', buttons: ['Allow once', 'Always allow', 'Deny'], defaultId: 0, cancelId: 2, noLink: true,
+    message: `Let "${(p && p.name) || slug}" use ${serverName || server}?`,
+    detail: 'The plugin can then use all of this connector\'s tools, reading and changing things in that app, like a chat can.'
+  });
+  if (r.response === 1) saveSettings({ pluginConnectors: { ...grants, [slug]: [...new Set([...(grants[slug] || []), server])] } });
+  return r.response === 0 || r.response === 1;
+}
+const pluginWindows = require('./plugin-windows').createPluginWindows({ BrowserWindow, shell, plugins, pluginWebFetch: tools.pluginWebFetch, allowPrivate: () => getSettings().allowPrivateFetch === true, appJs: require('./plugins').APP_JS,
+  mcp: () => (getSettings().connectorsEnabled === false ? null : agentMcp()), approve: approvePluginConnector });
+pluginWindows.registerIpc(ipcMain);
+require('./ipc/plugins')({ ipcMain, app, shell, fs, path, plugins, pluginWindows });
 require('./ipc/skills')({ ipcMain, app, dialog, shell, fs, path, skills, skillRoot, getWin: () => win });
 require('./ipc/themes')({ ipcMain, dialog, shell, fs, path, themes, themeDirs, listThemes, nativeThemeFor, broadcastTheme, getSettings, saveSettings, getWin: () => win });
 require('./ipc/brains')({ ipcMain, brains });
@@ -2590,9 +2683,9 @@ require('./ipc/term')({ ipcMain, BrowserWindow, openTermWindow, termWindows, ter
 require('./ipc/mcpserver')({ ipcMain, mcpServerInfo, saveSettings, setSecret, syncMcpServer });
 require('./ipc/project')({ ipcMain, dialog, fs, logoDir, nativeImage, path, getWin: () => win });
 require('./ipc/profile')({ ipcMain, avatarData, avatarFile, dialog, fs, nativeImage, path, profileDir, shell, getWin: () => win });
-require('./ipc/sheet')({ ipcMain, BrowserWindow, dialog, files });
+require('./ipc/sheet')({ ipcMain, BrowserWindow, dialog, files, sheetMeta: require('./sheet-meta').createSheetMeta({ dir: path.join(app.getPath('userData'), 'sheet-meta') }) });
 require('./ipc/voice')({ ipcMain, getSettings, logger, providersLib, systemPreferences, transcribeAudio, fs, path, crypto: require('crypto'), cacheDir: () => path.join(app.getPath('home'), '.artemis', 'tts-cache') });
-require('./ipc/files')({ ipcMain, BrowserWindow, app, defaultFilesDir, dialog, files, tools, library, media: mediaStore, getWin: () => win });
+require('./ipc/files')({ ipcMain, BrowserWindow, app, defaultFilesDir, dialog, files, tools, library, media: mediaStore, getWin: () => win, links: linksLib, linkSensitive, shell });
 require('./ipc/library')({ ipcMain, BrowserWindow, dialog, shell, files, library, getWin: () => win });
 require('./ipc/perm')({ ipcMain, permissions });
 require('./ipc/lock')({ ipcMain, lock, speaker, voiceGate, lockAuthWaiting, snapWaiting, logger, testAlert: testLockAlert });

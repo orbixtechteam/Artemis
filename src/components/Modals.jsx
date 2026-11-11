@@ -45,21 +45,45 @@ export const Field = ({ label, hint, children }) => (
 
 export function ImportRow() {
   const [msg, setMsg] = useState('');
-  const [busy, setBusy] = useState(false);
-  const go = async () => {
-    setBusy(true); setMsg('');
+  const [busy, setBusy] = useState('');
+  const [prog, setProg] = useState(null);
+  useEffect(() => (window.api.onImportProgress ? window.api.onImportProgress(setProg) : undefined), []);
+  const report = (r) => {
+    window.dispatchEvent(new CustomEvent('aid-import', { detail: r }));
+    const n = (x, w) => `${x} ${w}${x === 1 ? '' : 's'}`;
+    const parts = [n(r.chats.length, 'chat')];
+    if (r.projects?.length) parts.push(n(r.projects.length, 'project') + (r.projects.some((p) => p.docCount) ? ` (${r.projects.reduce((t, p) => t + (p.docCount || 0), 0)} knowledge files)` : ''));
+    if (r.memory?.length) parts.push(n(r.memory.length, 'memory'));
+    setMsg(`Imported from ${r.source || 'the export'}: ${parts.join(', ')}.${r.skipped ? ` ${r.skipped} unchanged chats skipped.` : ''} Chats you already had are kept, not duplicated.`);
+  };
+  const fromFile = async () => {
+    setBusy('file'); setMsg('');
     try {
       const r = await window.api.importChats();
       if (r.canceled) return;
       if (!r.ok) return setMsg(r.error);
-      window.dispatchEvent(new CustomEvent('aid-import', { detail: r }));
-      const extras = (r.projects?.length || r.memory?.length) ? ` Also found ${r.projects?.length || 0} project${r.projects?.length === 1 ? '' : 's'} and ${r.memory?.length || 0} memories.` : '';
-      setMsg(`Read ${r.chats.length} ${r.source} chat${r.chats.length === 1 ? '' : 's'}.${extras} Already imported chats are skipped.`);
-    } finally { setBusy(false); }
+      report(r);
+    } finally { setBusy(''); }
   };
+  const fromAccount = async () => {
+    setBusy('account'); setMsg(''); setProg(null);
+    try {
+      const r = await new Promise((resolve) => window.dispatchEvent(new CustomEvent('aid-import-account', { detail: { resolve } })));
+      if (!r.ok) {
+        if (r.needLogin) { window.dispatchEvent(new CustomEvent('aid-browser-open', { detail: 'https://claude.ai/login' })); return setMsg('Sign in to Claude in the browser that opened, then press "From Claude account" again.'); }
+        return setMsg(r.error);
+      }
+      report(r);
+    } finally { setBusy(''); setProg(null); }
+  };
+  const progText = prog && prog.phase === 'chats' && prog.total ? `Reading chats ${prog.done} / ${prog.total}…` : prog && prog.phase === 'projects' ? 'Reading projects…' : 'Connecting…';
   return (
-    <Row label="Import chats" description={msg || 'Bring your history from ChatGPT or Claude: request your data export in their settings, then choose the .zip (or conversations.json) here.'}>
-      <button type="button" className="pref-btn" onClick={go} disabled={busy}>{busy ? 'Reading…' : 'Import…'}</button>
+    <Row label="Import chats and projects" description={busy === 'account' ? progText : msg || 'From Claude: "From Claude account" brings every project (instructions and knowledge files) and chat, already sorted into projects; sign in to claude.ai in the Artemis browser once. Or choose a data export (.zip, .json or the unpacked folder) from Claude or ChatGPT; Claude\'s export does not say which project a chat belongs to.'}>
+      <div className="row" style={{ gap: 8 }}>
+        {busy === 'account' ? <button type="button" className="pref-btn" onClick={() => window.api.stopImport()}>Stop</button>
+          : <button type="button" className="pref-btn" onClick={fromAccount} disabled={!!busy}>From Claude account</button>}
+        <button type="button" className="pref-btn" onClick={fromFile} disabled={!!busy}>{busy === 'file' ? 'Reading…' : 'From export file…'}</button>
+      </div>
     </Row>
   );
 }

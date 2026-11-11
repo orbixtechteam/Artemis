@@ -32,3 +32,44 @@ const claude = [{ uuid: 'x1', name: 'Hello', updated_at: '2026-01-02T10:00:00Z',
   await assert.rejects(parseExport(Buffer.from('[{"foo":1}]'), 'm'), /No ChatGPT or Claude/);
   console.log('import: all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });
+
+// Claude: full export (projects with docs, memories, branches, attachments) and the account import
+(async () => {
+  const { parseExport, fromJsonValues } = require('../electron/importer');
+  const { importClaudeAccount } = require('../electron/claude-account');
+  const conv = { uuid: 'c9', name: 'Branchy', current_leaf_message_uuid: 'm3b', project_uuid: 'p1', chat_messages: [
+    { uuid: 'm1', sender: 'human', text: 'q', created_at: '2026-01-01T00:00:00Z', attachments: [{ file_name: 'notes.txt', extracted_content: 'NOTE BODY' }], files: [{ file_name: 'pic.png', file_kind: 'image' }] },
+    { uuid: 'm2', parent_message_uuid: 'm1', sender: 'assistant', content: [{ type: 'thinking', thinking: 'x' }, { type: 'text', text: 'a' }], created_at: '2026-01-01T00:00:01Z' },
+    { uuid: 'm3a', parent_message_uuid: 'm2', sender: 'human', text: 'old edit', created_at: '2026-01-01T00:00:02Z' },
+    { uuid: 'm3b', parent_message_uuid: 'm2', sender: 'human', text: 'new edit', created_at: '2026-01-01T00:00:03Z' }] };
+  const proj = { uuid: 'p1', name: 'Artemis', description: 'desk app', prompt_template: 'Be brief.', docs: [{ filename: 'spec.md', content: '# Spec' }] };
+  const mem = [{ conversations_memory: 'Likes tea.\n\nWorks in Baku.', project_memories: { p1: 'Purpose: build Artemis' } }];
+  const zip = new JSZip(); zip.file('conversations.json', JSON.stringify([conv])); zip.file('projects.json', JSON.stringify([proj])); zip.file('memories.json', JSON.stringify(mem)); zip.file('users.json', '[{"uuid":"u"}]');
+  const r = await parseExport(await zip.generateAsync({ type: 'nodebuffer' }), 'm');
+  const c = r.chats[0];
+  assert.deepStrictEqual(c.messages.map((m) => m.content || m.steps[0].text), ['q\n\n[attached in Claude: pic.png]', 'a', 'new edit'], 'the current branch only');
+  assert.deepStrictEqual(c.messages[0].attachments, [{ kind: 'text', name: 'notes.txt', text: 'NOTE BODY', truncated: false }]);
+  assert.strictEqual(c.projectImportKey, 'claude-project:p1');
+  assert.strictEqual(r.projects.length, 1); const p = r.projects[0];
+  assert.strictEqual(p.instructions, 'Be brief.'); assert.deepStrictEqual(p.docs, [{ name: 'spec.md', text: '# Spec' }]); assert.strictEqual(p.memory, 'Purpose: build Artemis');
+  assert.deepStrictEqual(r.memory.map((m) => m.text), ['Likes tea.', 'Works in Baku.']);
+  assert.strictEqual(fromJsonValues([[proj]], 'm').projects.length, 1, 'a projects.json alone imports');
+
+  // account import: projects, docs and conversations from the web app's endpoints; unchanged chats are skipped
+  const calls = [];
+  const api = {
+    '/organizations': [{ uuid: 'o1', capabilities: ['chat'] }],
+    '/organizations/o1/projects?limit=500': [{ uuid: 'p1', name: 'Artemis' }],
+    '/organizations/o1/projects/p1': { uuid: 'p1', name: 'Artemis', prompt_template: 'Be brief.' },
+    '/organizations/o1/projects/p1/docs': [{ file_name: 'spec.md', content: '# Spec' }],
+    '/organizations/o1/chat_conversations': [{ uuid: 'c9', updated_at: '2026-02-01T00:00:00Z', project_uuid: 'p1' }, { uuid: 'old', updated_at: '2026-01-01T00:00:00Z' }],
+    '/organizations/o1/chat_conversations/c9?tree=True&rendering_mode=messages&render_all_tools=true': { ...conv, project_uuid: undefined }
+  };
+  const fetchJson = async (url) => { const k = url.replace('https://claude.ai/api', ''); calls.push(k); if (!(k in api)) { const e = new Error('404'); e.status = 404; throw e; } return api[k]; };
+  const a = await importClaudeAccount({ fetchJson, known: { 'claude:old': Date.parse('2026-01-05T00:00:00Z') }, fallbackModel: 'm' });
+  assert.strictEqual(a.chats.length, 1); assert.strictEqual(a.chats[0].projectImportKey, 'claude-project:p1', 'project from the list');
+  assert.strictEqual(a.projects[0].instructions, 'Be brief.'); assert.strictEqual(a.projects[0].docs[0].text, '# Spec'); assert.strictEqual(a.skipped, 1);
+  assert.ok(!calls.some((k) => k.includes('/old')), 'unchanged chat not fetched');
+  await assert.rejects(importClaudeAccount({ fetchJson: async () => { const e = new Error('x'); e.status = 403; throw e; } }), (e) => e.needLogin === true);
+  console.log('import: Claude export + account tests passed');
+})().catch((e) => { console.error(e); process.exit(1); });

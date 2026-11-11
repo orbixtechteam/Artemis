@@ -55,7 +55,9 @@ function fakeSpawn(lines, { code = 0, hang = false, stderr = '' } = {}) {
   const mcp = { url: 'http://127.0.0.1:5000/mcp', token: 'SECRET123' };
   let a = argsFor('claude', { mcp, askWrites: true, system: 'role', folder: '/w', model: '' });
   assert.ok(a.includes('--strict-mcp-config') && a.includes('stream-json'));
-  assert.deepStrictEqual(JSON.parse(a[a.indexOf('--mcp-config') + 1]), { mcpServers: { team: { type: 'http', url: mcp.url, headers: { Authorization: 'Bearer SECRET123' } } } });
+  assert.deepStrictEqual(JSON.parse(a[a.indexOf('--mcp-config') + 1]), { mcpServers: { team: { type: 'http', url: mcp.url, headers: { Authorization: 'Bearer SECRET123' }, timeout: 86400000 } } });
+  assert.ok(a.includes('--include-partial-messages'), 'text streams token by token');
+  { const cx = argsFor('codex', { mcp, askWrites: true, folder: '/w' }); assert.ok(cx.some((x) => /tool_timeout_sec=86400/.test(x)), 'Codex waits for the person too'); }
   assert.strictEqual(a[a.indexOf('--permission-mode') + 1], 'manual');
   assert.strictEqual(a[a.indexOf('--permission-prompt-tool') + 1], 'mcp__team__team_permission');
   assert.strictEqual(a[a.indexOf('--append-system-prompt') + 1], 'role');
@@ -334,6 +336,44 @@ function fakeSpawn(lines, { code = 0, hang = false, stderr = '' } = {}) {
     await chat.turn({ kind: 'claude', system: 's', folder: os.tmpdir(), perm: 'auto', prompt: 'plain' }); // no chat id (team, incognito): no session
     assert.strictEqual(runs[7].session, null); assert.strictEqual(runs[7].prompt, 'plain');
     console.log('cli-agents: chat sessions ok');
+  }
+  {
+    // --include-partial-messages: deltas stream; the complete message that follows is not repeated, its tool calls still are
+    const steps = [];
+    feed(claudeReader((e) => steps.push(e), () => {}), [
+      { type: 'stream_event', event: { type: 'message_start', message: { id: 'm1' } } },
+      { type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'thinking_delta', thinking: 'hmm' } } },
+      { type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Hel' } } },
+      { type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'lo' } } },
+      { type: 'assistant', message: { id: 'm1', content: [{ type: 'thinking', thinking: 'hmm' }, { type: 'text', text: 'Hello' }, { type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'ls' } }] } },
+      { type: 'stream_event', parent_tool_use_id: 'sub', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'subagent text' } } },
+      { type: 'assistant', message: { id: 'm2', content: [{ type: 'text', text: 'no stream' }] } }
+    ]);
+    const kinds = steps.map((x) => x.type + (x.text ? ':' + x.text : ''));
+    assert.deepStrictEqual(kinds, ['step', 'thinking:hmm', 'text:Hel', 'text:lo', 'tool', 'step', 'text:no stream']);
+    console.log('cli-agents: partial messages ok');
+  }
+  {
+    // a tools/call over SSE: headers come before the tool finishes, the result is the last event
+    const http = require('http');
+    let release;
+    const srv = createMcpServer({ getToken: () => 'tok', tools: () => [{ name: 'slow', description: 'd', run: () => new Promise((r) => { release = () => r('done'); }) }] });
+    const port = await srv.start(0);
+    const got = await new Promise((resolve, reject) => {
+      const req = http.request({ host: '127.0.0.1', port, path: '/mcp', method: 'POST', headers: { authorization: 'Bearer tok', accept: 'application/json, text/event-stream', 'content-type': 'application/json' } }, (res) => {
+        const headersAt = Date.now(); let body = '';
+        assert.strictEqual(res.headers['content-type'], 'text/event-stream');
+        setTimeout(() => release(), 50);
+        res.on('data', (d) => { body += d; }); res.on('end', () => resolve({ body, headersAt }));
+      });
+      req.on('error', reject);
+      req.end(JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'slow', arguments: {} } }));
+    });
+    const last = got.body.trim().split('\n\n').pop();
+    const msg = JSON.parse(last.split('\n').find((l) => l.startsWith('data: ')).slice(6));
+    assert.strictEqual(msg.id, 7); assert.strictEqual(msg.result.content[0].text, 'done');
+    await srv.stop();
+    console.log('cli-agents: streamed tool call ok');
   }
   console.log('cli-agents: all tests passed');
 })().catch((e) => { console.error('FAILED:', e); process.exit(1); });

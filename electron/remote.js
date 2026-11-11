@@ -12,7 +12,7 @@ function describeCall(name, a) {
   if (name === 'web_search') return 'Web search: ' + (a.query || '');
   if (name === 'web_fetch') return 'Open page: ' + (a.url || '');
   if (name === 'send_to_phone') return 'Send to your phone' + (a.file_path ? `: ${a.file_path}` : a.screenshot ? ': screenshot' : '');
-  if (name === 'write_file' || name === 'edit_file' || name === 'delete_file' || name === 'write_spreadsheet' || name === 'update_cells') return `${name.replace(/_/g, ' ')}: ${a.path || ''}`;
+  if (name === 'write_file' || name === 'edit_file' || name === 'delete_file' || name === 'write_spreadsheet' || name === 'create_document' || name === 'create_diagram' || name === 'update_cells') return `${name.replace(/_/g, ' ')}: ${a.path || ''}`;
   if (name === 'move_file') return `move file: ${a.from} → ${a.to}`;
   return name + (a.path ? ' ' + a.path : '');
 }
