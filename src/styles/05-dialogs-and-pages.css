@@ -158,3 +158,4 @@ html.quick, html.quick body, html.quick #root { background: transparent; }
 /* Project page: the message box lines up with the title and the pills */
 .proj-page .composer-wrap { padding: 0; }
 .proj-page .composer { max-width: none; margin: 0; }
+.proj-files { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; } /* project settings: the project files (knowledge) */

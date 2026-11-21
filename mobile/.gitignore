@@ -1,0 +1,29 @@
+node_modules/
+.expo/
+.expo-shared/
+
+# native projects made by `npx expo prebuild` (app.json is the source; regenerate them any time)
+ios/
+android/
+
+# the web app build (npm run export:web)
+dist-web/
+web-build/
+
+# build output
+*.ipa
+*.apk
+*.aab
+*.xcarchive
+.metro-health-check*
+*.tsbuildinfo
+*.log
+
+# EAS / signing secrets
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.pem
+credentials.json

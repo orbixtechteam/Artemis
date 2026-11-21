@@ -1,6 +1,6 @@
 # Appearance
 
-**Settings → Appearance** sets the color theme, the text size and how the model's reasoning is shown. You can add your own themes as small JSON files without rebuilding the app.
+**Settings → Appearance** sets the color theme, the text size and how the model's reasoning is shown. You can add your own themes as small JSON files without rebuilding the app. The [phone and web app](Mobile-App.md) have the same palettes, appearance and accents, and follow the desktop's choice while it is linked to a server.
 
 ## How to use
 

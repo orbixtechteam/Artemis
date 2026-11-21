@@ -9,6 +9,7 @@ import { ProvidersTab } from './settings/ProvidersTab.jsx';
 import { LimitsTab } from './settings/LimitsTab.jsx';
 import { AppearanceTab } from './settings/AppearanceTab.jsx';
 import { AccessTab } from './settings/AccessTab.jsx';
+import { ServerTab } from './settings/ServerTab.jsx';
 import { NotificationsTab } from './settings/NotificationsTab.jsx';
 import { SecurityTab } from './settings/SecurityTab.jsx';
 import { VoiceTab } from './settings/VoiceTab.jsx';
@@ -68,6 +69,7 @@ export const SECTIONS = [
   ['agents', 'Agents & brains', 'layers', 'Helper agents, and personalities with their own model.', 'models', ['agents', 'brains']],
   ['voice', 'Voice & Sentinel', 'mic', 'Dictation, reading answers aloud and Sentinel voice mode.', 'models', ['voice']],
   ['privacy', 'Privacy & safety', 'shield', 'What Artemis may do and reach, and the app lock.', 'more', ['tools', 'access', 'security']],
+  ['server', 'Server & devices', 'globe', 'Connect to a home server, or pair your phone and other devices with this Mac.', 'more', ['server']],
   ['integrations', 'Integrations', 'link', 'Make.com scenarios, and chatting from your phone.', 'more', ['make', 'phone']],
   ['limits', 'Usage & limits', 'chart', 'What Artemis has used, and the limits that pause it.', 'more', ['limits']],
   ['advanced', 'Advanced', 'code', 'Every prompt Artemis gives the model, and the command blocklist.', 'more', ['advanced']]
@@ -89,13 +91,14 @@ const KEYWORDS = {
   brains: 'brain brains council persona personality',
   limits: 'usage limit limits budget cost token tokens daily monthly usd spend spending max length answer',
   voice: 'voice speech microphone mic speakers speak wake word sentinel transcribe tts dictation kokoro chatterbox piper push to talk',
+  server: 'server home remote tunnel cloudflare pair pairing code devices phone mobile web app expo revoke connect',
   make: 'make make.com scenarios automation token zone',
   phone: 'phone telegram bot pair mobile send file remote',
   advanced: 'advanced system prompt prompts instructions rules default edit blocklist block commands sudo filter heartbeat webhook scheduled team'
 };
 
 // Settings that are not saved from here: secrets go through their own commit path, the rest is computed by main.
-const NOT_SAVED = new Set(['promptOverrides', 'shellPolicy', 'hasApiKey', 'hasMakeToken', 'hasTelegramToken', 'hasBraveKey', 'braveKey', 'braveKeyEnc', 'shortcutError', 'shortcutErrors', 'telegramToken', 'apiKey', 'apiKeyEnc', 'telegramTokenEnc', 'makeTokenEnc', 'mcpTokenEnc']);
+const NOT_SAVED = new Set(['promptOverrides', 'shellPolicy', 'hasApiKey', 'hasMakeToken', 'hasTelegramToken', 'hasBraveKey', 'braveKey', 'braveKeyEnc', 'shortcutError', 'shortcutErrors', 'telegramToken', 'apiKey', 'apiKeyEnc', 'telegramTokenEnc', 'makeTokenEnc', 'mcpTokenEnc', 'serverLink', 'serverTokenEnc', 'serverPublicHosts', 'serverAllowedOrigins']);
 // Typed or dragged values: saved 400 ms after the last change instead of at once.
 const DEBOUNCED = new Set(['systemPrompt', 'personalityCustom', 'maxTokens', 'cbUrl', 'ttsUrl', 'ttsVoice', 'ttsVoiceEn', 'ttsVoices', 'voiceLangMap', 'cbVoice', 'voiceSttModel', 'ttsModel', 'remoteFolder', 'cbExaggeration', 'cbCfg', 'cbTemperature', 'cbSpeed']);
 const normalize = (k, v) => {
@@ -504,6 +507,7 @@ export function SettingsModal({ settings, groups = [], projects = [], providers 
               {s.shellEnabled && <SandboxGroup s={s} setS={setS} put={put} />}
             </>
           )}
+          {has('server') && <ServerTab goTo={setTab} s={s} setS={setS} />}
           {has('notifications') && <NotificationsTab />}
           {has('access') && partHead('access')}
           {has('access') && <AccessTab s={s} set={set} setS={setS} projects={projects} goTo={setTab} />}

@@ -384,7 +384,7 @@ const writeMirror = () => { mirrorTimer = null; mirroredAt = Date.now(); const c
 /** Refreshes the chats.json backup copy from artemis.db, at most once per 10 minutes (and on quit): rewriting it on every save froze the app. */
 const mirrorChats = () => { if (mirrorTimer) return; mirrorTimer = setTimeout(writeMirror, Math.max(3000, mirroredAt + MIRROR_EVERY - Date.now())); };
 
-const SECRET_FIELDS = { telegramToken: 'telegramTokenEnc', makeToken: 'makeTokenEnc', mcpToken: 'mcpTokenEnc', braveKey: 'braveKeyEnc', gatewayToken: 'gatewayTokenEnc', hooksTunnelToken: 'hooksTunnelTokenEnc' };
+const SECRET_FIELDS = { telegramToken: 'telegramTokenEnc', makeToken: 'makeTokenEnc', mcpToken: 'mcpTokenEnc', braveKey: 'braveKeyEnc', gatewayToken: 'gatewayTokenEnc', hooksTunnelToken: 'hooksTunnelTokenEnc', serverToken: 'serverTokenEnc' };
 const cleanSecret = (v) => String(v == null ? '' : v).replace(/[\s\u00a0\u200b-\u200f\u2028\u2029\ufeff]+/g, '');
 const encStr = (v0) => { const v = cleanSecret(v0); return (!v ? null : safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(v).toString('base64') : 'plain:' + v); };
 let decWarned = false;
@@ -707,6 +707,10 @@ ipcMain.handle('tool:decision', async (_e, toolId, ok) => {
   }
   if (!approvals.has(toolId) && String(toolId).startsWith('team-') && headlessActive()) { // a team member in the background gateway is waiting
     try { await headlessFetch(`/v1/approvals/${encodeURIComponent(toolId)}`, { method: 'POST', body: { approve: !!ok } }); } catch (e) { logger.warn('teams', 'Could not pass the decision to the background gateway: ' + e.message); }
+    return;
+  }
+  if (!approvals.has(toolId) && serverChat.ownsApproval(toolId)) { // a turn running on the paired server is waiting
+    try { await serverChat.decideOnServer(toolId, ok); } catch (e) { logger.warn('server', 'Could not send the decision to the server: ' + e.message); }
     return;
   }
   decideTool(toolId, ok);
@@ -1484,7 +1488,7 @@ ipcMain.handle('chat:title', async (_e, o = {}) => {
     return { ok: false, error: msg };
   }
 });
-ipcMain.handle('chat:abort', (_e, requestId) => { runs.get(requestId)?.abort(); });
+ipcMain.handle('chat:abort', (_e, requestId) => { if (runs.has(requestId)) runs.get(requestId).abort(); else if (typeof serverChat !== 'undefined' && serverChat.has(requestId)) serverChat.abort(requestId); });
 function stopAll() { for (const c of runs.values()) c.abort(); computer?.stopRecording?.().catch(() => {}); } // a screen recording is finalized, not left running
 ipcMain.handle('float:stop', () => stopAll());
 let computer = null;
@@ -1813,7 +1817,7 @@ async function runScheduled(job) {
   const st = getSettings();
   const requestId = 'sch-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
   const proj = job.projectId ? (readJson('projects', []).find((p) => p.id === job.projectId) || null) : null;
-  const project = proj ? { name: proj.name, instructions: proj.instructions, ...(proj.folder && fs.existsSync(proj.folder) ? { folder: proj.folder } : {}) } : null;
+  const project = proj ? { name: proj.name, instructions: proj.instructions, knowledge: projectFiles.knowledge(proj), ...(proj.folder && fs.existsSync(proj.folder) ? { folder: proj.folder } : {}) } : null;
   const model = job.model || (st.scheduleModel ? liveModel(st.scheduleModel) : '') || st.model; // the task's own model, else the one set for scheduled tasks, else the default
   let text = '', error = '';
   toWinSafe('schedule:start', { requestId, jobId: job.id, name: job.name, prompt: job.prompt, model, projectId: job.projectId || null });
@@ -2197,11 +2201,50 @@ async function flushFromRun(text, { model, chatId, project }) {
 }
 
 // ---------- gateway: local HTTP API for the CLI and other clients (electron/core/gateway.js) ----------
-let gateway = null, gatewayError = '';
+let gateway = null, gatewayError = '', gatewayKey = '';
+// paired devices (desktop, phone, web app) of this data folder; shared with the headless gateway through clients.json
+const serverClients = require('./core/clients').createClients({ file: path.join(app.getPath('userData'), 'clients.json'), log: coreLog('clients') });
+// this app as a client of another Artemis server (Settings → Server)
+const serverLink = require('./server-link').createServerLink({
+  getConfig: () => getSettings().serverLink || null, setConfig: (c) => saveSettings({ serverLink: c || null }),
+  getToken: () => getSecret('serverToken'), setToken: (t) => setSecret('serverToken', t || ''),
+  deviceName: () => `${os.hostname().replace(/\.local$/, '')} (Artemis desktop)`, log: coreLog('server')
+});
 const gatewayFile = () => path.join(app.getPath('userData'), 'gateway.json');
 const gatewayToken = () => { let t = getSecret('gatewayToken'); if (!t) { t = gatewayLib.newToken(); setSecret('gatewayToken', t); } return t; };
 const gatewayPort = () => Math.min(65535, Math.max(1024, Number(getSettings().gatewayPort) || 8789));
-const projectFor = (id) => { const p = id ? readJson('projects', []).find((x) => x.id === id) : null; return p ? { name: p.name, instructions: p.instructions, ...(p.folder && fs.existsSync(p.folder) ? { folder: p.folder } : {}) } : null; };
+const projectFiles = require('./core/project-files').createProjectFiles({ dir: path.join(app.getPath('userData'), 'project-files'), files });
+const projectFor = (id) => { const p = id ? readJson('projects', []).find((x) => x.id === id) : null; return p ? { name: p.name, instructions: p.instructions, knowledge: projectFiles.knowledge(p), ...(p.folder && fs.existsSync(p.folder) ? { folder: p.folder } : {}) } : null; };
+// project files (knowledge): added in the project's settings; the server gets them (and sends back the ones added there)
+ipcMain.handle('project:files-add', async (e, pid) => {
+  const parent = BrowserWindow.fromWebContents(e.sender) || win;
+  const r = await dialog.showOpenDialog(parent, { title: 'Add files to the project', properties: ['openFile', 'multiSelections'] });
+  if (r.canceled) return { ok: true, files: [] };
+  const out = []; const errors = [];
+  for (const f of r.filePaths) { try { out.push(await projectFiles.add(String(pid), { name: path.basename(f), buffer: fs.readFileSync(f) })); } catch (err) { errors.push(`${path.basename(f)}: ${err.message}`); } }
+  return { ok: true, files: out, error: errors.join('\n') };
+});
+ipcMain.handle('project:files-remove', (_e, pid, fid) => { try { projectFiles.remove(String(pid), String(fid)); return { ok: true }; } catch (err) { return { ok: false, error: err.message }; } });
+ipcMain.handle('project:file-open', async (_e, pid, fid) => { const f = projectFiles.pathOf(String(pid), String(fid)); if (!f) return { name: 'file', kind: 'error', error: 'This file is not on this computer yet (it is on the server).' }; return files.parseAttachment(f, 400000); });
+/** After a project sync: send the server the files it lacks, fetch the ones this computer lacks. */
+ipcMain.handle('project:files-sync', async (_e, projects, need) => {
+  const cfg = serverLink.config(); if (!cfg) return { ok: false };
+  let sent = 0, got = 0;
+  for (const n of Array.isArray(need) ? need.slice(0, 50) : []) {
+    const f = projectFiles.pathOf(String(n.pid), String(n.fid)); if (!f) continue;
+    const name = path.basename(f).replace(/^[\w-]+__/, '');
+    try { await serverLink.request(`/v1/x/projects/${encodeURIComponent(n.pid)}/files`, { method: 'POST', body: { id: n.fid, name, data: fs.readFileSync(f).toString('base64') }, timeout: 120000 }); sent++; } catch (err) { logger.warn('server', `could not send project file ${name}: ${err.message}`); }
+  }
+  for (const p of Array.isArray(projects) ? projects : []) for (const m of p.files || []) {
+    if (projectFiles.has(p.id, m.id)) continue;
+    try {
+      const r = await fetch(`${cfg.url}/v1/x/projects/${encodeURIComponent(p.id)}/files/${encodeURIComponent(m.id)}/raw`, { headers: { authorization: `Bearer ${serverLink.token()}` }, signal: AbortSignal.timeout(120000) });
+      if (!r.ok) continue;
+      await projectFiles.add(p.id, { id: m.id, name: m.name, buffer: Buffer.from(await r.arrayBuffer()) }); got++;
+    } catch (err) { logger.warn('server', `could not fetch project file ${m.name}: ${err.message}`); }
+  }
+  return { ok: true, sent, got };
+});
 const gatewayHandlers = {
   info: () => ({ mode: 'desktop', version: app.getVersion(), model: liveModel(getSettings().gatewayModel || getSettings().model), sqlite: !!initCore().sessions, memory: !!initCore().ws }),
   async chat({ runId, sessionId, message, model, projectId }, emit) {
@@ -2262,9 +2305,11 @@ async function syncGatewayOnce() {
   try {
     const want = !!st.gatewayEnabled && !headlessActive(); // the headless gateway serves the API while it runs
     const port = gatewayPort();
-    if (gateway && (!want || gateway.address().port !== port)) { await gateway.stop(); gateway = null; gatewayLib.removeDiscovery(gatewayFile()); }
+    const key = JSON.stringify([port, st.serverPublicHosts || '', st.serverAllowedOrigins || '']);
+    if (gateway && (!want || key !== gatewayKey)) { await gateway.stop(); gateway = null; gatewayLib.removeDiscovery(gatewayFile()); }
     if (want && !gateway) {
-      const g = gatewayLib.createGateway({ host: '127.0.0.1', port, token: gatewayToken(), log: coreLog('gateway'), handlers: gatewayHandlers });
+      const g = gatewayLib.createGateway({ host: '127.0.0.1', port, token: gatewayToken(), clients: serverClients, publicHosts: st.serverPublicHosts || '', allowedOrigins: st.serverAllowedOrigins || '', log: coreLog('gateway'), handlers: gatewayHandlers });
+      gatewayKey = key;
       await g.start();
       gateway = g;
       gatewayLib.writeDiscovery(gatewayFile(), { mode: 'desktop', host: '127.0.0.1', port, token: gatewayToken(), version: app.getVersion() });
@@ -2411,7 +2456,9 @@ app.whenReady().then(() => {
   try {
     // chat images: only hash-named files inside the media folder are served
     protocol.handle('artemis-media', (req) => {
-      const r = mediaNameOf(req.url) ? mediaStore.read(req.url) : null;
+      const name = mediaNameOf(req.url);
+      const r = name ? mediaStore.read(req.url) : null;
+      if (!r && name && serverLink.config()) return serverMediaFetch(name); // a picture of a server chat: fetched once, kept here
       if (!r) return new Response('Not found', { status: 404 });
       return new Response(r.buf, { headers: { 'content-type': r.mime, 'cache-control': 'private, max-age=31536000, immutable', 'x-content-type-options': 'nosniff' } });
     });
@@ -2695,3 +2742,74 @@ require('./ipc/media')({ ipcMain, mediaDir, mediaGen, shell });
 require('./ipc/usage')({ ipcMain, getUsage: allUsage, setUsage: (l) => { setUsage(l); if (Array.isArray(l) && !l.length) { try { writeJson('usage-headless', []); } catch {} } } });
 require('./ipc/providers')({ ipcMain, encStr, getProviderKey, providersLib, publicProviders, readProviderKeys, readProviders, writeJson });
 require('./ipc/shell')({ ipcMain, fs, shell });
+// moving this computer's data to the paired server (Settings → Server & devices); the local data is only read
+const serverExporter = () => require('./migrate-export').createExporter({
+  dataDir: app.getPath('userData'), workspaceDir, listChats: () => readChats(), readJson,
+  providerKey: (id) => getProviderKey(id), secret: (n) => getSecret(n), mcpDecrypted: () => readMcpList(),
+  link: serverLink, from: { name: os.hostname().replace(/\.local$/, ''), platform: process.platform, version: app.getVersion() }, log: coreLog('migrate')
+});
+/** While this Mac is linked to a server, its connectors (with their keys and sign-ins) and provider keys are kept in
+ *  step there on their own: nothing to move by hand. Values are decrypted here and stored encrypted on the server. */
+let serverSyncHash = '';
+async function syncServerSecrets() {
+  try {
+    if (!serverLink.config() || !serverLink.token()) return;
+    const connectors = readMcpList().filter((c) => c && c.id && !isSelfConnector(c, [Number(getSettings().mcpServerPort) || 8788, gatewayPort()]));
+    const providers = readJson('providers', []) || [];
+    const providerKeys = {}; for (const p of providers) { const k = p && p.id ? getProviderKey(p.id) : ''; if (k) providerKeys[p.id] = k; }
+    const secrets = {}; for (const n of ['braveKey', 'makeToken']) { const v = getSecret(n); if (v) secrets[n] = v; }
+    const st = getSettings();
+    const look = { theme: st.theme || 'system', palette: st.palette || 'artemis', appearance: st.appearance || 'system', accent: st.accent || '', textSize: st.textSize || 'medium' }; // the phone and web app look the same
+    const body = { connectors, providers, providerKeys, secrets, look };
+    const h = crypto.createHash('sha256').update(JSON.stringify(body)).digest('hex');
+    if (h === serverSyncHash) return;
+    await serverLink.request('/v1/x/sync', { method: 'POST', body, timeout: 30000 });
+    serverSyncHash = h;
+  } catch (e) { if (e && e.code !== 'NO_SERVER') logger.warn('server', 'could not keep the server in step: ' + e.message); }
+}
+setTimeout(() => { syncServerSecrets(); setInterval(syncServerSecrets, 30000); }, 8000);
+
+/** After a migration: what moved to the server stops here, so nothing runs twice. */
+function afterMigration(opts) {
+  if (opts.automations === 'move') {
+    for (const n of ['schedules', 'heartbeats', 'hooks']) { const l = readJson(n, null); if (Array.isArray(l)) writeJson(n, l.map((x) => (x && typeof x === 'object' ? { ...x, enabled: false, movedToServer: true } : x))); }
+    toWinSafe('automation:changed', {});
+  }
+  if (opts.telegram === 'move') { saveSettings({ telegramEnabled: false }); try { remote && remote.reconfigure().catch(() => {}); } catch {} }
+}
+// chats that live on the paired server, shown in the main window; each turn runs on the server or on this computer
+const serverChat = require('./server-chat').createServerChat({
+  link: serverLink, executeRun, abortLocal: (rid) => { const r = runs.get(rid); if (r) r.abort(); }, settings: getSettings, log: coreLog('server'),
+  send: (rid, ev) => toWinSafe('chat:event', { ...ev, requestId: rid })
+});
+const SERVER_PATHS = /^\/v1\/(health|me|sessions(\/[\w.:%-]+)?|search|memory(\/list|\/note)?|runs(\/[\w-]+(\/abort)?)?|approvals(\/[\w.:%-]+)?|clients(\/[a-f0-9]{16}(\/(revoke|rotate))?)?|pairing|x\/(models|projects|providers|settings|secrets|import|sync|sessions\/[\w.:%-]+))(\?.*)?$/;
+ipcMain.handle('server:api', async (_e, method, p, body) => {
+  if (!['GET', 'POST', 'DELETE'].includes(method) || !SERVER_PATHS.test(String(p))) return { ok: false, error: 'Not allowed' };
+  try { return await serverLink.request(String(p), { method, body: method === 'GET' ? undefined : body || {} }); } catch (e) { return { ok: false, error: e.message, status: e.status || 0 }; }
+});
+async function serverMediaFetch(name) {
+  try {
+    const cfg = serverLink.config();
+    const r = await fetch(`${cfg.url}/v1/media/${name}`, { headers: { authorization: `Bearer ${serverLink.token()}` }, signal: AbortSignal.timeout(20000) });
+    if (!r.ok) return new Response('Not found', { status: 404 });
+    const buf = Buffer.from(await r.arrayBuffer());
+    const mime = r.headers.get('content-type') || 'image/png';
+    try { mediaStore.put(buf, mime); } catch {} // content-addressed: the same name
+    return new Response(buf, { headers: { 'content-type': mime, 'cache-control': 'private, max-age=31536000, immutable', 'x-content-type-options': 'nosniff' } });
+  } catch { return new Response('Not found', { status: 404 }); }
+}
+ipcMain.handle('server:media', async (_e, name) => {
+  if (!/^[a-f0-9]{32}\.(png|jpg|gif|webp)$/.test(String(name))) return '';
+  try {
+    const cfg = serverLink.config(); if (!cfg) return '';
+    const r = await fetch(`${cfg.url}/v1/media/${name}`, { headers: { authorization: `Bearer ${serverLink.token()}` }, signal: AbortSignal.timeout(20000) });
+    if (!r.ok) return '';
+    const buf = Buffer.from(await r.arrayBuffer());
+    return buf.length < 15e6 ? `data:${r.headers.get('content-type') || 'image/png'};base64,${buf.toString('base64')}` : '';
+  } catch { return ''; }
+});
+ipcMain.handle('server:chat-start', async (_e, o) => { try { return { ok: true, ...(await serverChat.start(o)) }; } catch (e) { return { ok: false, error: e.message }; } });
+ipcMain.handle('server:chat-abort', (_e, rid) => serverChat.abort(rid));
+ipcMain.handle('server:chat-decide', async (_e, toolId, ok) => { try { await serverChat.decideOnServer(toolId, ok); return { ok: true }; } catch (e) { return { ok: false, error: e.message }; } });
+require('./ipc/server')({ ipcMain, getSettings, saveSettings, clients: serverClients, gatewayInfo, syncGateway, headlessActive: () => headlessActive(), headlessFetch: (...a) => headlessFetch(...a), link: serverLink, logger,
+  exporter: serverExporter, afterMigration, progress: (p) => toWinSafe('server:migrate-progress', p) });
