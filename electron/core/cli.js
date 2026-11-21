@@ -26,6 +26,13 @@ const HELP = `Artemis command line
   artemis memory search <words>          Search long-term memory (MEMORY.md, USER.md, daily notes)
   artemis memory list | add <text> | note <text>
   artemis token                          Print the gateway address and token
+  artemis pair [--label text]            A pairing code (10 minutes, single use) for the desktop, mobile or web app
+  artemis clients | revoke <id>          Paired apps, and taking one's access away
+
+Server (home server, Docker, behind a Cloudflare Tunnel):
+  artemis gateway --public-host artemis.example.com    accept requests for this hostname on 127.0.0.1
+                  [--allow-origin https://app.example.com] [--web <folder with the web app build>]
+  Or the same as environment variables: ARTEMIS_PUBLIC_HOSTS, ARTEMIS_ALLOWED_ORIGINS, ARTEMIS_WEB_ROOT (comma-separated lists).
 
 Options: --data <folder> (default: the desktop app's data folder, or $ARTEMIS_HOME)
 Remote gateway: set ARTEMIS_GATEWAY_URL and ARTEMIS_GATEWAY_TOKEN.
@@ -185,13 +192,17 @@ async function main(argv) {
     const host = opts.host || '127.0.0.1';
     if (host !== '127.0.0.1' && host !== 'localhost') process.stderr.write(c.yel(`Listening on ${host}: anyone who can reach this address and has the token can use your agent. Put it behind TLS (a tunnel or reverse proxy).\n`));
     let h;
-    try { h = createHeadless({ dataDir, host, port: opts.port, allowShell: !!opts['allow-shell'], keychain: opts.keychain !== false, scheduler: opts.scheduler !== false, telegram: opts.telegram !== false, connectors: opts.connectors !== false, browser: opts.browser !== false, computer: opts.computer !== false, log: (lv, area, m) => { if (lv !== 'debug' || process.env.ARTEMIS_DEBUG) process.stderr.write(c.dim(`[${area}] `) + m + '\n'); } }); }
+    try { h = createHeadless({ dataDir, host, port: opts.port, publicHosts: opts['public-host'], allowedOrigins: opts['allow-origin'], webRoot: opts.web ? path.resolve(opts.web) : undefined, allowShell: !!opts['allow-shell'], keychain: opts.keychain !== false, scheduler: opts.scheduler !== false, telegram: opts.telegram !== false, connectors: opts.connectors !== false, browser: opts.browser !== false, computer: opts.computer !== false, log: (lv, area, m) => { if (lv !== 'debug' || process.env.ARTEMIS_DEBUG) process.stderr.write(c.dim(`[${area}] `) + m + '\n'); } }); }
     catch (e) { die(e.message); }
     let addr;
     try { addr = await h.start(); } catch (e) { die(e.code === 'EADDRINUSE' ? `Port ${opts.port || 8789} is in use. Use --port.` : e.message); }
     process.stderr.write(`${c.bold('Artemis gateway')} on http://${addr.host}:${addr.port} · data ${dataDir}\n`);
     const sb = h.sandbox();
     process.stderr.write(c.dim(`model ${h.pickModel('') || '(none: add a provider in the desktop app)'} · commands ${sb ? 'in ' + sb.mode + ' sandbox' : opts['allow-shell'] ? 'ON this machine' : 'off'} · browser ${opts.browser !== false && h.browserAvailable() ? 'on' : 'off (needs playwright-core)'} · scheduler ${opts.scheduler !== false ? 'on' : 'off'} · memory ${h.workspace ? h.workspace.dir : 'off'}\n`));
+    if (!h.clients.list().some((x) => !x.revoked)) { // first start: no app is paired yet, show a code right away
+      const p = h.clients.createPairing({ label: 'from the server console' });
+      process.stderr.write(`\n${c.bold('Pair an app')}: open Artemis (desktop, phone or web) → Connect to a server, enter this server's address and the code\n\n    ${c.bold(p.code)}    (valid for 10 minutes; "artemis pair" makes a new one)\n\n`);
+    }
     if (addr.appRunning) process.stderr.write(c.dim('The desktop app is running on this folder: it hands over scheduled tasks, Telegram and the gateway API to this process.\n'));
     let stopping = false;
     const stop = async () => { if (stopping) return; stopping = true; process.stderr.write('\nStopping…\n'); try { await h.stop(); } catch {} process.exit(0); };
@@ -209,6 +220,25 @@ async function main(argv) {
       return;
     }
     case 'token': process.stdout.write(`${ep.base}\n${ep.token}\n`); return;
+    case 'pair': {
+      const r = await request(ep, 'POST', '/v1/pairing', { label: opts.label || 'from the command line' });
+      if (opts.json) return process.stdout.write(JSON.stringify(r) + '\n');
+      process.stdout.write(`Pairing code: ${c.bold(r.code)}\nValid until ${new Date(r.expiresAt).toLocaleTimeString()}, single use.\nIn the app: Connect to a server → this server's address (e.g. your Cloudflare Tunnel URL) and the code.\n`);
+      return;
+    }
+    case 'clients': {
+      const r = await request(ep, 'GET', '/v1/clients');
+      if (opts.json) return process.stdout.write(JSON.stringify(r.clients, null, 2) + '\n');
+      if (!r.clients.length) return process.stdout.write('No paired apps yet. Run "artemis pair".\n');
+      for (const x of r.clients) process.stdout.write(`${x.id}  ${x.kind.padEnd(7)} ${x.name}${x.revoked ? c.red('  revoked') : c.dim('  last seen ' + new Date(x.lastSeenAt).toLocaleString())}\n`);
+      return;
+    }
+    case 'revoke': {
+      if (!rest[0]) die('Usage: artemis revoke <client id>   (ids: artemis clients)');
+      const r = await request(ep, 'POST', `/v1/clients/${encodeURIComponent(rest[0])}/revoke`, {});
+      process.stdout.write(r.ok ? 'Revoked: that app has to be paired again.\n' : 'No client with that id.\n');
+      return;
+    }
     case 'chat': {
       const message = rest.join(' ').trim() || (!process.stdin.isTTY ? fs.readFileSync(0, 'utf8').trim() : '');
       if (!message) return repl(ep, opts);
