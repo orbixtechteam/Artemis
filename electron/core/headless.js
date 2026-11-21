@@ -41,6 +41,9 @@ const { createMemoryApi, embedderFrom } = require('./memory-api');
 const { flushMemory } = require('./memflush');
 const { createSecretReader } = require('./secrets');
 const gatewayLib = require('./gateway');
+const { createClients } = require('./clients');
+const { createTurnBuilder } = require('./turn-builder');
+const { toApiMessages } = require('./history');
 const { sandboxFromSettings, hideHostShellTools } = require('./sandbox');
 const { createPwBrowser, loadPlaywright } = require('./pwbrowser');
 const { createMcpManager, hideServers, isSelfConnector } = require('../mcp');
@@ -52,7 +55,7 @@ const files = require('../files');
 const APPROVAL_TIMEOUT = 10 * 60 * 1000;
 const envName = (s) => String(s).toUpperCase().replace(/[^A-Z0-9]+/g, '_');
 
-function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false, keychain = true, scheduler: schedOn = true, telegram: tgOn = true, connectors: mcpOn = true, browser: browserOn = true, computer: computerOn = true, telegramApi, log = (lv, area, m) => console.error(`[${lv}] ${area}: ${m}`) }) {
+function createHeadless({ dataDir, host = '127.0.0.1', port, publicHosts, allowedOrigins, webRoot, serverName, allowShell = false, keychain = true, scheduler: schedOn = true, telegram: tgOn = true, connectors: mcpOn = true, browser: browserOn = true, computer: computerOn = true, telegramApi, log = (lv, area, m) => console.error(`[${lv}] ${area}: ${m}`) }) {
   const L = (area) => (lv, m) => log(lv, area, m);
   const file = (n) => path.join(dataDir, n);
   const readJson = (name, fb) => { try { return JSON.parse(fs.readFileSync(file(name + '.json'), 'utf8')); } catch { return fb; } };
@@ -383,6 +386,31 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
   });
 
   // ---- gateway ----
+  const clients = createClients({ file: file('clients.json'), log: L('clients') });
+  const uid = () => crypto.randomBytes(6).toString('hex');
+  /** Attachments sent by a remote client: images as data URLs (stored as media files), text files as text. */
+  function cleanAttachments(list) {
+    const out = [];
+    for (const a of Array.isArray(list) ? list.slice(0, 10) : []) {
+      if (!a || typeof a !== 'object') continue;
+      const name = String(a.name || 'file').replace(/[\u0000-\u001f/\\]/g, '_').slice(0, 120);
+      if (a.kind === 'image' && typeof a.dataUrl === 'string' && /^data:image\/(png|jpeg|gif|webp);base64,/i.test(a.dataUrl) && a.dataUrl.length < 14e6) out.push({ kind: 'image', name, dataUrl: a.dataUrl });
+      else if (a.kind === 'file' && typeof a.text === 'string') out.push({ kind: 'file', name, text: a.text.slice(0, 400000), ...(a.text.length > 400000 ? { truncated: true } : {}) });
+    }
+    return out;
+  }
+  /** Server features beyond chat, for the desktop, mobile and web clients: /v1/x/<area>/... */
+  async function serverApi(area, { method, parts, body }) {
+    const projects = () => { const l = readJson('projects', []); return Array.isArray(l) ? l : []; };
+    if (area === 'models' && method === 'GET') return { models: providersLib.modelEntries(readProviders()), default: pickModel('') };
+    if (area === 'projects' && method === 'GET') return { projects: projects().map((p) => ({ id: p.id, name: p.name, instructions: p.instructions || '', folder: p.folder && fs.existsSync(p.folder) ? p.folder : '', color: p.color, icon: p.icon })) };
+    if (area === 'sessions' && parts[0]) {
+      if (method === 'DELETE' && parts.length === 1) { if (busyChat(parts[0])) throw Object.assign(new Error('Stop the running task first.'), { status: 409 }); return { ok: sessions.remove(parts[0]) }; }
+      if (method === 'POST' && parts.length === 1) { const b = await body(); const c = sessions.patchChat(parts[0], b); if (!c) throw Object.assign(new Error('No chat with that id'), { status: 404 }); mirror(); return { chat: { id: c.id, title: c.title, pinned: !!c.pinned, projectId: c.projectId || null } }; }
+    }
+    return undefined;
+  }
+  const busyChat = (id) => gw && gw.hub && gw.hub.busy(id);
   function token() {
     const t = process.env.ARTEMIS_GATEWAY_TOKEN || headlessCfg().token || secrets.decrypt(settings().gatewayTokenEnc);
     if (t) return t;
@@ -391,18 +419,40 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
     return fresh;
   }
   const handlers = {
-    info: () => ({ mode: 'headless', version: require('../../package.json').version, model: pickModel(''), sqlite: true, memory: !!ws, shell: sandbox() ? sandbox().mode : allowShell ? 'host' : false, browser: browserOn && browserAvailable(), computer: !!computer, telegram: !!(remote && remote.status().telegram.running), connectors: !!mcp }),
-    async chat({ runId, sessionId, message, model, projectId }, emit) {
+    info: () => ({ mode: 'headless', serverName: serverName || process.env.ARTEMIS_SERVER_NAME || os.hostname(), platform: process.platform, version: require('../../package.json').version, model: pickModel(''), sqlite: true, memory: !!ws, shell: sandbox() ? sandbox().mode : allowShell ? 'host' : false, browser: browserOn && browserAvailable(), computer: !!computer, telegram: !!(remote && remote.status().telegram.running), connectors: !!mcp }),
+    async chat({ runId, sessionId, message, model, projectId, client, attachments = [], clientMessageId = '' }, emit, ctx = {}) {
+      // the same turn as in the desktop window: full history (tool calls included), and the answer saved with its tool
+      // cards, files and thinking, written while it streams so every client sees the run
       const sid = sessionId || 'gw-' + crypto.randomBytes(5).toString('hex');
       const prev = sessions.get(sid);
       if (prev && prev.incognito) throw new Error('That chat is incognito and cannot be continued from outside.');
-      const modelId = pickModel(model);
+      const modelId = pickModel(model || (prev && prev.model) || '');
       const pid = projectId || (prev && prev.projectId) || null;
-      const res = await run({ runId, messages: [...(prev ? chatSearch.modelTurns(prev, 30) : []), { role: 'user', content: message }], modelId, project: projectFor(pid), chatId: sid, send: emit, restrict: !!settings().gatewayRestrict });
-      sessions.appendTurn(sid, { user: message, steps: res.steps.map((t) => ({ text: t, toolCalls: [] })), assistant: res.error ? `Error: ${res.error}` : '', via: 'gateway', source: 'gateway', model: modelId, projectId: pid, title: message });
+      const via = client ? (client.kind === 'desktop' ? 'server' : client.kind) : 'gateway';
+      const atts = cleanAttachments(attachments);
+      const user = { id: /^[\w-]{4,64}$/.test(clientMessageId) ? clientMessageId : uid(), role: 'user', content: message, createdAt: Date.now(), via, ...(atts.length ? { attachments: atts } : {}) };
+      const tb = createTurnBuilder({ via, model: modelId, env: 'server' });
+      if (ctx.setSnapshot) ctx.setSnapshot(() => tb.message());
+      const history = toApiMessages([...(prev ? prev.messages || [] : []), user]);
+      sessions.startTurn(sid, { user, assistant: tb.message(), title: message || (atts[0] && atts[0].name) || 'Chat', source: client ? client.kind : 'gateway', model: modelId, projectId: pid });
       mirror();
+      let timer = null;
+      const save = () => { timer = null; try { sessions.putMessage(sid, tb.message()); } catch (e) { log('warn', 'gateway', 'saving the answer so far failed: ' + e.message); } };
+      const out = (ev) => { tb.apply(ev); emit(ev); if (!timer) { timer = setTimeout(save, 1500); if (timer.unref) timer.unref(); } };
+      let res;
+      try {
+        res = await run({ runId, messages: media.resolveMessages(history), modelId, project: projectFor(pid), chatId: sid, send: out, restrict: !!settings().gatewayRestrict });
+      } finally {
+        if (timer) { clearTimeout(timer); timer = null; }
+        const fresh = tb.artifacts();
+        const old = (sessions.get(sid) || {}).artifacts || {};
+        const merged = { ...old };
+        for (const [k, v] of Object.entries(fresh)) merged[k] = { ...v, versions: [...((old[k] && old[k].versions) || []), ...v.versions].slice(-12) };
+        sessions.putMessage(sid, tb.finish(), { patch: { model: modelId, ...(Object.keys(fresh).length ? { artifacts: merged } : {}) }, final: true });
+        mirror();
+      }
       if (res.error && !res.steps.length) throw new Error(res.error);
-      return { sessionId: sid, text: res.text };
+      return { sessionId: sid, text: tb.text() || res.text };
     },
     abort: (id) => { const c = runs.get(id); if (!c) return false; c.abort(); return true; },
     phone: () => (remote ? remote.phone() : null),
@@ -416,7 +466,9 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
         return teams[what](id);
       }
     },
-    sessions: { recent: (n) => sessions.recent(n, readJson('projects', [])), get: (id) => sessions.get(id), search: (q, n) => sessions.search(q, { limit: n, projects: readJson('projects', []) }) },
+    sessions: { recent: (n, o = {}) => sessions.page({ limit: n, before: o.before, projectId: o.projectId, projects: readJson('projects', []) }), get: (id) => sessions.get(id), search: (q, n) => sessions.search(q, { limit: n, projects: readJson('projects', []) }) },
+    media: { file: (name) => { const f = media.fileOf(name); return fs.existsSync(f) ? f : ''; } },
+    extra: (area, o) => serverApi(area, o),
     memory: memoryApi ? { search: (q, n) => memoryApi.search(q, n), list: () => memoryApi.list(), add: (t) => memoryApi.add(t), note: (t) => memoryApi.note(t) } : null
   };
   // ---- Telegram (same bot code as the app) ----
@@ -501,7 +553,7 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
     fs.writeFileSync(file('headless.lock'), JSON.stringify({ pid: process.pid, startedAt: Date.now() }));
     const appRunning = !!lockAlive('desktop');
     const p = port != null && port !== '' ? Number(port) : (Number(settings().gatewayPort) || 8789);
-    const { g, addr } = await listenWithRetry(() => gatewayLib.createGateway({ host, port: p, token: token(), log: L('gateway'), handlers }));
+    const { g, addr } = await listenWithRetry(() => gatewayLib.createGateway({ host, port: p, token: token(), clients, publicHosts: publicHosts != null ? publicHosts : (process.env.ARTEMIS_PUBLIC_HOSTS || settings().serverPublicHosts || ''), allowedOrigins: allowedOrigins != null ? allowedOrigins : (process.env.ARTEMIS_ALLOWED_ORIGINS || settings().serverAllowedOrigins || ''), webRoot: webRoot != null ? webRoot : (process.env.ARTEMIS_WEB_ROOT || ''), log: L('gateway'), handlers }));
     gw = g;
     gatewayLib.writeDiscovery(file('gateway.json'), { mode: 'headless', host: host === '0.0.0.0' ? '127.0.0.1' : host, port: addr.port, token: token(), version: handlers.info().version });
     if (schedOn) {
@@ -540,7 +592,7 @@ function createHeadless({ dataDir, host = '127.0.0.1', port, allowShell = false,
     db.close();
   }
 
-  return { start, stop, handlers, sessions, workspace: ws, index, run, pickModel, getProviderKey, remote: () => remote, sandbox, browserAvailable, heartbeat, hooks, hookService, teams };
+  return { start, stop, handlers, clients, sessions, workspace: ws, index, run, pickModel, getProviderKey, remote: () => remote, sandbox, browserAvailable, heartbeat, hooks, hookService, teams };
 }
 
 module.exports = { createHeadless };
