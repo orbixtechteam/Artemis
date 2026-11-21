@@ -22,7 +22,8 @@ While an answer is running you can keep typing. New messages wait in a queue abo
 | Agents | Lets Artemis hand parts of the work to helper agents. See [Sub-Agents](Sub-Agents.md) |
 | Brain mode | Who answers: one brain, or the council. See [Brains](Brains.md) |
 | Auto-allow all | Runs file edits, agent writes, web, terminal, computer control, Make and connectors without asking. Deleting files still asks. See [Tools and Approvals](Tools-and-Approvals.md) |
-| Project | Moves the chat into a project |
+| Project | Moves the chat into a project, or makes a new one (**New project…**) |
+| Server / This Mac | Only for server chats when the app is linked to a server: where this answer runs. See [Home Server](Home-Server.md#run-on-the-server-or-on-this-mac) |
 | Attach (paperclip) | Adds files. See [Files and Attachments](Files-and-Attachments.md) |
 | Usage | Shows token and cost usage. See [Usage Limits](Usage-Limits.md) |
 
@@ -39,6 +40,8 @@ Type `@` in the message box to mention a connector, skill, agent or Make, or to 
 
 - **Rename:** double-click a chat title in the sidebar. With **Automatic titles** on, Artemis names chats from their topic; a name you give yourself is never changed.
 - **Pin:** hover a chat in the sidebar and click the pin.
+- **Right-click a chat** for Open, Open in new tab, Open in split view, Pin, **Move to <project>**, **Remove from project** and Delete.
+- **Drag and drop:** drag a chat onto a project (its row or its chats) to put it there; drag it anywhere else in the list to take it out of its project. On the phone: hold a chat on Home and drag it.
 - **Tabs:** chats and notes open in tabs. `Cmd/Ctrl`-click (or **Open in new tab**) opens one in a new tab.
 - **Split view:** right-click a tab or a sidebar item and choose **Open in split view**. **Close split view** returns to one pane.
 
@@ -57,8 +60,13 @@ Click the ghost icon in the sidebar (**New incognito chat: not saved, no memory*
    - **Project folder**: the folder Artemis can read and write in (writes ask for approval)
    - **Project instructions**: added to every chat in this project, for example "This project is for client reports. Write formally."
 3. Click **Save**.
+4. Open **Project settings** again to add **Project files** (**Add files…**): PDF, Word, Excel, CSV, text or code. Artemis reads each file once, and its text goes with every chat in the project next to the instructions (up to about 40,000 characters per file and 120,000 in all; the rest stays readable from the file). Click a file to preview it, × to remove it.
 
 Open a project to see its **Instructions** and **Chats**. Use **Project settings** to change it. **Delete project** keeps the files in the folder; its chats become project-less.
+
+Right-click a project in the sidebar for **New chat in project**, **Edit…**, **Pin**, **Hide from sidebar** and **Delete…**. On the phone, long press a project.
+
+With a [server](Home-Server.md), projects, their instructions and their files are the same on the Mac, the server and the phone.
 
 A project folder can also carry its own agents (`.artemis/agents/`), skills (`.artemis/skills/`) and themes (`.artemis/themes/`).
 

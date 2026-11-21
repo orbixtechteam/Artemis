@@ -4,7 +4,7 @@ import { askConfirm } from '../lib/dialog.js';
 import React, { useEffect, useState, useContext } from 'react';
 import { PageContext } from '../lib/pageContext.js';
 import { Row, Switch, Segmented } from './settings/ui.jsx';
-import { splitSheets } from '../lib/preview.js';
+import { splitSheets, openPreview } from '../lib/preview.js';
 import { Icon } from './Icons.jsx';
 import ProjectLogo from './ProjectLogo.jsx';
 import ListTools from './ListTools.jsx';
@@ -226,8 +226,21 @@ export function MemoryModal({ memory, enabled, onChange, onToggle, onClose }) {
   );
 }
 
-export function ProjectModal({ project, onSave, onDelete, onClose }) {
+export function ProjectModal({ project, onSave, onDelete, onClose, onFilesChange }) {
   const [p, setP] = useState(project || { name: '', instructions: '', folder: '' });
+  const [fileMsg, setFileMsg] = useState('');
+  const [adding, setAdding] = useState(false);
+  // project files (knowledge): saved on this computer at once, kept in the project and sent to the server
+  const setFiles = (files, filesGone) => { setP((x) => ({ ...x, files, filesGone })); if (project && onFilesChange) onFilesChange(project.id, files, filesGone); };
+  const addFiles = async () => {
+    if (!project) return;
+    setAdding(true); setFileMsg('');
+    try { const r = await window.api.projectFilesAdd(project.id); if (r.files && r.files.length) setFiles([...(p.files || []).filter((f) => !r.files.some((n) => n.id === f.id)), ...r.files], p.filesGone || []); if (r.error) setFileMsg(r.error); }
+    finally { setAdding(false); }
+  };
+  const removeFile = async (f) => { await window.api.projectFilesRemove(project.id, f.id); setFiles((p.files || []).filter((x) => x.id !== f.id), [...(p.filesGone || []), f.id]); };
+  const openFile = async (f) => { const r = await window.api.projectFileOpen(project.id, f.id); if (r && r.kind !== 'error') openPreview(r); else setFileMsg((r && r.error) || 'Could not open the file.'); };
+  const kb = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
   const pick = async () => { const f = await window.api.pickFolder(); if (f) setP({ ...p, folder: f, name: p.name || f.split(/[\\/]/).pop() }); };
   const [logoErr, setLogoErr] = useState('');
   const pickLogo = async () => { const r = await window.api.pickProjectLogo(p.folder); if (r?.ok) { setLogoErr(''); setP((x) => ({ ...x, logo: r.logo })); } else if (r && !r.canceled) setLogoErr(r.error || 'Could not set the logo.'); };
@@ -251,6 +264,19 @@ export function ProjectModal({ project, onSave, onDelete, onClose }) {
       </Field>
       <Field label="Project instructions" hint="Added to every chat in this project.">
         <textarea rows={5} value={p.instructions} onChange={(e) => setP({ ...p, instructions: e.target.value })} placeholder="e.g. This project is for client reports. Write formally." />
+      </Field>
+      <Field label="Project files" hint={fileMsg || (project ? 'Their text goes with every chat in this project, like the instructions (PDF, Word, Excel, CSV, text…).' : 'Save the project first, then add files.')}>
+        <div className="proj-files">
+          {(p.files || []).map((f) => (
+            <span key={f.id} className="chip clickable" title={f.name} onClick={() => openFile(f)}>
+              <Icon name={/\.(xlsx|xls|csv|ods)$/i.test(f.name) ? 'sheet' : 'file'} size={15} />
+              <span className="chip-name">{f.name}</span>
+              <span className="chip-note">{kb(f.size || 0)}</span>
+              <button aria-label={`Remove ${f.name}`} title="Remove" onClick={(e) => { e.stopPropagation(); removeFile(f); }}><Icon name="x" size={13} /></button>
+            </span>
+          ))}
+          {project && <button onClick={addFiles} disabled={adding}>{adding ? 'Adding…' : 'Add files…'}</button>}
+        </div>
       </Field>
       <div className="actions-row">
         {project && <button className="danger" onClick={() => askConfirm({ title: 'Delete project', message: 'Delete this project? Files in the folder are kept; chats become project-less.', confirmLabel: 'Delete', danger: true }).then((ok) => ok && onDelete(project.id))}>Delete project</button>}

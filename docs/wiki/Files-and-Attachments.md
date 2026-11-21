@@ -4,6 +4,10 @@ Artemis reads and edits files in your project folder, works with spreadsheets, W
 
 ## How to use
 
+### Files that go with every chat of a project
+
+Add them to the project (Project settings → **Project files** → **Add files…**, or on the phone the project page → **Add files**). Unlike attachments, their text goes with every chat in that project. See [Chat and Projects](Chat-and-Projects.md#projects).
+
 ### Let Artemis work on project files
 
 1. Give the project a folder (Projects → **Project settings** → **Project folder** → **Choose…**). See [Chat and Projects](Chat-and-Projects.md#projects).

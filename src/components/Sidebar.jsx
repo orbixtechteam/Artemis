@@ -119,11 +119,8 @@ export default function Sidebar({
     const shown = ql ? items : items.filter((c, i) => i < PROJECT_ROWS || (view === 'chat' && c.id === currentId) || statusOf(c));
 
     rows.push(
-      <div key={'pg' + p.id} className={`project-group ${isOpen ? 'open' : 'closed'}`}>
-        <div className={`project-group-head ${dropOn === p.id ? 'drop' : ''}`} data-project={p.id} onClick={() => toggleProject(p.id)} {...asButton(() => toggleProject(p.id))} aria-expanded={!!isOpen}
-          onDragOver={onMoveChat ? (e) => { if (!isChatDrag(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dropOn !== p.id) setDropOn(p.id); } : undefined}
-          onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDropOn(''); }}
-          onDrop={onMoveChat ? (e) => { const id = e.dataTransfer.getData(CHAT_DRAG); setDropOn(''); if (!id) return; e.preventDefault(); onMoveChat(id, p.id); } : undefined}>
+      <div key={'pg' + p.id} className={`project-group ${isOpen ? 'open' : 'closed'}`} data-drop-project={p.id}>
+        <div className={`project-group-head ${dropOn === p.id ? 'drop' : ''}`} data-project={p.id} onClick={() => toggleProject(p.id)} {...asButton(() => toggleProject(p.id))} aria-expanded={!!isOpen}>
           <ProjectLogo logo={p.logo} size={18} />
           <span className="t" onDoubleClick={(e) => { e.stopPropagation(); onOpenProject(p.id); }}>{p.name}</span>
           <Icon name={isOpen ? 'chevronDown' : 'chevronRight'} size={13} className="project-chevron" />
@@ -179,7 +176,12 @@ export default function Sidebar({
           </div>
         )}
       </nav>
-      <div className="chat-list">
+      <div className={`chat-list ${dropOn === '-' ? 'drop-out' : ''}`}
+        // a chat dragged onto a project (its row or its chats) joins it; dropped anywhere else in the list it leaves its project
+        onDragOver={onMoveChat ? (e) => { if (!isChatDrag(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; const g = e.target.closest && e.target.closest('[data-drop-project]'); const to = g ? g.getAttribute('data-drop-project') : '-'; if (dropOn !== to) setDropOn(to); } : undefined}
+        onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDropOn(''); }}
+        onDrop={onMoveChat ? (e) => { const id = e.dataTransfer.getData(CHAT_DRAG); const g = e.target.closest && e.target.closest('[data-drop-project]'); setDropOn(''); if (!id) return; e.preventDefault(); onMoveChat(id, g ? g.getAttribute('data-drop-project') : null); } : undefined}
+        onDragEnd={() => setDropOn('')}>
         {ql && found.notes.length > 0 && (
           <div className="found-group"><div className="found-title">Notes</div>
             {found.notes.map((h) => <div key={h.path} className="chat-item" title={h.snippet || h.path} onClick={() => notes && notes.onOpen(h.path, 'here')} {...asButton(() => notes && notes.onOpen(h.path, 'here'))}><Icon name="file" size={15} className="row-icon" /><span className="t">{h.name}</span></div>)}

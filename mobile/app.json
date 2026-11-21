@@ -1,0 +1,63 @@
+{
+  "expo": {
+    "name": "Artemis",
+    "slug": "artemis",
+    "scheme": "artemis",
+    "version": "1.9.0",
+    "orientation": "default",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "dev.orbixlabs.artemis",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Artemis uses the camera only to scan the pairing QR code of your server.",
+        "NSMicrophoneUsageDescription": "Artemis uses the microphone only while you dictate a message.",
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        },
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "dev.orbixlabs.artemis",
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO"
+      ]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "name": "Artemis",
+      "shortName": "Artemis",
+      "themeColor": "#111111"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Artemis uses the camera only to scan the pairing QR code of your server."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Pick a picture to send to Artemis."
+        }
+      ],
+      "expo-status-bar",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Artemis uses the microphone only while you dictate a message."
+        }
+      ],
+      "expo-web-browser"
+    ],
+    "experiments": {
+      "typedRoutes": false
+    }
+  }
+}

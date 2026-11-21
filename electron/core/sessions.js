@@ -143,6 +143,18 @@ function createSessions({ db, log = () => {}, writer: defaultWriter = 'app', med
       .map((r) => { let meta = {}; try { meta = JSON.parse(r.meta); } catch {} return { id: r.id, title: r.title || 'Untitled', project: pname(r.project_id), date: day(r.updated_at), model: meta.model || '', count: r.count, updatedAt: r.updated_at, source: r.source || '' }; });
   }
 
+  /** A page of the chat list for remote clients: newest first, `before` (updated_at) for the next page, optional project. */
+  function page({ limit = 50, before = 0, projectId = '', projects = [] } = {}) {
+    const pname = (id) => (projects.find((p) => p.id === id) || {}).name || '';
+    const where = ['s.deleted_at IS NULL', 's.incognito = 0'];
+    const args = [];
+    if (before) { where.push('s.updated_at < ?'); args.push(Number(before)); }
+    if (projectId) { where.push('s.project_id = ?'); args.push(String(projectId)); }
+    args.push(Math.max(1, Math.min(500, Number(limit) || 50)));
+    return db.all(`SELECT s.*, (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) AS count FROM sessions s WHERE ${where.join(' AND ')} ORDER BY s.updated_at DESC LIMIT ?`, ...args)
+      .map((r) => { let meta = {}; try { meta = JSON.parse(r.meta); } catch {} return { id: r.id, title: r.title || 'Untitled', projectId: r.project_id || null, project: pname(r.project_id), model: meta.model || '', date: day(r.updated_at), count: r.count, updatedAt: r.updated_at, createdAt: r.created_at, source: r.source || '', pinned: !!meta.pinned, env: meta.env || '' }; });
+  }
+
   /** Full-text search (BM25). Same result shape as chatsearch.searchChats. */
   function search(query, { limit = 8, projects = [] } = {}) {
     const pname = (id) => (projects.find((p) => p.id === id) || {}).name || '';
@@ -203,6 +215,138 @@ function createSessions({ db, log = () => {}, writer: defaultWriter = 'app', med
     });
   }
 
+  /**
+   * Starts a turn written by this process (the server): the user's message and the assistant message being built, both in
+   * the desktop's full format. Creates the chat when it does not exist. Returns the chat.
+   */
+  function startTurn(id, { user, assistant, title = '', source = '', model = '', projectId = null, writer = defaultWriter }) {
+    const now = Date.now();
+    const sid = String(id);
+    return db.tx(() => {
+      let c = get(sid);
+      let ord;
+      if (!c) {
+        const top = db.get('SELECT MIN(ord) AS o FROM sessions WHERE deleted_at IS NULL');
+        ord = top && top.o != null ? top.o - 1 : 0;
+        c = { id: sid, title: String(title || (user && user.content) || 'Chat').replace(/\s+/g, ' ').trim().slice(0, 48) || 'Chat', source: source || undefined, model: model || undefined, projectId, createdAt: now, messages: [] };
+      } else ord = (db.get('SELECT ord FROM sessions WHERE id = ?', sid) || {}).ord || 0;
+      c.messages.push(...[user, assistant].filter(Boolean));
+      c.updatedAt = now;
+      if (model) c.model = model;
+      writeChat(c, ord, '', writer);
+      return get(sid);
+    });
+  }
+
+  /**
+   * Replaces one message (found by id) of a chat, or appends it when it is not there; patch: chat fields to change
+   * (model, artifacts...). Cheaper than a whole rewrite, used while an answer streams in. final: hash the result so a
+   * window saving the same chat back is a no-op.
+   */
+  function putMessage(id, msg, { patch = null, writer = defaultWriter, final = false } = {}) {
+    const sid = String(id);
+    if (!msg || msg.id == null) throw new Error('putMessage needs a message with an id');
+    return db.tx(() => {
+      const row = db.get('SELECT * FROM sessions WHERE id = ? AND deleted_at IS NULL', sid);
+      if (!row) return null;
+      const m = media ? media.externalize(msg) : msg;
+      const text = chatSearch.messageText(m) || '';
+      const ex = db.get('SELECT seq FROM messages WHERE session_id = ? AND id = ?', sid, String(m.id));
+      let seq;
+      if (ex) { seq = ex.seq; db.run('UPDATE messages SET role = ?, text = ?, via = ?, json = ? WHERE session_id = ? AND seq = ?', String(m.role || 'assistant'), text, m.via ? String(m.via) : null, JSON.stringify(m), sid, seq); }
+      else {
+        const top = db.get('SELECT MAX(seq) AS s FROM messages WHERE session_id = ?', sid);
+        seq = top && top.s != null ? top.s + 1 : 0;
+        db.run('INSERT INTO messages (session_id, seq, id, role, text, via, json) VALUES (?, ?, ?, ?, ?, ?, ?)', sid, seq, String(m.id), String(m.role || 'assistant'), text, m.via ? String(m.via) : null, JSON.stringify(m));
+      }
+      db.run('DELETE FROM messages_fts WHERE session_id = ? AND seq = ?', sid, seq);
+      if (!row.incognito && text.trim()) db.run('INSERT INTO messages_fts (text, session_id, seq, role) VALUES (?, ?, ?, ?)', fold(text), sid, seq, String(m.role || 'assistant'));
+      let meta = {}; try { meta = JSON.parse(row.meta || '{}'); } catch {}
+      const now = Date.now();
+      meta = { ...meta, ...(patch || {}), updatedAt: now };
+      db.run('UPDATE sessions SET meta = ?, updated_at = ?, seq = ?, writer = ?, hash = ? WHERE id = ?', JSON.stringify(meta), now, db.nextSeq(), String(writer), '', sid);
+      hashes.set(sid, '');
+      if (!final) return null;
+      const back = get(sid);
+      const h = sha1(JSON.stringify(back)) + ':' + row.ord;
+      db.run('UPDATE sessions SET hash = ? WHERE id = ?', h, sid); hashes.set(sid, h);
+      return back;
+    });
+  }
+
+  /**
+   * Chats from another Artemis (migration). Each chat is written as it is, ids and timestamps kept. A chat that is already
+   * here: skipped when the content is the same, otherwise the incoming messages that are new (by message id) are added.
+   * Returns { added, merged, skipped, failed: [{ id, error }] }.
+   */
+  function importChats(list, { writer = 'import' } = {}) {
+    const out = { added: 0, merged: 0, skipped: 0, failed: [] };
+    db.tx(() => {
+      const top = db.get('SELECT MAX(ord) AS o FROM sessions WHERE deleted_at IS NULL');
+      let ord = top && top.o != null ? top.o + 1 : 0;
+      for (const c of Array.isArray(list) ? list : []) {
+        try {
+          if (!c || c.id == null || !Array.isArray(c.messages)) throw new Error('not a chat');
+          const id = String(c.id);
+          const cur = get(id);
+          if (!cur) { writeChat(c, ord++, '', writer); out.added++; continue; }
+          const have = new Set(cur.messages.map((m) => m && m.id).filter(Boolean));
+          const extra = c.messages.filter((m) => m && m.id && !have.has(m.id));
+          if (!extra.length) { out.skipped++; continue; }
+          const r = db.get('SELECT ord FROM sessions WHERE id = ?', id);
+          writeChat({ ...cur, ...c, messages: [...cur.messages, ...extra], updatedAt: Math.max(Number(cur.updatedAt) || 0, Number(c.updatedAt) || 0) }, r ? r.ord : ord++, '', writer);
+          out.merged++;
+        } catch (e) { out.failed.push({ id: c && c.id != null ? String(c.id) : '?', error: e.message }); }
+      }
+    });
+    return out;
+  }
+
+  /** Changes chat fields (title, pinned, projectId...) without touching the messages. Returns the chat or null. */
+  function patchChat(id, patch, { writer = defaultWriter } = {}) {
+    const sid = String(id);
+    const row = db.get('SELECT * FROM sessions WHERE id = ? AND deleted_at IS NULL', sid);
+    if (!row) return null;
+    let meta = {}; try { meta = JSON.parse(row.meta || '{}'); } catch {}
+    const allowed = {};
+    for (const k of ['title', 'pinned', 'projectId', 'model', 'env', 'brain', 'tools', 'agents', 'effort', 'perm', 'shell', 'councilPick']) if (patch && patch[k] !== undefined) allowed[k] = patch[k];
+    meta = { ...meta, ...allowed };
+    db.tx(() => {
+      db.run('UPDATE sessions SET meta = ?, title = ?, project_id = ?, seq = ?, writer = ?, hash = ? WHERE id = ?', JSON.stringify(meta), String(meta.title || ''), meta.projectId == null ? null : String(meta.projectId), db.nextSeq(), String(writer), '', sid);
+      db.run('DELETE FROM titles_fts WHERE session_id = ?', sid);
+      if (!row.incognito && meta.title) db.run('INSERT INTO titles_fts (title, session_id) VALUES (?, ?)', fold(meta.title), sid);
+    });
+    hashes.set(sid, '');
+    return get(sid);
+  }
+  /** Replaces all messages of a chat (compact, edit, regenerate), keeping its place and fields. */
+  function setMessages(id, messages, { writer = defaultWriter } = {}) {
+    const sid = String(id);
+    return db.tx(() => {
+      const c = get(sid);
+      if (!c) return null;
+      const r = db.get('SELECT ord FROM sessions WHERE id = ?', sid);
+      writeChat({ ...c, messages, updatedAt: Date.now() }, r ? r.ord : 0, '', writer);
+      return get(sid);
+    });
+  }
+  /** Drops a message and everything after it (edit and regenerate start again from there). */
+  function truncateFrom(id, msgId, { writer = defaultWriter } = {}) {
+    const c = get(String(id));
+    if (!c) return null;
+    const i = c.messages.findIndex((m) => m && m.id === msgId);
+    if (i < 0) return null;
+    return setMessages(id, c.messages.slice(0, i), { writer });
+  }
+
+  /** Moves a chat to the 30-day trash. */
+  function remove(id, { writer = defaultWriter } = {}) {
+    const sid = String(id);
+    if (!db.get('SELECT id FROM sessions WHERE id = ? AND deleted_at IS NULL', sid)) return false;
+    db.tx(() => softDelete(sid, writer));
+    return true;
+  }
+
   /** Removes chats deleted more than `days` ago for good. */
   function purge(days = 30) {
     const old = db.all('SELECT id FROM sessions WHERE deleted_at IS NOT NULL AND deleted_at < ?', Date.now() - days * DAY);
@@ -240,7 +384,7 @@ function createSessions({ db, log = () => {}, writer: defaultWriter = 'app', med
 
   /** Chats deleted in the last `days` days (for an undo / restore view). */
   const trash = (days = 30) => db.all('SELECT id, title, deleted_at FROM sessions WHERE deleted_at IS NOT NULL AND deleted_at >= ? ORDER BY deleted_at DESC', Date.now() - days * DAY);
-  return { sync, syncDelta, changesSince, seq: () => db.seq(), toArray, get, count, recent, search, read, turns, appendTurn, purge, trash, migrateMedia, gcMedia };
+  return { sync, syncDelta, changesSince, seq: () => db.seq(), toArray, get, count, recent, page, search, read, turns, appendTurn, startTurn, putMessage, importChats, patchChat, remove, setMessages, truncateFrom, purge, trash, migrateMedia, gcMedia };
 }
 
 module.exports = { createSessions };

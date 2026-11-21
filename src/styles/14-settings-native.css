@@ -235,3 +235,4 @@
 .adv-badge.off { color: var(--text-2); }
 .adv-prompt-body { display: flex; flex-direction: column; gap: 8px; padding: 2px 0 12px; }
 .adv-prompt-body textarea { width: 100%; font-family: var(--font-mono, ui-monospace, monospace); font-size: 12px; line-height: 1.5; }
+.server-code { font-family: var(--font-mono); font-size: 20px; letter-spacing: 2px; color: var(--text); user-select: all; }
