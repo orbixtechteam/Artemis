@@ -10,3 +10,5 @@ release
 *.log
 vite.config.mjs.timestamp-*
 finetune
+# the server's data when run from this folder for a test (artemis gateway --data ./...)
+artemis-server*/

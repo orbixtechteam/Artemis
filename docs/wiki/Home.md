@@ -44,6 +44,8 @@ New here? Start with [Getting Started](Getting-Started.md).
 - [Phone (Telegram)](Phone-Telegram.md)
 - [MCP](MCP.md): connectors, and Artemis as an MCP server for Claude Code
 - [Gateway and command line](Gateway.md): the local API, `artemis` CLI and the headless mode
+- [Home Server](Home-Server.md): run Artemis on an always-on machine; the desktop, phone and web app connect to it at the same time
+- [Phone and web app](Mobile-App.md): the iPhone, Android and web app, and how to install it
 - [Sandbox](Sandbox.md): terminal commands in Docker or over SSH
 
 ## Security and help

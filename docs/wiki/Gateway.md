@@ -36,7 +36,11 @@ pnpm link --global      # optional: makes `artemis` available everywhere
 | `artemis memory search <words>` | Searches long-term memory |
 | `artemis memory list` / `add <text>` / `note <text>` | The `MEMORY.md` list, add a fact, add a daily note line |
 | `artemis token` | Prints the gateway address and token |
+| `artemis pair [--label text]` | A pairing code for the desktop, phone or web app (works once, 10 minutes) |
+| `artemis clients` / `artemis revoke <id>` | Paired devices / take one's access away |
 | `artemis service install` / `status` / `uninstall` | Runs the gateway as a background service (see below) |
+
+Server flags for `artemis gateway` (see [Home Server](Home-Server.md)): `--host 0.0.0.0` (listen beyond this computer), `--public-host artemis.example.com` (the tunnel's hostname), `--allow-origin <address>` (a web app hosted elsewhere), `--web <folder>` (serve the web app), `--keys-from app` (on the same Mac, use the desktop app's provider keys). The same as environment variables: `ARTEMIS_PUBLIC_HOSTS`, `ARTEMIS_ALLOWED_ORIGINS`, `ARTEMIS_WEB_ROOT`, `ARTEMIS_MASTER_KEY`.
 
 `--data <folder>` picks another data folder (default: the desktop app's, or `$ARTEMIS_HOME`). `--json` prints raw events. When a task wants to do something that needs approval, the command line asks `[y/N]`.
 
@@ -63,7 +67,7 @@ The app stores keys encrypted with the operating system. The headless gateway re
 
 ## API
 
-All requests need `Authorization: Bearer <token>`. Requests with an `Origin` header (from a web page) are refused.
+All requests need `Authorization: Bearer <token>`: the gateway token, or the token of a paired device. Only `GET /v1/ping` and `POST /v1/pair { code, name, kind }` work without one. Requests with an `Origin` header (from a web page) are refused unless the origin is the gateway's own web app or listed with `--allow-origin`.
 
 | Method and path | Body / query | Answer |
 | --- | --- | --- |
@@ -73,6 +77,8 @@ All requests need `Authorization: Bearer <token>`. Requests with an `Origin` hea
 | `GET /v1/sessions/<id>` | `?last=20` | `{ id, title, turns }` |
 | `GET /v1/search` | `?q=…&limit=8` | Chat search hits |
 | `GET /v1/runs` / `POST /v1/runs/<id>/abort` | | Running tasks / stop one |
+| `GET /v1/runs/<id>/events` | `?after=<seq>` | The run's events again from a point: a client that lost its connection picks the answer up (`POST /v1/chat` with `detach: true` keeps the run going when the client leaves) |
+| `GET /v1/x/<area>/…` | | What the phone and web app use: projects (and their files), sessions, settings, models, connectors, agents, schedules, notes, files, artifacts, skills, usage, themes, and `sync` for the desktop |
 | `POST /v1/approvals/<id>` | `{ approve: true }` | Answers a `tool:approval` event |
 | `GET /v1/memory` | `?q=…&limit=6` | Memory search hits `{ path, from, to, text, score }` |
 | `GET /v1/memory/list` / `POST /v1/memory` / `POST /v1/memory/note` | `{ text }` | The fact list / add a fact / add a daily note line |

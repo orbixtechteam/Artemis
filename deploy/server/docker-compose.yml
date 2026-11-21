@@ -1,0 +1,41 @@
+# Artemis home server. From the repository root:
+#   cp deploy/server/env.example deploy/server/.env      # then edit it
+#   docker compose -f deploy/server/docker-compose.yml up -d --build
+#   docker compose -f deploy/server/docker-compose.yml exec artemis node bin/artemis.js pair
+# Point your https tunnel or reverse proxy (Cloudflare Tunnel, ngrok, Tailscale, Caddy...) at http://localhost:8789
+# (see docs/wiki/Home-Server.md).
+services:
+  artemis:
+    build:
+      context: ../..
+      dockerfile: deploy/server/Dockerfile
+    image: artemis-server:latest
+    container_name: artemis
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      ARTEMIS_HOME: /data
+    ports:
+      - "127.0.0.1:8789:8789"     # this machine only: the tunnel or proxy on the host connects here
+    volumes:
+      - artemis-data:/data          # chats (artemis.db), memory, settings, keys (encrypted), backups, files/ the agent makes
+    shm_size: "1gb"                 # Chromium for the browser tools
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8789/v1/ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+
+  # Optional: cloudflared in a container instead of on the host. Put TUNNEL_TOKEN in .env and, in the Cloudflare
+  # dashboard, point the tunnel's public hostname at http://artemis:8789.
+  # cloudflared:
+  #   image: cloudflare/cloudflared:latest
+  #   restart: unless-stopped
+  #   command: tunnel --no-autoupdate run
+  #   environment:
+  #     TUNNEL_TOKEN: ${TUNNEL_TOKEN}
+  #   depends_on: [artemis]
+
+volumes:
+  artemis-data:

@@ -40,6 +40,7 @@ function buildSystem({ taskNote, personality, makeEnabled, custom, project, root
   if (project && (project.name || project.instructions)) {
     parts.push(`Active project: "${project.name || 'untitled'}"` + (project.instructions ? `\nProject instructions:\n${project.instructions}` : ''));
   }
+  if (project && Array.isArray(project.knowledge) && project.knowledge.length) parts.push(require('./core/project-files').knowledgeText(project.knowledge));
   if (root) {
     const where = defaultRoot ? pick('files.default', `No project is selected, so files you create go to the user's Artemis folder: ${root}\nNever fake a file download with an HTML page: create real files with write_spreadsheet / write_file and tell the user the file name.`) : pick('files.project', `Project folder: ${root}`);
     const how = pick('files.tools', `You can use the file tools (list_dir, read_file, search_files, write_file, edit_file, write_spreadsheet, create_document, create_diagram, update_cells, ` +
