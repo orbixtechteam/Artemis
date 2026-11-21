@@ -32,7 +32,7 @@ const MIN_PASSWORD = 6;
 // screen so Sentinel can hear its owner. Everything that acts, or shows content, is listed here.
 const BLOCKED_WHILE_LOCKED = [
   /^chat:/, /^tool:/, /^term:/, /^files:/, /^library:/, /^notes:/, /^mcp:/, /^mcpserver:/, /^make:/, /^schedule:/, /^artifact:/, /^sheet:/,
-  /^media:/, /^import:/, /^dialog:/, /^shell:/, /^phone:/, /^float:/, /^project:/, /^profile:(pick|clear)/, /^artemis:/, /^claude:/,
+  /^media:/, /^import:/, /^dialog:/, /^shell:/, /^phone:/, /^server:/, /^float:/, /^project:/, /^profile:(pick|clear)/, /^artemis:/, /^claude:/,
   /^providers:(save|delete|test)$/, /^skills:(save|delete|import|toggle|get)$/, /^agents:(save|delete)$/, /^brains:(save|delete)$/,
   /^settings:set$/, /^browser:(open|navigate|nav|tab-new|external)$/, /^quick:handoff$/, /^palette:run$/, /^sentinel:(ask|copy|download|delete)$/,
   /^voice:transcribe$/, /^wakeword:(download|preset|import|remove)$/, /^update:(download|install)$/, /^perm:request$/, /^memory:free$/, /^usage:clear$/, /^logs:clear$/, /^themes:(delete|import)$/

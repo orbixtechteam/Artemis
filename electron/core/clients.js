@@ -32,11 +32,13 @@ const codeHash = (code) => sha256('pair:' + normCode(code));
  */
 function createClients({ file, now = () => Date.now(), log = () => {}, ttlMs = 10 * 60 * 1000, maxFailures = 8, windowMs = 10 * 60 * 1000 } = {}) {
   if (!file) throw new Error('createClients needs a file');
+  let loadedAt = 0; // mtime of the file we read: the app and the headless gateway share it, so a newer file is read again
   let state = load();
   let saveTimer = null;
   const failures = new Map(); // key -> [times]
 
   function load() {
+    try { loadedAt = fs.statSync(file).mtimeMs; } catch { loadedAt = 0; }
     try {
       const d = JSON.parse(fs.readFileSync(file, 'utf8'));
       return { clients: Array.isArray(d.clients) ? d.clients : [], pairing: Array.isArray(d.pairing) ? d.pairing : [] };
@@ -49,6 +51,13 @@ function createClients({ file, now = () => Date.now(), log = () => {}, ttlMs = 1
     fs.writeFileSync(tmp, JSON.stringify(state, null, 2), { mode: 0o600 });
     fs.renameSync(tmp, file);
     try { fs.chmodSync(file, 0o600); } catch {}
+    try { loadedAt = fs.statSync(file).mtimeMs; } catch {}
+  }
+  /** Reads the file again when another process changed it (and nothing of ours is waiting to be written). */
+  function fresh() {
+    if (saveTimer) return;
+    let m = 0; try { m = fs.statSync(file).mtimeMs; } catch { return; }
+    if (m !== loadedAt) state = load();
   }
   const saveSoon = () => { if (!saveTimer) { saveTimer = setTimeout(save, 2000); if (saveTimer.unref) saveTimer.unref(); } };
   const prune = () => { const t = now(); state.pairing = state.pairing.filter((p) => p.expiresAt > t); };
@@ -64,6 +73,7 @@ function createClients({ file, now = () => Date.now(), log = () => {}, ttlMs = 1
 
   /** A new single-use pairing code. label: shown in the client list later ("from the console"). */
   function createPairing({ label = '', ttl = ttlMs } = {}) {
+    fresh();
     prune();
     if (state.pairing.length >= 5) state.pairing.sort((a, b) => a.createdAt - b.createdAt).shift(); // keep at most 5 open codes
     const code = randomCode();
@@ -85,6 +95,7 @@ function createClients({ file, now = () => Date.now(), log = () => {}, ttlMs = 1
    * Throws { status: 429 } when blocked, { status: 401 } for a wrong or expired code.
    */
   function exchange(code, { name = '', kind = 'other', from = '' } = {}) {
+    fresh();
     const ipKey = 'ip:' + (from || '?');
     if (blocked('all') || blocked(ipKey)) throw Object.assign(new Error('Too many wrong pairing codes. Wait a few minutes and create a new code.'), { status: 429 });
     prune();
@@ -102,6 +113,7 @@ function createClients({ file, now = () => Date.now(), log = () => {}, ttlMs = 1
 
   /** The client a bearer token belongs to, or null. Revoked clients get null. */
   function verify(token) {
+    fresh();
     const m = /^art_([a-f0-9]{16})\.([A-Za-z0-9_-]{20,})$/.exec(String(token || ''));
     if (!m) return null;
     const c = state.clients.find((x) => x.id === m[1]);
@@ -112,8 +124,9 @@ function createClients({ file, now = () => Date.now(), log = () => {}, ttlMs = 1
     return pub(c);
   }
 
-  const list = () => state.clients.map(pub);
+  const list = () => { fresh(); return state.clients.map(pub); };
   function revoke(id) {
+    fresh();
     const c = state.clients.find((x) => x.id === id);
     if (!c) return false;
     if (!c.revokedAt) { c.revokedAt = now(); c.secretHash = ''; save(); log('info', `client revoked: ${c.name} (${c.id})`); }
@@ -121,6 +134,7 @@ function createClients({ file, now = () => Date.now(), log = () => {}, ttlMs = 1
   }
   /** Removes a revoked client from the list for good. */
   function remove(id) {
+    fresh();
     const n = state.clients.length;
     state.clients = state.clients.filter((x) => !(x.id === id && x.revokedAt));
     if (state.clients.length !== n) { save(); return true; }
@@ -128,6 +142,7 @@ function createClients({ file, now = () => Date.now(), log = () => {}, ttlMs = 1
   }
   /** A new token for a client; the old one stops working at once. */
   function rotate(id) {
+    fresh();
     const c = state.clients.find((x) => x.id === id && !x.revokedAt);
     if (!c) return null;
     const token = issue(c);
@@ -137,12 +152,13 @@ function createClients({ file, now = () => Date.now(), log = () => {}, ttlMs = 1
     return { client: pub(c), token };
   }
   function rename(id, name) {
+    fresh();
     const c = state.clients.find((x) => x.id === id);
     if (!c) return null;
     c.name = clean(name, 60) || c.name; save();
     return pub(c);
   }
-  const openCodes = () => { prune(); return state.pairing.map((p) => ({ createdAt: p.createdAt, expiresAt: p.expiresAt, label: p.label })); };
+  const openCodes = () => { fresh(); prune(); return state.pairing.map((p) => ({ createdAt: p.createdAt, expiresAt: p.expiresAt, label: p.label })); };
   const flush = () => { if (saveTimer) save(); };
 
   return { createPairing, exchange, verify, list, revoke, remove, rotate, rename, openCodes, flush, reload: () => { state = load(); } };

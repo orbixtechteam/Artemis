@@ -1,7 +1,7 @@
 // The Artemis gateway: one HTTP API in front of the agent, so other clients (the CLI, scripts, the desktop app in
 // "Home server" mode, the mobile and web app) talk to the same agent, sessions and memory.
 // Runs inside the desktop app (Settings → Gateway) or headless (electron/core/headless.js, `artemis gateway`), e.g. on a
-// home server behind a Cloudflare Tunnel.
+// home server behind an https tunnel or reverse proxy.
 //
 // Security
 //   - every /v1 call needs "Authorization: Bearer <token>": the gateway's own token (the CLI on the same machine), or a
@@ -48,6 +48,7 @@ const crypto = require('crypto');
 const { createRunHub } = require('./runhub');
 
 const MAX_BODY = 2 * 1024 * 1024;
+const MAX_CHAT_BODY = 40 * 1024 * 1024; // a chat turn may carry photos and files
 const newToken = () => crypto.randomBytes(24).toString('base64url');
 const newId = (p) => p + crypto.randomBytes(6).toString('hex');
 const LOOPBACK = /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i;
@@ -101,10 +102,10 @@ function createGateway({ host = '127.0.0.1', port = 8789, token, clients = null,
   const fail = (res, status, message) => json(res, status, { ok: false, error: message });
   const bad = (status, message) => Object.assign(new Error(message), { status });
 
-  function readBody(req) {
+  function readBody(req, max = MAX_BODY) {
     return new Promise((resolve, reject) => {
       let size = 0; const parts = [];
-      req.on('data', (c) => { size += c.length; if (size > MAX_BODY) { reject(bad(413, 'Body too large')); req.destroy(); } else parts.push(c); });
+      req.on('data', (c) => { size += c.length; if (size > max) { reject(bad(413, 'Body too large')); req.destroy(); } else parts.push(c); });
       req.on('end', () => {
         const raw = Buffer.concat(parts).toString('utf8');
         if (!raw.trim()) return resolve({});
@@ -141,7 +142,7 @@ function createGateway({ host = '127.0.0.1', port = 8789, token, clients = null,
   }
 
   async function chat(req, res, client) {
-    const body = await readBody(req);
+    const body = await readBody(req, client ? MAX_CHAT_BODY : MAX_BODY);
     const message = String(body.message || '').trim();
     const attachments = Array.isArray(body.attachments) ? body.attachments.slice(0, 10) : [];
     if (!message && !attachments.length) return fail(res, 400, 'message is required');
@@ -153,7 +154,7 @@ function createGateway({ host = '127.0.0.1', port = 8789, token, clients = null,
     const detach = body.detach === true;
     const who = client ? { id: client.id, name: client.name, kind: client.kind } : null;
     hub.start({ runId, sessionId, client: who, abort: () => handlers.abort(runId),
-      exec: (emit, ctx) => handlers.chat({ runId, sessionId, message, model: body.model ? String(body.model) : '', projectId: body.project_id ? String(body.project_id) : null, client: who, attachments, clientMessageId: body.client_message_id ? String(body.client_message_id).slice(0, 64) : '' }, emit, ctx) });
+      exec: (emit, ctx) => handlers.chat({ runId, sessionId, message, model: body.model ? String(body.model) : '', projectId: body.project_id ? String(body.project_id) : null, client: who, attachments, clientMessageId: body.client_message_id ? String(body.client_message_id).slice(0, 64) : '', options: body.options && typeof body.options === 'object' ? body.options : {} }, emit, ctx) });
     if (stream) {
       sseHead(res, { 'x-run-id': runId });
       return follow(res, runId, 0, () => { const r = hub.get(runId); if (!detach && r && !r.ended) { log('info', `gateway client left, stopping run ${runId}`); hub.abort(runId); } });
@@ -264,7 +265,7 @@ function createGateway({ host = '127.0.0.1', port = 8789, token, clients = null,
     }
     if (seg[1] === 'x' && seg[2] && handlers.extra) {
       let cached = null;
-      const out = await handlers.extra(seg[2], { method: m, parts: seg.slice(3), query: u.searchParams, body: () => (cached || (cached = readBody(req))), req, res, client });
+      const out = await handlers.extra(seg[2], { method: m, parts: seg.slice(3), query: u.searchParams, body: () => (cached || (cached = readBody(req, client ? MAX_CHAT_BODY : MAX_BODY))), req, res, client });
       if (out === null) return; // the handler answered itself (a stream or a file)
       if (out !== undefined) return json(res, 200, { ok: true, ...out });
     }
@@ -301,6 +302,13 @@ function createGateway({ host = '127.0.0.1', port = 8789, token, clients = null,
         const out = clients.exchange(String(b.code || ''), { name: b.name, kind: b.kind, from: remoteOf(req) });
         const i = handlers.info ? handlers.info() : {};
         return json(res, 200, { ok: true, ...out, server: { name: i.serverName || 'Artemis', version: i.version || '', mode: i.mode || '' } });
+      }
+      // the end of a connector sign-in started from a paired app: the provider sends the browser here (the state is the secret)
+      if (req.method === 'GET' && /^\/v1\/oauth\/callback\/?$/.test(pth) && handlers.oauthCallback) {
+        const q = new URL(req.url, 'http://gateway.local').searchParams;
+        const r = await handlers.oauthCallback({ code: q.get('code') || '', state: q.get('state') || '', error: q.get('error_description') || q.get('error') || '' });
+        res.writeHead(r.ok ? 200 : 400, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-frame-options': 'DENY', 'referrer-policy': 'no-referrer', 'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'" });
+        return res.end(r.html);
       }
       const auth = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
       let client = null;

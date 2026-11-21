@@ -309,7 +309,7 @@ function createSessions({ db, log = () => {}, writer: defaultWriter = 'app', med
     if (!row) return null;
     let meta = {}; try { meta = JSON.parse(row.meta || '{}'); } catch {}
     const allowed = {};
-    for (const k of ['title', 'pinned', 'projectId', 'model', 'env']) if (patch && patch[k] !== undefined) allowed[k] = patch[k];
+    for (const k of ['title', 'pinned', 'projectId', 'model', 'env', 'brain', 'tools', 'agents', 'effort', 'perm', 'shell', 'councilPick']) if (patch && patch[k] !== undefined) allowed[k] = patch[k];
     meta = { ...meta, ...allowed };
     db.tx(() => {
       db.run('UPDATE sessions SET meta = ?, title = ?, project_id = ?, seq = ?, writer = ?, hash = ? WHERE id = ?', JSON.stringify(meta), String(meta.title || ''), meta.projectId == null ? null : String(meta.projectId), db.nextSeq(), String(writer), '', sid);
@@ -319,6 +319,26 @@ function createSessions({ db, log = () => {}, writer: defaultWriter = 'app', med
     hashes.set(sid, '');
     return get(sid);
   }
+  /** Replaces all messages of a chat (compact, edit, regenerate), keeping its place and fields. */
+  function setMessages(id, messages, { writer = defaultWriter } = {}) {
+    const sid = String(id);
+    return db.tx(() => {
+      const c = get(sid);
+      if (!c) return null;
+      const r = db.get('SELECT ord FROM sessions WHERE id = ?', sid);
+      writeChat({ ...c, messages, updatedAt: Date.now() }, r ? r.ord : 0, '', writer);
+      return get(sid);
+    });
+  }
+  /** Drops a message and everything after it (edit and regenerate start again from there). */
+  function truncateFrom(id, msgId, { writer = defaultWriter } = {}) {
+    const c = get(String(id));
+    if (!c) return null;
+    const i = c.messages.findIndex((m) => m && m.id === msgId);
+    if (i < 0) return null;
+    return setMessages(id, c.messages.slice(0, i), { writer });
+  }
+
   /** Moves a chat to the 30-day trash. */
   function remove(id, { writer = defaultWriter } = {}) {
     const sid = String(id);
@@ -364,7 +384,7 @@ function createSessions({ db, log = () => {}, writer: defaultWriter = 'app', med
 
   /** Chats deleted in the last `days` days (for an undo / restore view). */
   const trash = (days = 30) => db.all('SELECT id, title, deleted_at FROM sessions WHERE deleted_at IS NOT NULL AND deleted_at >= ? ORDER BY deleted_at DESC', Date.now() - days * DAY);
-  return { sync, syncDelta, changesSince, seq: () => db.seq(), toArray, get, count, recent, page, search, read, turns, appendTurn, startTurn, putMessage, importChats, patchChat, remove, purge, trash, migrateMedia, gcMedia };
+  return { sync, syncDelta, changesSince, seq: () => db.seq(), toArray, get, count, recent, page, search, read, turns, appendTurn, startTurn, putMessage, importChats, patchChat, remove, setMessages, truncateFrom, purge, trash, migrateMedia, gcMedia };
 }
 
 module.exports = { createSessions };

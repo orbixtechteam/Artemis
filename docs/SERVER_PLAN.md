@@ -1,6 +1,6 @@
 # Artemis server, desktop client and mobile/web app
 
-Status: 2026-11-21. Phase 1 (audit, decisions) and Phase 2 (server API, pairing, client auth) are done. The rest is below, in order.
+Status: 2026-11-21. All phases have a first implementation (see "Done" sections and "Open items"). User guide: docs/wiki/Home-Server.md.
 
 ## Decisions (agreed with Ulvi)
 
@@ -33,6 +33,12 @@ New files: `electron/core/clients.js` (paired clients), `core/runhub.js` (runs t
 - **Extra areas.** `/v1/x/models`, `/v1/x/projects`, `POST|DELETE /v1/x/sessions/:id` (rename, pin, move, delete). Phase 5 adds the rest here.
 - The in-app gateway (Settings → Gateway) and the CLI are unchanged for existing users.
 
+## Done: Settings → Server & devices (desktop)
+
+- **Connect to a server**: address + pairing code + this computer's name → `electron/server-link.js` pairs (`POST /v1/pair`, kind `desktop`), keeps the token with the OS encryption (`serverTokenEnc`), shows online / offline / revoked, "Disconnect" also revokes the token on the server.
+- **Use this Mac as a server**: the in-app gateway now has pairing too (`<userData>/clients.json`, shared with the headless gateway, re-read when the other process changes it). Public address (tunnel hostname) and web app origins are saved as `serverPublicHosts` / `serverAllowedOrigins` and used by both gateways. "New code" makes a pairing code; the device list shows kind and last use, with Revoke / Remove. While the headless gateway runs, these calls go to it.
+- `server:*` IPC is blocked while the app is locked. Tests: `scripts/test-server-link.js`.
+
 ## Phase 3: migration (desktop → server)
 
 - Desktop: Settings → Server → "Move my data to the server". Pick Everything or: chats, projects, memory (workspace files), skills, agents, teams, media, settings; schedules/heartbeats/webhooks/Telegram each with "move" or "keep here".
@@ -63,3 +69,17 @@ Server side for these: `/v1/x/settings`, `/v1/x/providers`, `/v1/x/schedules`, `
 ## Phase 7: verification
 
 Tests for migration (retry, bad paths, hashes, backup), routing (no local tools in server runs), server restart and restore, Expo connect/stream/resume/revoke, and a migration of a copy of a real data folder.
+
+## Done: Phases 3 to 6 (first implementation)
+
+- **Migration**: `electron/migrate-export.js` (desktop, read-only) → `core/migrate-import.js` (server): manifest, per-file PUT with size and sha256 checks, resumable, `commit` with a backup first, idempotent merge, report. Secrets only on request, re-encrypted by `core/secret-store.js` (AES-256-GCM, `ARTEMIS_MASTER_KEY`). Connector secrets become `sec:` references. UI: Settings → Server & devices → Move my data. Test: `scripts/test-migrate.js`.
+- **Desktop client**: server chats are in the main window's list (`remote: true`, loaded on open, refreshed every 15 s; a chat this Mac also has is shown from the server and the local copy is kept untouched). The composer has Server / This Mac; Settings → Server & devices sets the default for new chats (`defaultRunEnv`). Each turn: "Home server" (`/v1/chat`, detached, resumed) or "This computer" (`executeRun` with the server chat as history, saved back with `POST /v1/x/sessions/:id/turn`, `env: 'local'`). No silent fallback. `electron/server-chat.js`, test `scripts/test-server-chat.js`.
+- **Expo app** `mobile/`: connect (URL + code, QR, `artemis://connect` links), chats (search, pin, rename, delete, paging), chat (stream, resume after background, stop, approvals, pictures, model), projects, memory, settings (default model, provider keys, devices and pairing, appearance, disconnect). Test: `mobile/scripts/test-lib.mjs`.
+- **Deployment**: `deploy/server/` Dockerfile (server + web app), docker-compose, env.example, backup/restore; QR code for pairing in the desktop.
+
+## Open items
+
+- Files made on the server: listed with "on the server", no download yet (`/v1/x/files` to add). Upload of local files for a server turn: pictures only.
+- Questions from `ask_user` on a server run can only be answered on the desktop.
+- Mobile: markdown is plain text with code blocks; schedules, teams, skills and connectors are not editable from the phone yet.
+- Nothing here was run in the real Electron app, on a phone or in Docker yet: only the Node tests. First manual run will find UI details.

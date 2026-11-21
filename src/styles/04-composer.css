@@ -29,3 +29,9 @@
 .chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chip-note { color: var(--muted); font-size: var(--fs-xs); }
 .chip button { background: none; border: none; color: var(--muted); padding: 0 2px; }
+
+/* where a turn of a server chat runs: Server / This Mac */
+.env-switch { display: inline-flex; border: 1px solid var(--line-2); border-radius: var(--r-full); padding: 2px; margin-right: 6px; }
+.env-switch button { border: 0; background: transparent; color: var(--muted); font: inherit; font-size: var(--fs-xs); padding: 3px 10px; border-radius: var(--r-full); cursor: pointer; }
+.env-switch button.on { background: var(--fill-2); color: var(--text); }
+.env-switch button:disabled { cursor: default; opacity: .6; }

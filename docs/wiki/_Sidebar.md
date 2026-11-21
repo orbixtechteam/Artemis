@@ -36,6 +36,8 @@
 - [Phone (Telegram)](Phone-Telegram.md)
 - [MCP](MCP.md)
 - [Gateway and CLI](Gateway.md)
+- [Home Server](Home-Server.md)
+- [Phone and web app](Mobile-App.md)
 
 **Security and help**
 - [Security and App Lock](Security-and-App-Lock.md)

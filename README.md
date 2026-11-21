@@ -5,7 +5,7 @@
 **An open-source AI agent that lives on your computer.** It reads your files, runs your commands, browses the web and remembers what you tell it. You pick the model. You keep the data. You press approve.
 
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-1.2.0-orange.svg)
+![Version](https://img.shields.io/badge/version-1.9.0-orange.svg)
 ![Platform](https://img.shields.io/badge/macOS-Apple%20silicon-lightgrey.svg)
 ![Electron](https://img.shields.io/badge/Electron-React%20%2B%20Vite-47848f.svg)
 
@@ -34,6 +34,8 @@ Chats, notes and memory are plain files on your disk. Every line of code is open
 - **Heartbeat and webhooks**: a short checklist checked every few minutes that stays silent unless something needs you, and webhooks that let GitHub, Stripe, forms or n8n start runs (optionally on the internet through a Cloudflare tunnel).
 - **Long-term memory**: plain Markdown files (`SOUL.md`, `USER.md`, `MEMORY.md`, one daily note per day), searched by keywords and optionally by meaning; lasting facts are saved automatically before a long chat is compacted.
 - **Notes**: Markdown notes with folders, search, `[[wiki links]]` and a graph.
+- **Home server, phone and web app**: run Artemis on an always-on machine (Docker, behind any https tunnel or reverse proxy: Cloudflare Tunnel, ngrok, Tailscale, Caddy…) and use it from the desktop app, an iPhone or Android app and the browser at the same time. Devices pair with one-time codes; answers keep running on the server and the apps pick them up again. One click moves your chats, projects, memory, connectors and keys there, and the desktop keeps it in step. Per chat, run an answer on the server or on this Mac. See [Home Server](docs/wiki/Home-Server.md) and [Phone and web app](docs/wiki/Mobile-App.md).
+- **Project files**: add PDF, Word, Excel or text files to a project; their text goes with every chat in it, next to the project instructions.
 - **Gateway and command line**: a local API and an `artemis` command (`artemis chat`, `artemis search`, `artemis memory search`), and a headless mode (`artemis gateway`) that runs the agent, chats, memory and scheduled tasks without a window.
 - **Chats in SQLite**: saved chats live in `artemis.db` with full-text search (`chats.json` is still written as a backup copy).
 - **Voice (Sentinel)**: wake word or push-to-talk, speech recognition on your machine, local voices (Piper, Kokoro, Chatterbox or any OpenAI-compatible speech endpoint), and a floating widget that stays on screen.
@@ -74,6 +76,7 @@ The wiki explains how to use every feature, step by step. Start at [docs/wiki/Ho
 | Agents and automation | [Sub-Agents](docs/wiki/Sub-Agents.md) · [Brains](docs/wiki/Brains.md) · [Skills](docs/wiki/Skills.md) · [Scheduled Tasks](docs/wiki/Scheduled-Tasks.md) · [Heartbeat and Webhooks](docs/wiki/Heartbeat-and-Webhooks.md) · [Make](docs/wiki/Make.md) |
 | Tools and control | [Tools and Approvals](docs/wiki/Tools-and-Approvals.md) · [Terminal](docs/wiki/Terminal.md) · [Browser](docs/wiki/Browser.md) · [Computer Control](docs/wiki/Computer-Control.md) |
 | Voice and integrations | [Sentinel Voice](docs/wiki/Sentinel-Voice.md) · [Phone (Telegram)](docs/wiki/Phone-Telegram.md) · [MCP](docs/wiki/MCP.md) · [Gateway and CLI](docs/wiki/Gateway.md) |
+| Server and apps | [Home Server](docs/wiki/Home-Server.md) · [Phone and web app](docs/wiki/Mobile-App.md) |
 | Security and help | [Security and App Lock](docs/wiki/Security-and-App-Lock.md) · [Troubleshooting](docs/wiki/Troubleshooting.md) |
 
 ## Install
@@ -108,7 +111,7 @@ Only the macOS arm64 build is packaged. Computer control, Touch ID and the macOS
 
 ### Chat, projects and files
 - **Chat**: streaming, Markdown, tables, code highlighting, copy, regenerate, search, rename (double-click).
-- **Projects**: each has a name, instructions and a folder; chats attach to a project.
+- **Projects**: each has a name, instructions, files (their text goes with every chat in the project) and a folder; chats attach to a project. Right-click a project or a chat for its menu; drag a chat onto a project to move it, or out of it to take it out.
 - **File tools** (confined to the project folder): list_dir, read_file, search_files, write_file, edit_file, create_folder, move_file, delete_file.
 - **Excel / CSV**: reads and writes `.xlsx .xls .ods .csv .tsv` (`write_spreadsheet`, `update_cells`, `=formula` support). Reads Word (`.docx`) and PDF.
 - **Attachments**: 📎, drag & drop or paste: Excel, CSV, Word, PDF, text/code, images. Attached files are kept in a **Files library** (default `Documents/Artemis/Files`) so you can reopen, edit and reuse them.
@@ -145,6 +148,7 @@ Full guides: [Sub-Agents](docs/wiki/Sub-Agents.md), [Brains](docs/wiki/Brains.md
 - **Gateway**: Settings → Access → Gateway starts a local HTTP API (`127.0.0.1`, bearer token, browser requests refused). Messages that come through it appear live as chats in the window. API: `POST /v1/chat` (server-sent events), `/v1/sessions`, `/v1/search`, `/v1/memory`, approvals and abort. See [Gateway](docs/wiki/Gateway.md).
 - **`artemis` command** (`bin/artemis.js`, Node.js 22.13+): `artemis chat "…"`, interactive `artemis chat`, `artemis sessions`, `artemis search …`, `artemis memory search|list|add|note …`.
 - **Headless**: `artemis gateway` runs the agent, saved chats, memory, skills, agents, scheduled tasks, Telegram, connectors, the browser (Playwright) and computer control (macOS) without Electron. It can run next to the app on the same data folder: chats are shared and merged, and the background jobs (scheduled tasks, Telegram, the API) move to the gateway while it runs. Provider keys come from environment variables, `headless.json` or the app's saved keys (macOS keychain).
+- **Server**: `artemis gateway --public-host … --web …` serves the phone and web app too; `artemis pair`, `artemis clients` and `artemis revoke` manage paired devices. Docker files are in `deploy/server/`. See [Home Server](docs/wiki/Home-Server.md).
 - **Sandbox**: Settings → Tools can run `run_command` in a Docker container (only the project folder, at `/workspace`) or on another machine over SSH. See [Sandbox](docs/wiki/Sandbox.md).
 
 ### MCP
@@ -210,7 +214,10 @@ Voice recognition needs `onnxruntime-node` (installed by `pnpm install`) and a ~
 
 ```
 electron/  main.js (window, wiring) · ipc/ (IPC handlers) · agent.js (tool loop) · tools.js · files.js · preload.js · …
+electron/core/  headless runtime: gateway (HTTP API), headless.js (server), sessions, pairing, migration, project files
 src/       React UI (App.jsx, components/, lib/, styles/)
+mobile/    the phone and web app (Expo, React Native; npm)
+deploy/server/  Dockerfile, docker-compose, backup and restore
 scripts/   tests (plain Node scripts) and helpers
 ```
 

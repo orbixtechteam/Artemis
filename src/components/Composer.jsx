@@ -127,7 +127,7 @@ function MicButton({ settings, onText, onVoiceSettings, onError }) {
 }
 
 /** The per-chat switches (project, brain, tools, agents, permissions) and the usage button. In the main chat they are stacked in the right bar (stacked), in a split pane they sit in its header. */
-export function ChatPills({ brains = [], brain, onBrain, councilPick, onRevote, tools, onTools, agents, onAgents, shell, onShell, effort = 'auto', onEffort, perm, onPerm, projectId, projects = [], onProject, incognito, settings, chatId, model, onUsageDetails, onOpenSettings, stacked }) {
+export function ChatPills({ brains = [], brain, onBrain, councilPick, onRevote, tools, onTools, agents, onAgents, shell, onShell, effort = 'auto', onEffort, perm, onPerm, projectId, projects = [], onProject, onNewProject, incognito, settings, chatId, model, onUsageDetails, onOpenSettings, stacked }) {
   return (
     <div className={`top-pills nodrag ${stacked ? 'stacked' : ''}`}>
       {onBrain && brains.length > 0 && (
@@ -173,9 +173,10 @@ export function ChatPills({ brains = [], brain, onBrain, councilPick, onRevote, 
         </Select>
       )}
       {onProject && (
-        <Select className="pill-select" title="Project" disabled={!!incognito} value={projectId || ''} onChange={(e) => onProject(e.target.value || null)}>
+        <Select className="pill-select" title="Project" disabled={!!incognito} value={projectId || ''} onChange={(e) => (e.target.value === '__new' ? onNewProject && onNewProject() : onProject(e.target.value || null))}>
           <option value="">No project</option>
           {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          {onNewProject && <option value="__new">+ New project…</option>}
         </Select>
       )}
       <UsageMenu stacked={stacked} settings={settings} chatId={chatId} model={model} onDetails={onUsageDetails} onLimits={() => onOpenSettings('limits')} />
@@ -183,7 +184,7 @@ export function ChatPills({ brains = [], brain, onBrain, councilPick, onRevote, 
   );
 }
 
-export default function Composer({ streaming, onSend, onStop, queue = [], queueHeld = false, onQueue, onUnqueue, onSendNow, onSendNowText, disabledReason, placeholder, model, onModel, groups = [], projectId, projects = [], onProject, incognito, settings = {}, chatId, perm = 'auto', onPerm, agents = 'on', onAgents, tools = 'on', onTools, onUsageDetails = () => {}, onOpenSettings = () => {}, sentinel, onSentinel, onCompact, canCompact, compacting, brains = [], brain = '', onBrain, councilPick, onRevote }) {
+export default function Composer({ env = null, onEnv = null, streaming, onSend, onStop, queue = [], queueHeld = false, onQueue, onUnqueue, onSendNow, onSendNowText, disabledReason, placeholder, model, onModel, groups = [], projectId, projects = [], onProject, onNewProject, incognito, settings = {}, chatId, perm = 'auto', onPerm, agents = 'on', onAgents, tools = 'on', onTools, onUsageDetails = () => {}, onOpenSettings = () => {}, sentinel, onSentinel, onCompact, canCompact, compacting, brains = [], brain = '', onBrain, councilPick, onRevote }) {
   const sKey = useSentinelKey();
   const [text, setText] = useState(() => (drafts.get(chatId) || {}).text || '');
   const [micErr, setMicErr] = useState('');
@@ -326,6 +327,7 @@ export default function Composer({ streaming, onSend, onStop, queue = [], queueH
     onPerm && { label: 'Ask before acting', hint: perm === 'auto' ? 'Off' : 'On', onClick: () => onPerm(perm === 'auto' ? 'ask' : 'auto') },
     ...(onProject && projects.length ? [{ sep: true }, { label: 'No project', hint: projectId ? '' : '✓', onClick: () => onProject(null) },
       ...projects.slice(0, 8).map((pr) => ({ label: pr.name, hint: pr.id === projectId ? '✓' : '', onClick: () => onProject(pr.id) }))] : []),
+    onProject && onNewProject && !incognito && { label: 'New project…', onClick: () => onNewProject() },
   ].filter(Boolean);
   const pick = async () => {
     const r = await window.api.pickFiles();
@@ -472,6 +474,13 @@ export default function Composer({ streaming, onSend, onStop, queue = [], queueH
             onText={(t) => { setMicErr(''); setText((x) => (x && !/\s$/.test(x) ? x + ' ' : x) + t); setTimeout(() => ta.current?.focus(), 0); }} />
           {onSentinel && <button className={`icon-btn sentinel-btn ${sentinel && sentinel !== 'off' ? 'on' : ''}`} title={sentinel && sentinel !== 'off' ? `Sentinel is on. Click to turn off${sKey}` : `Sentinel mode: say “${window.__wakeWord || 'Wake up'}” to talk hands-free${sKey}`} aria-label={sentinel && sentinel !== 'off' ? `Sentinel is on. Click to turn off${sKey}` : `Sentinel mode: say “${window.__wakeWord || 'Wake up'}” to talk hands-free${sKey}`} onClick={onSentinel}><Icon name="shield" size={17} /></button>}
           <span className="bar-spacer" />
+          {onEnv && (
+            <div className="env-switch" role="radiogroup" aria-label="Where this turn runs">
+              {[['server', 'Server', 'Runs on your Artemis server: keeps going when this computer sleeps'], ['local', 'This Mac', 'Runs on this computer (screen, local files, terminal); saved in the server chat']].map(([k, label, tip]) => (
+                <button key={k} type="button" role="radio" aria-checked={env === k} className={env === k ? 'on' : ''} disabled={streaming} title={tip} onClick={() => onEnv(k)}>{label}</button>
+              ))}
+            </div>
+          )}
           {onModel && <ModelPicker value={model} groups={groups} onChange={onModel} className="model" />}
           {onCompact && <button className="icon-btn compact-btn" disabled={!canCompact} title={compacting ? 'Compacting…' : canCompact ? 'Compact: summarize earlier messages to save tokens' : 'Compact is available once the chat has a few messages'} onClick={onCompact}>{compacting ? <Icon name="spinner" size={16} className="spin" /> : <Icon name="compact" size={16} />}<span className="btn-label">Compact</span></button>}
           <button className={`send ${streaming && !(hasInput && onQueue) ? 'stop' : ''}`} onClick={() => submit(false)} disabled={parsing && !streaming} title={streaming ? (hasInput && onQueue ? 'Add to the queue' : 'Stop (Esc)') : parsing ? 'Reading attachments…' : 'Send'} aria-label={streaming ? (hasInput && onQueue ? 'Add to the queue' : 'Stop') : 'Send'}><Icon name={streaming && !(hasInput && onQueue) ? 'stop' : 'arrowUp'} size={16} /></button>
