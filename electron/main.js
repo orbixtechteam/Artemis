@@ -1369,7 +1369,7 @@ async function executeRun({ requestId, model: model0, messages, project, system,
         }
       },
       shouldStop: () => limitState().blocked,
-      runTokenBudget: Number(settings.runTokenBudget) || undefined, contextTokens: Number(settings.contextTokens) || undefined, spillDir: spillDir(),
+      runTokenBudget: Number(settings.runTokenBudget) || undefined, contextTokens: Number(settings.contextTokens) || undefined, spillDir: spillDir(), contentDirs: [path.join(app.getPath('userData'), 'project-files'), path.join(app.getPath('userData'), 'server-files')],
       toolsEnabled: toolsMode === 'on' ? true : toolsMode === 'off' ? false : settings.toolsEnabled, memoryEnabled: settings.memoryEnabled && !incognito, incognito: !!incognito,
       onUsage: incognito ? null : (u) => recordUsage({ t: Date.now(), model: u.model || model, chat: chatId || '', project: project?.name || '', source: source || 'app', prompt: u.prompt, completion: u.completion, cached: u.cached || 0, cacheWrite: u.cacheWrite || 0, ...(typeof u.usd === 'number' ? { usd: u.usd } : {}), estimated: u.estimated }),
       autoApprove: unattended ? !!allowEdits : perm !== 'ask',
@@ -2213,6 +2213,20 @@ const serverLink = require('./server-link').createServerLink({
 const gatewayFile = () => path.join(app.getPath('userData'), 'gateway.json');
 const gatewayToken = () => { let t = getSecret('gatewayToken'); if (!t) { t = gatewayLib.newToken(); setSecret('gatewayToken', t); } return t; };
 const gatewayPort = () => Math.min(65535, Math.max(1024, Number(getSettings().gatewayPort) || 8789));
+/** A file a server chat made, fetched from the server once and kept in <userData>/server-files (opened, previewed, saved as). */
+async function serverFileFetch(p) {
+  const cfg = serverLink.config(); const tok = serverLink.token();
+  if (!cfg || !tok) return null;
+  const href = String(p || '').replace(/^file:\/\//, '').trim();
+  if (!href || /^[a-z]+:/i.test(href) || href.length > 2000) return null;
+  const r = await fetch(`${cfg.url}/v1/x/files/raw?path=${encodeURIComponent(href)}`, { headers: { authorization: `Bearer ${tok}` }, signal: AbortSignal.timeout(60000) });
+  if (!r.ok) return null;
+  const dir = path.join(app.getPath('userData'), 'server-files', crypto.createHash('sha1').update(cfg.url + '|' + href).digest('hex').slice(0, 16));
+  fs.mkdirSync(dir, { recursive: true });
+  const out = path.join(dir, (path.posix.basename(href.replace(/\\/g, '/')) || 'file').replace(/[^\w.\- ]/g, '_'));
+  fs.writeFileSync(out, Buffer.from(await r.arrayBuffer()));
+  return out;
+}
 const projectFiles = require('./core/project-files').createProjectFiles({ dir: path.join(app.getPath('userData'), 'project-files'), files });
 const projectFor = (id) => { const p = id ? readJson('projects', []).find((x) => x.id === id) : null; return p ? { name: p.name, instructions: p.instructions, knowledge: projectFiles.knowledge(p), ...(p.folder && fs.existsSync(p.folder) ? { folder: p.folder } : {}) } : null; };
 // project files (knowledge): added in the project's settings; the server gets them (and sends back the ones added there)
@@ -2732,7 +2746,7 @@ require('./ipc/project')({ ipcMain, dialog, fs, logoDir, nativeImage, path, getW
 require('./ipc/profile')({ ipcMain, avatarData, avatarFile, dialog, fs, nativeImage, path, profileDir, shell, getWin: () => win });
 require('./ipc/sheet')({ ipcMain, BrowserWindow, dialog, files, sheetMeta: require('./sheet-meta').createSheetMeta({ dir: path.join(app.getPath('userData'), 'sheet-meta') }) });
 require('./ipc/voice')({ ipcMain, getSettings, logger, providersLib, systemPreferences, transcribeAudio, fs, path, crypto: require('crypto'), cacheDir: () => path.join(app.getPath('home'), '.artemis', 'tts-cache') });
-require('./ipc/files')({ ipcMain, BrowserWindow, app, defaultFilesDir, dialog, files, tools, library, media: mediaStore, getWin: () => win, links: linksLib, linkSensitive, shell });
+require('./ipc/files')({ ipcMain, BrowserWindow, app, defaultFilesDir, dialog, files, tools, library, media: mediaStore, getWin: () => win, links: linksLib, linkSensitive, shell, serverFile: (p) => serverFileFetch(p) });
 require('./ipc/library')({ ipcMain, BrowserWindow, dialog, shell, files, library, getWin: () => win });
 require('./ipc/perm')({ ipcMain, permissions });
 require('./ipc/lock')({ ipcMain, lock, speaker, voiceGate, lockAuthWaiting, snapWaiting, logger, testAlert: testLockAlert });
@@ -2768,6 +2782,64 @@ async function syncServerSecrets() {
   } catch (e) { if (e && e.code !== 'NO_SERVER') logger.warn('server', 'could not keep the server in step: ' + e.message); }
 }
 setTimeout(() => { syncServerSecrets(); setInterval(syncServerSecrets, 30000); }, 8000);
+/** "Copy from the server to this Mac": the server's memory, skills, agents, brains, files, pictures, connectors (with
+ *  their sign-ins) and provider keys come here. Nothing here is overwritten: a file that differs is kept next to
+ *  this Mac's as "<name> (server)". Chats are copied by the window (it keeps them). onProgress({ done, total, file }). */
+ipcMain.handle('server:download', async () => {
+  const cfg = serverLink.config(); const tok = serverLink.token();
+  if (!cfg || !tok) return { ok: false, error: 'This Mac is not linked to a server.' };
+  const report = { files: { added: 0, same: 0, kept: 0 }, connectors: { added: 0, updated: 0 }, providers: { added: 0, keys: 0 }, failures: [] };
+  try {
+    const ex = await serverLink.request('/v1/x/export', { method: 'GET', timeout: 60000 });
+    const ud = app.getPath('userData');
+    const targets = { workspace: workspaceDir(), skills: path.join(ud, 'skills'), agents: path.join(ud, 'agents'), brains: path.join(ud, 'brains'), files: path.join(defaultFilesDir(), 'From server'), media: path.join(ud, 'media') };
+    const all = Object.entries(ex.areas || {}).flatMap(([area, list]) => (targets[area] ? (list || []).map((f) => ({ area, ...f })) : []));
+    let done = 0;
+    for (const f of all) {
+      done++;
+      if (done % 10 === 0 || done === all.length) toWinSafe('server:download-progress', { done, total: all.length, file: f.path });
+      const base = targets[f.area];
+      const dest = path.resolve(base, f.path);
+      if (!dest.startsWith(path.resolve(base) + path.sep)) continue;
+      let target = dest;
+      try {
+        if (fs.existsSync(dest)) {
+          if (fs.statSync(dest).size === f.size) { report.files.same++; continue; }
+          if (f.area === 'media') { report.files.same++; continue; } // pictures are named by their content
+          const ext = path.extname(dest); target = dest.slice(0, dest.length - ext.length) + ' (server)' + ext;
+          if (fs.existsSync(target) && fs.statSync(target).size === f.size) { report.files.same++; continue; }
+          report.files.kept++;
+        } else report.files.added++;
+        const r = await fetch(`${cfg.url}/v1/x/export/file?area=${encodeURIComponent(f.area)}&path=${encodeURIComponent(f.path)}`, { headers: { authorization: `Bearer ${tok}` }, signal: AbortSignal.timeout(300000) });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        fs.writeFileSync(target, Buffer.from(await r.arrayBuffer()));
+      } catch (e) { report.failures.push(`${f.area}/${f.path}: ${e.message}`); }
+    }
+    // connectors: the server's own ones join; a newer sign-in there replaces the one here
+    const self = (c) => isSelfConnector(c, [Number(getSettings().mcpServerPort) || 8788, gatewayPort()]);
+    const mine = readMcpList();
+    for (const c of ex.connectors || []) {
+      if (!c || !c.id || self(c)) continue;
+      const i = mine.findIndex((m) => m.id === c.id);
+      if (i < 0) { mine.push(c); report.connectors.added++; continue; }
+      const m = mine[i]; const next = { ...m };
+      if (c.oauth && c.oauth.accessToken && Number(c.oauth.expiresAt || 0) > Number((m.oauth && m.oauth.expiresAt) || 0)) next.oauth = c.oauth;
+      for (const k of ['env', 'headers']) for (const [n, v] of Object.entries(c[k] || {})) if (v && !(m[k] || {})[n]) next[k] = { ...(next[k] || {}), [n]: v };
+      if (JSON.stringify(next) !== JSON.stringify(m)) { mine[i] = next; report.connectors.updated++; }
+    }
+    if (report.connectors.added || report.connectors.updated) { writeMcpList(mine); try { await mcp.configure(readMcpList()); } catch {} toWinSafe('mcp:changed', {}); }
+    // providers and keys this Mac does not have yet
+    const provs = readProviders(); const keys = readProviderKeys();
+    for (const pv of ex.providers || []) if (pv && pv.id && !provs.some((x) => x.id === pv.id)) { provs.push(pv); report.providers.added++; }
+    for (const [id, k] of Object.entries(ex.providerKeys || {})) if (k && !getProviderKey(id)) { keys[id] = encStr(k); report.providers.keys++; }
+    if (report.providers.added) writeJson('providers', provs);
+    if (report.providers.keys) writeJson('providerkeys', keys);
+    report.filesFolder = targets.files;
+    return { ok: true, ...report };
+  } catch (e) { return { ok: false, error: e.message, ...report }; }
+});
+
 
 /** After a migration: what moved to the server stops here, so nothing runs twice. */
 function afterMigration(opts) {
