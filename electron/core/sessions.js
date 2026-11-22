@@ -120,8 +120,9 @@ function createSessions({ db, log = () => {}, writer: defaultWriter = 'app', med
   /** Changes by other writers after change number `since`: { seq, chats (current versions), deleted (ids) }. */
   /** What changed after `since` (ids and list fields only), for the live event stream of the apps. */
   function changedSince(since) {
-    const rows = db.all('SELECT id, title, project_id, updated_at, deleted_at, incognito FROM sessions WHERE seq > ? ORDER BY seq LIMIT 500', Number(since) || 0);
-    return { seq: db.seq(), items: rows.filter((r) => !r.incognito).map((r) => ({ id: r.id, title: r.title || '', projectId: r.project_id || null, updatedAt: r.updated_at, deleted: !!r.deleted_at })) };
+    const rows = db.all('SELECT id, title, project_id, updated_at, deleted_at, incognito, meta FROM sessions WHERE seq > ? ORDER BY seq LIMIT 500', Number(since) || 0);
+    const pin = (r) => { try { return !!JSON.parse(r.meta || '{}').pinned; } catch { return false; } };
+    return { seq: db.seq(), items: rows.filter((r) => !r.incognito).map((r) => ({ id: r.id, title: r.title || '', projectId: r.project_id || null, pinned: pin(r), updatedAt: r.updated_at, deleted: !!r.deleted_at })) };
   }
   function changesSince(since, { exclude = '' } = {}) {
     const rows = db.all('SELECT * FROM sessions WHERE seq > ? AND writer <> ? ORDER BY seq', Number(since) || 0, String(exclude));

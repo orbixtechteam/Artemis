@@ -48,7 +48,7 @@ const { createTurnBuilder } = require('./turn-builder');
 const { toApiMessages } = require('./history');
 const { sandboxFromSettings, hideHostShellTools } = require('./sandbox');
 const { createPwBrowser, loadPlaywright } = require('./pwbrowser');
-const { createMcpManager, hideServers, isSelfConnector } = require('../mcp');
+const { createMcpManager, hideServers, isSelfConnector, refreshOAuth } = require('../mcp');
 const { createRemote } = require('../remote');
 const { createComputer } = require('../computer');
 const { summarizeAll } = require('../agent');
@@ -179,9 +179,30 @@ function createHeadless({ dataDir, keysFrom = '', host = '127.0.0.1', port, publ
   const liveMcpList = () => readMcpList().filter((c) => !isSelf(c));
   // connectors as the agents see them: without one that is Artemis itself (its MCP server or a gateway on this computer)
   const agentMcp = () => hideServers(mcp, () => mcp.slugsWhere((c) => isSelfConnector(c, [Number(settings().mcpServerPort) || 8788, Number(settings().gatewayPort) || 8789, Number(port) || 0].filter(Boolean))));
-  if (mcp) mcp.setTokenSaver((id, oauth) => { // refreshed OAuth tokens: stored as plain values; the app encrypts them again when it starts
-    try { const raw = readJson('mcp', []); writeJson('mcp', raw.map((c) => (c.id === id ? { ...c, oauth: { ...(c.oauth || {}), ...oauth } } : c)), 0o600); } catch (e) { log('warn', 'mcp', 'could not save refreshed tokens: ' + e.message); }
-  });
+  // refreshed OAuth tokens: stored as plain values; the app encrypts them again when it starts
+  const saveTokens = (id, oauth) => {
+    try { const raw = readJson('mcp', []); writeJson('mcp', raw.map((c) => (c.id === id ? { ...c, oauth: { ...(c.oauth || {}), accessToken: oauth.accessToken, refreshToken: oauth.refreshToken || '', expiresAt: oauth.expiresAt || 0 } } : c)), 0o600); } catch (e) { log('warn', 'mcp', 'could not save refreshed tokens: ' + e.message); }
+  };
+  // A connector's sign-in is refreshed in one place: here, one refresh at a time, for this server and for a linked desktop
+  // (which asks /v1/x/connectors/<id>/token instead of refreshing its own copy). Many sign-ins hand out single-use refresh
+  // tokens: two copies refreshing on their own made one of them fail ("sign in again") again and again.
+  const refreshing = new Map();
+  const refreshConnector = (id, stale = '') => {
+    const c = readMcpList().find((x) => x.id === id);
+    if (!c || !c.oauth || !c.oauth.accessToken) return Promise.reject(Object.assign(new Error('This connector is not signed in on the server.'), { status: 404 }));
+    const fresh = !c.oauth.expiresAt || c.oauth.expiresAt - 60000 > Date.now();
+    if (stale && c.oauth.accessToken !== stale && fresh) return Promise.resolve(c.oauth); // already refreshed by someone else
+    if (!refreshing.has(id)) {
+      refreshing.set(id, refreshOAuth(c).then((o) => { saveTokens(id, o); log('info', 'mcp', `${c.name || id}: sign-in refreshed`); return o; })
+        .catch((e) => { log('warn', 'mcp', `${c.name || id}: ${e.message}`); throw Object.assign(e, { status: 400 }); })
+        .finally(() => refreshing.delete(id)));
+    }
+    return refreshing.get(id);
+  };
+  if (mcp) {
+    mcp.setTokenSaver(saveTokens);
+    mcp.setTokenRefresher((cfg) => refreshConnector(cfg.id, cfg.oauth && cfg.oauth.accessToken));
+  }
   let pw = null, pwOk = null;
   const browserAvailable = () => { if (pwOk === null) { try { loadPlaywright(); pwOk = true; } catch { pwOk = false; } } return pwOk; };
   // the app's browser sign-ins (browser-cookies.enc, written by the app, encrypted with its safeStorage key)
@@ -552,6 +573,13 @@ function createHeadless({ dataDir, keysFrom = '', host = '127.0.0.1', port, publ
         if (had) list[list.indexOf(had)] = next; else list.push(next);
       }
       saveRawMcp(list);
+      // sign-ins the server holds a newer copy of (it refreshed them): the desktop takes these
+      const dec = readMcpList();
+      out.tokens = b.connectors.filter((c) => c && c.oauth && c.oauth.accessToken).map((c) => {
+        const mine = dec.find((x) => x.id === c.id);
+        return mine && mine.oauth && mine.oauth.accessToken && mine.oauth.accessToken !== c.oauth.accessToken && Number(mine.oauth.expiresAt || 0) >= Number(c.oauth.expiresAt || 0)
+          ? { id: c.id, oauth: { accessToken: mine.oauth.accessToken, refreshToken: mine.oauth.refreshToken || '', expiresAt: Number(mine.oauth.expiresAt) || 0 } } : null;
+      }).filter(Boolean);
     }
     if (Array.isArray(b.providers)) {
       const mine = readJson('providers', []); const list = Array.isArray(mine) ? mine : [];
@@ -688,6 +716,11 @@ function createHeadless({ dataDir, keysFrom = '', host = '127.0.0.1', port, publ
     if (area === 'connectors' && method === 'POST' && parts[0] === 'oauth' && parts[1] === 'finish') { // the app caught artemis://oauth?code&state
       const b = await body(); const r = await oauthCallback({ code: String(b.code || ''), state: String(b.state || ''), error: String(b.error || '') });
       if (!r.ok) fail(400, r.message); return { ok: true };
+    }
+    if (area === 'connectors' && method === 'POST' && parts[0] && parts[1] === 'token') { // the linked desktop: the current sign-in, refreshed here when it is stale
+      if (client && client.kind !== 'desktop') fail(403, 'Only the desktop app can ask for a sign-in.');
+      const b = await body();
+      try { return { oauth: await refreshConnector(parts[0], String(b.stale || '')) }; } catch (e) { fail(e.status || 400, e.message); }
     }
     if (area === 'connectors' && method === 'POST' && parts[0] && !parts[1]) { // switch on or off, or give it its keys (values are kept encrypted)
       const b = await body(); const id = parts[0];

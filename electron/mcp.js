@@ -232,7 +232,11 @@ function httpTransport(cfg, onMessage, hooks = {}) {
   const canRefresh = () => !!(cfg.oauth?.refreshToken && cfg.tokenUrl);
   const refresh = () => {
     if (!refreshing)
-      refreshing = refreshOAuth(cfg)
+      // hooks.refreshTokens: one place refreshes a sign-in (a linked server, or a lock in this process). Two copies of the
+      // same refresh token refreshing on their own break sign-ins whose refresh tokens are single use: that was the
+      // "connector expires all the time" bug.
+      refreshing = Promise.resolve(hooks.refreshTokens ? hooks.refreshTokens(cfg) : null)
+        .then((o) => o || refreshOAuth(cfg))
         .then((o) => {
           cfg.oauth = { ...(cfg.oauth || {}), ...o };
           try { hooks.onTokens?.(cfg.oauth); } catch {}
@@ -387,6 +391,7 @@ class McpServer {
         this.transport = httpTransport(this.cfg, onMessage, {
           reinit: () => this.handshake(),
           onTokens: (o) => this.hooks.onTokens?.(this.cfg.id, o),
+          refreshTokens: this.hooks.refreshTokens ? (cfg) => this.hooks.refreshTokens(cfg) : null,
         });
       else {
         if (!this.cfg.command) throw new Error("Command is required");
@@ -523,6 +528,7 @@ function safeToolName(full) {
 function createMcpManager(opts = {}) {
   let servers = [];
   let onTokens = opts.onTokens || null;
+  let refresher = opts.refreshTokens || null; // (cfg) -> Promise<oauth | null>: who refreshes a sign-in (null: this process, directly)
   let names = new Map(); // function name -> { server, tool }
   const keyOf = new Map(); // "slug\u0000tool" -> function name
 
@@ -542,6 +548,7 @@ function createMcpManager(opts = {}) {
   const hooks = {
     onTools: () => rebuildNames(),
     onTokens: (id, oauth) => { try { onTokens?.(id, oauth); } catch {} },
+    refreshTokens: (cfg) => (refresher ? refresher(cfg) : null),
   };
 
   const uniqueSlugs = () => {
@@ -662,6 +669,10 @@ function createMcpManager(opts = {}) {
     /** fn(serverId, oauth) is called after an OAuth token refresh, to save the new tokens. */
     setTokenSaver: (fn) => {
       onTokens = typeof fn === "function" ? fn : null;
+    },
+    /** fn(cfg) -> Promise<oauth|null>: refreshes a sign-in in one place (null from it: refresh here, directly). */
+    setTokenRefresher: (fn) => {
+      refresher = typeof fn === "function" ? fn : null;
     },
     close: () => {
       for (const s of servers) s.close();

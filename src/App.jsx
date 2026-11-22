@@ -967,6 +967,7 @@ export default function App() {
   const busyChat = (id) => Object.values(streamsRef.current).some((v) => v.chatId === id);
   const remoteLoading = useRef(new Set());
   const pushedRef = useRef(new Set()); // local chats already sent to the server in this session
+  const pinTouched = useRef(new Map()); // chat id -> when it was pinned or unpinned here
   const projectsRef = useRef(projects); projectsRef.current = projects;
   const syncedProjectsRef = useRef(null); // project ids after the last sync with the server (to tell a removal from a new one there)
   const loadRemoteChat = async (id) => {
@@ -976,7 +977,7 @@ export default function App() {
       const r = await api.serverApi('GET', `/v1/sessions/${encodeURIComponent(id)}?full=1`);
       if (!r || r.ok === false || !r.chat) return;
       const sc = r.chat;
-      setChats((cs) => cs.map((c) => (c.id === id && c.remote && !busyChat(id) ? { ...c, title: sc.title || c.title, model: c.model || sc.model || '', projectId: sc.projectId || null, ...Object.fromEntries(['brain', 'tools', 'agents', 'effort', 'perm', 'councilPick', 'pinned'].filter((k) => sc[k] !== undefined).map((k) => [k, sc[k]])), updatedAt: sc.updatedAt || c.updatedAt, artifacts: sc.artifacts || c.artifacts, messages: sc.messages || [], loaded: true } : c)));
+      setChats((cs) => cs.map((c) => (c.id === id && c.remote && !busyChat(id) ? { ...c, title: sc.title || c.title, model: c.model || sc.model || '', projectId: sc.projectId || null, ...Object.fromEntries(['brain', 'tools', 'agents', 'effort', 'perm', 'councilPick', 'pinned'].filter((k) => sc[k] !== undefined && !(k === 'pinned' && Date.now() - (pinTouched.current.get(id) || 0) < 20000)).map((k) => [k, sc[k]])), updatedAt: sc.updatedAt || c.updatedAt, artifacts: sc.artifacts || c.artifacts, messages: sc.messages || [], loaded: true } : c)));
     } finally { remoteLoading.current.delete(id); }
   };
   const syncRemote = async () => {
@@ -1029,10 +1030,13 @@ export default function App() {
         if (cur.incognito || busyChat(cur.id)) continue;
         if (!cur.remote) { // a chat this computer also has (moved to the server): the server copy is shown, this one is kept untouched
           shadowRef.current.set(cur.id, cur);
-          out[out.indexOf(cur)] = { ...cur, ...meta, remote: true, loaded: false, env: runEnvDefault() };
+          out[out.indexOf(cur)] = { ...cur, ...meta, pinned: !!x.pinned, remote: true, loaded: false, env: runEnvDefault() };
           continue;
         }
         if ((x.updatedAt || 0) > (cur.updatedAt || 0)) out[out.indexOf(cur)] = { ...cur, ...meta, loaded: false };
+        // pinned or unpinned on another device: that changes no date, so it is taken as it is (unless it was just changed here)
+        const i = out.findIndex((c) => c.id === x.id);
+        if (i >= 0 && !!out[i].pinned !== !!x.pinned && Date.now() - (pinTouched.current.get(x.id) || 0) > 20000) out[i] = { ...out[i], pinned: !!x.pinned };
       }
       // deleted on another device (the phone): gone here too; a new chat that has no message yet stays
       const oldest = r.sessions.length >= 300 ? Math.min(...r.sessions.map((x) => x.updatedAt || 0)) : 0;
@@ -1338,7 +1342,8 @@ export default function App() {
     const c = chatsRef.current.find((x) => x.id === id);
     if (c && c.remote && (c.messages.length || c.loaded === false)) { // a server chat (one not opened yet is there too)
       const p = {};
-      for (const k of ['title', 'projectId', 'model', 'brain', 'tools', 'agents', 'effort', 'perm', 'councilPick']) if (patch[k] !== undefined) p[k] = patch[k];
+      for (const k of ['title', 'projectId', 'model', 'brain', 'tools', 'agents', 'effort', 'perm', 'councilPick', 'pinned']) if (patch[k] !== undefined) p[k] = patch[k];
+      if (patch.pinned !== undefined) pinTouched.current.set(id, Date.now()); // a sync that started before this change must not undo it
       if (Object.keys(p).length) api.serverApi('POST', `/v1/x/sessions/${encodeURIComponent(id)}`, p);
     }
   };
@@ -2128,7 +2133,7 @@ export default function App() {
     deleteProject: async (id) => { const p = projects.find((x) => x.id === id); if (!p) return; const n = chatsRef.current.filter((c) => c.projectId === id).length; if (await askConfirm({ title: 'Delete project', message: `Delete the project "${p.name}"? ${n ? `Its ${n} chat${n === 1 ? '' : 's'} stay, without a project.` : 'It has no chats.'}`, confirmLabel: 'Delete', danger: true })) deleteProject(id); },
     newChatIn: (id) => newChat(id),
     moveChat: (cid, pid) => { const c = chatsRef.current.find((x) => x.id === cid); if (c && !c.incognito) updateChat(cid, { projectId: pid || null }); },
-    pinChat: (id) => setChats((cs) => cs.map((c) => (c.id === id ? { ...c, pinned: !c.pinned } : c))),
+    pinChat: (id) => { const c = chatsRef.current.find((x) => x.id === id); if (c) updateChat(id, { pinned: !c.pinned }); },
     open: (sn) => { if (sn.view === 'terminal' && !termRef.current.tabs.length) newTermTab(); openTab({ view: 'chat', chatId: currentRef.current, modal: null, settingsTab: 'general', ...sn }); },
     splitChat, regen: (m, c) => regenerate(m, c), deleteMsg: (cid, mid) => deleteMessage(cid, mid), isRunning,
     openLink: (url) => { setBrowser((b) => ({ ...b, url })); if (viewRef.current === 'browser') api.browserNavigate(url); else setView('browser'); },
@@ -2294,7 +2299,7 @@ export default function App() {
         onProfile={() => setModal('profile')} profile={{ name: settings.profileName, avatar }}
         onResizeStart={dragSidebar}
         hidden={sideHidden} chats={chats} projects={projects}
-        onPinChat={(id) => setChats((cs) => cs.map((c) => (c.id === id ? { ...c, pinned: !c.pinned } : c)))}
+        onPinChat={(id) => { const c = chatsRef.current.find((x) => x.id === id); if (c) updateChat(id, { pinned: !c.pinned }); }}
         onPinProject={(id) => setProjects((ps) => ps.map((p) => (p.id === id ? { ...p, pinned: !p.pinned } : p)))}
         onOpenProject={(id) => navView({ project: id })} currentId={currentId} view={chatView ? 'chat' : 'other'} statusOf={statusOf}
         onNewChat={() => newChat()} onNewIncognito={newIncognito} onSelect={select}
