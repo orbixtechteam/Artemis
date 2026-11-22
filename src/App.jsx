@@ -1902,6 +1902,42 @@ export default function App() {
     return () => { window.removeEventListener('aid-import', h); window.removeEventListener('aid-import-account', acc); };
   }, []);
 
+  // "Copy from the server to this Mac" (Settings → Server & devices): files, connectors and keys come through the main
+  // process; every server chat is kept here as this Mac's own copy (saved locally, still shown from the server while linked)
+  useEffect(() => {
+    const h = async (e) => {
+      const { resolve, onProgress = () => {} } = e.detail || {};
+      const r = await api.serverDownload().catch((err) => ({ ok: false, error: String((err && err.message) || err) }));
+      let copied = 0, failed = 0;
+      try {
+        const ids = []; let before = 0;
+        for (let k = 0; k < 40; k++) {
+          const page = await api.serverApi('GET', `/v1/sessions?limit=500${before ? `&before=${before}` : ''}`);
+          const list = (page && page.sessions) || [];
+          ids.push(...list.map((x) => x.id));
+          if (list.length < 500) break;
+          before = list[list.length - 1].updatedAt;
+        }
+        for (let i = 0; i < ids.length; i++) {
+          onProgress({ phase: 'chats', done: i + 1, total: ids.length });
+          const one = await api.serverApi('GET', `/v1/sessions/${encodeURIComponent(ids[i])}?full=1`);
+          if (!one || one.ok === false || !one.chat) { failed++; continue; }
+          const sc = one.chat;
+          const local = chatsRef.current.find((c) => c.id === sc.id);
+          const own = shadowRef.current.get(sc.id) || (local && !local.remote ? local : null);
+          if (own && (own.messages || []).length >= (sc.messages || []).length) continue; // this Mac already has it all
+          const { remote, loaded, env, ...rest } = { ...(local || {}), ...sc };
+          shadowRef.current.set(sc.id, { ...rest, messages: sc.messages || [] });
+          copied++;
+        }
+        setChats((x) => [...x]); // saves the copies
+      } catch (err) { r.error = r.error || String((err && err.message) || err); }
+      resolve({ ...r, chats: { copied, failed } });
+    };
+    window.addEventListener('aid-server-download', h);
+    return () => window.removeEventListener('aid-server-download', h);
+  }, []);
+
   // Conversations coming from the phone (Telegram) show up as a chat here, live.
   useEffect(() => api.onPhoneStart((p) => {
     const asst = { id: uid(), role: 'assistant', steps: [{ text: '', toolCalls: [] }] };

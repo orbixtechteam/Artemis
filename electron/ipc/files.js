@@ -1,6 +1,8 @@
 // IPC: files
 module.exports = function registerFilesIpc(deps) {
-  const { ipcMain, BrowserWindow, app, defaultFilesDir, dialog, files, tools, library, media, getWin, links, linkSensitive, shell } = deps;
+  const { ipcMain, BrowserWindow, app, defaultFilesDir, dialog, files, tools, library, media, getWin, links, linkSensitive, shell, serverFile } = deps;
+  // a file the server made (a server chat): not on this computer, so it is fetched from the server and opened from a local copy
+  const fromServer = async (href) => { try { const local = serverFile ? await serverFile(href) : null; return local ? { ...(await files.parseAttachment(local, 400000)), path: local } : null; } catch { return null; } };
   // An image goes to the window as a media link (core/mediastore.js), never as base64 kept in the chat.
   const linkImage = (att) => {
     if (!media || !att || att.kind !== 'image' || typeof att.dataUrl !== 'string') return att;
@@ -30,7 +32,7 @@ module.exports = function registerFilesIpc(deps) {
   });
   ipcMain.handle('files:open-link', async (_e, folder, href) => {
     const r = resolve(folder, href);
-    if (r.error) return { name: String(href), kind: 'error', error: r.error };
+    if (r.error) return (await fromServer(href)) || { name: String(href), kind: 'error', error: r.error };
     if (r.dir) { shell.openPath(r.abs); return null; }
     try { return { ...(await files.parseAttachment(r.abs, 400000)), path: r.abs }; } catch (e) { return { name: String(href), kind: 'error', error: e.message }; }
   });
@@ -119,6 +121,7 @@ module.exports = function registerFilesIpc(deps) {
   ipcMain.handle('files:save-as', async (e, abs) => {
     try {
       const fs = require('fs'); const path = require('path');
+      if (abs && !fs.existsSync(abs) && serverFile) { try { abs = (await serverFile(abs)) || abs; } catch {} } // a file on the server
       if (!abs || !fs.existsSync(abs) || !fs.statSync(abs).isFile()) return { ok: false, error: 'File not found.' };
       const parent = BrowserWindow.fromWebContents(e.sender) || getWin();
       const r = await dialog.showSaveDialog(parent, { defaultPath: path.join(app.getPath('downloads'), path.basename(abs)) });
@@ -132,6 +135,8 @@ module.exports = function registerFilesIpc(deps) {
     try { if (abs && require('fs').existsSync(abs)) e.sender.startDrag({ file: abs, icon: app.getAppPath() ? require('path').join(app.getAppPath(), 'build', 'icon.png') : undefined }); } catch {}
   });
   ipcMain.handle('files:preview-project', async (_e, folder, rel) => {
-    try { return await files.parseAttachment(tools.resolveSafe(folder, rel), 400000); } catch (e) { return { name: String(rel), kind: 'error', error: e.message }; }
+    let abs = ''; try { abs = tools.resolveSafe(folder, rel); } catch (e) { return (await fromServer(rel)) || { name: String(rel), kind: 'error', error: e.message }; }
+    if (!require('fs').existsSync(abs)) { const s = await fromServer(rel); if (s) return s; }
+    try { return await files.parseAttachment(abs, 400000); } catch (e) { return { name: String(rel), kind: 'error', error: e.message }; }
   });
 };
