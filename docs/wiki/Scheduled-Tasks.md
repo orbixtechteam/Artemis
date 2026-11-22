@@ -7,17 +7,22 @@ Scheduled tasks run a prompt by themselves: once at a set time, every few minute
 1. Open **Scheduled** in the sidebar and click **New task** (or **Create your first task**).
 2. Fill in:
    - **Name**, for example `Morning news summary`.
-   - **What should Artemis do?**: a complete, self-contained prompt. Each run starts a fresh chat, so include everything the task needs.
+   - **What should Artemis do?**: a complete, self-contained prompt. Every run goes into the task's own chat and sees the last few runs, but the prompt should still include everything the task needs.
    - **Repeat**: **Every day**, **Weekdays**, **Certain weekdays**, **Every month**, **Every few minutes / hours** or **Once**.
    - **Time**, **Date**, **Day of month**, **Every** or the weekday buttons, depending on the repeat type.
    - With **Every few minutes / hours**: tick **Only between** to limit it to a time of day (for example 09:00–18:00, or 22:00–06:00 across midnight) and click the days it runs on. The editor shows the next run times as you change it.
    - **Project**: the project whose folder and instructions the task uses, or **No project**.
    - **Model**: a model for this task, or **Default (Settings → General)**.
+   - **Chat title**: the name of the task's chat, filled in on every run. Variables: `{date}` (2026-11-22), `{weekday}` (Sunday), `{day}`, `{month}` (Nov), `{monthName}` (November), `{year}`, `{time}`, `{name}` (the task's name). For example `Daily report {date}`. Empty: the task's name.
 3. Choose the options you need:
    - **Plain reminder**: shows the text exactly as written, without running the AI.
    - **Allow file changes in the project folder**: otherwise the task can only read.
+   - **Keep every run in one chat** (on by default): all runs go into one chat, like a conversation that continues. Off: a new chat for each run.
+   - **Push notification to my phone (ntfy)**: see [Phone and web app → Notifications](Mobile-App.md#notifications).
    - **Send the result to my phone (Telegram)**.
 4. Click **Save**.
+
+The AI can also rename any chat with `set_chat_title` ("call this chat Report {date}"); a name it gives is kept, automatic titles leave it alone.
 
 You can also ask in a chat, for example "every weekday at 8:30, summarize my unread project notes" or "remind me tomorrow at 10 to call the bank". Artemis creates the task with `schedule_task` after you approve it, and can list, change, pause, resume or delete tasks the same way.
 

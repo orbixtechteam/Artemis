@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Alert, Linking, Modal, Platform, Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSession, ACCENTS } from '../src/lib/session';
@@ -86,6 +86,50 @@ function Look({ c, look, setLook, families }) {
   );
 }
 
+/** Phone notifications through ntfy: the server pushes to a private topic, the free ntfy app shows them, a tap opens the chat here. */
+function Notify({ api, c }) {
+  const [cfg, setCfg] = useState(null);
+  const [msg, setMsg] = useState('');
+  useEffect(() => { api.get('/v1/x/notify').then((r) => setCfg(r.notify)).catch((e) => setMsg(e.message)); }, []);
+  const change = async (patch) => { setMsg(''); try { setCfg((await api.post('/v1/x/notify', patch)).notify); } catch (e) { setMsg(e.message); } };
+  const copyTopic = async () => { try { const C = await import('expo-clipboard'); await C.setStringAsync(cfg.topic); } catch {} };
+  const subscribe = async () => {
+    await copyTopic();
+    try { await Linking.openURL(cfg.links.app); }
+    catch { Alert.alert('Add it in ntfy', `The topic is copied. Open the ntfy app, tap +, paste it${cfg.server !== 'https://ntfy.sh' ? ` and set the server to ${cfg.server}` : ''}, then Subscribe.`); }
+  };
+  const test = async () => { setMsg(''); try { await api.post('/v1/x/notify/test', {}); setMsg('Sent. It should arrive in a few seconds.'); } catch (e) { setMsg(e.message); } };
+  if (!cfg) return msg ? <Text style={{ color: c.danger, margin: 8 }}>{msg}</Text> : null;
+  const sw = (v, on) => <Switch value={!!v} onValueChange={on} trackColor={{ true: c.accent }} />;
+  return (
+    <View>
+      <Group c={c} footer="Free, for iPhone and Android. Your server sends them through ntfy, even when your computer sleeps. A tap opens the chat in Artemis.">
+        <Item icon="bell" title="Push notifications" right={sw(cfg.on, (v) => change({ on: v }))} chevron={false} c={c} />
+      </Group>
+      {cfg.on && (
+        <>
+          <Group title="Set up" c={c} footer={`Topic: ${cfg.topic}. Anyone who knows it can read the notifications, so keep it private.`}>
+            <Item icon="download" title="Get the ntfy app" onPress={() => Linking.openURL(Platform.OS === 'android' ? cfg.links.store.android : cfg.links.store.ios)} c={c} />
+            <Item icon="plus-circle" title="Subscribe in ntfy" onPress={subscribe} c={c} />
+            <Item icon="copy" title="Copy the topic" onPress={() => copyTopic().then(() => setMsg('Topic copied.'))} chevron={false} c={c} />
+            <Item icon="send" title="Send a test" onPress={test} chevron={false} c={c} />
+          </Group>
+          <Group title="Notify me when" c={c}>
+            <Item title="A scheduled task finishes" right={sw(cfg.schedules, (v) => change({ schedules: v }))} chevron={false} c={c} />
+            <Item title="An answer is ready (app closed)" right={sw(cfg.chats, (v) => change({ chats: v }))} chevron={false} c={c} />
+            <Item title="Artemis waits for my OK" right={sw(cfg.approvals, (v) => change({ approvals: v }))} chevron={false} c={c} />
+            <Item title="Show the text" right={sw(cfg.preview, (v) => change({ preview: v }))} chevron={false} c={c} />
+          </Group>
+          <Group c={c}>
+            <Item icon="refresh-cw" title="New topic" danger onPress={() => Alert.alert('New topic', 'The old topic stops getting notifications. Subscribe to the new one in ntfy.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Make new', style: 'destructive', onPress: () => change({ newTopic: true }) }])} chevron={false} c={c} />
+          </Group>
+        </>
+      )}
+      {!!msg && <Text style={{ color: c.muted, textAlign: 'center', marginTop: -10 }}>{msg}</Text>}
+    </View>
+  );
+}
+
 export default function Settings() {
   const { api, server, c, look, setLook, families, forget } = useSession();
   const router = useRouter();
@@ -144,6 +188,7 @@ export default function Settings() {
           <Item icon="folder" title="Projects" onPress={() => router.push('/projects')} c={c} />
           <Item icon="book-open" title="Memory" onPress={() => router.push('/memory')} c={c} />
           <Item icon="bar-chart-2" title="Usage" onPress={() => router.push('/usage')} c={c} />
+          <Item icon="bell" title="Notifications" onPress={() => setSheet('notify')} c={c} />
         </Group>
 
         <Group title="Devices" c={c} footer="Each device pairs once and has its own access. Revoke one and it stops working at once.">
@@ -178,6 +223,9 @@ export default function Settings() {
             <Group c={c}>{providers.map((p) => <Item key={p.id} title={p.name} value={!p.needsKey ? 'No key needed' : p.hasKey ? 'Set' : 'Missing'} onPress={p.needsKey ? () => setKeyFor(p) : undefined} c={c} />)}</Group>
           )}
         </Sheet>
+      )}
+      {sheet === 'notify' && (
+        <Sheet title="Notifications" onClose={() => setSheet('')} c={c}><Notify api={api} c={c} /></Sheet>
       )}
       {sheet === 'devices' && (
         <Sheet title="Paired devices" onClose={() => setSheet('')} c={c}>

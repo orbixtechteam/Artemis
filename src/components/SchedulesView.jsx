@@ -121,6 +121,7 @@ function Editor({ job, projects, models, onSave, onClose }) {
         </>}
         <label className="check"><input type="checkbox" checked={!!j.reminder} onChange={(e) => setJ({ ...j, reminder: e.target.checked })} /> Plain reminder: show the text above exactly as written, without running the AI</label>
         <label className="check"><input type="checkbox" checked={j.allowEdits} onChange={(e) => setJ({ ...j, allowEdits: e.target.checked })} /> Allow file changes in the project folder (otherwise the task can only read)</label>
+        <label className="check"><input type="checkbox" checked={j.notifyPush !== false} onChange={(e) => setJ({ ...j, notifyPush: e.target.checked })} /> Push notification to my phone (ntfy, set up in Settings → Notifications)</label>
         <label className="check"><input type="checkbox" checked={j.notifyPhone} onChange={(e) => setJ({ ...j, notifyPhone: e.target.checked })} /> Send the result to my phone (Telegram)</label>
         </>}
         <small className="hint">Scheduled tasks run while Artemis is open (it can stay in the menu bar), or in the background gateway (Settings → Gateway → Keep running in the background). They can't use the shell, the computer tool or ask for approval. If Artemis was closed at the time, the task runs once when you open it again.</small>

@@ -40,6 +40,7 @@ contextBridge.exposeInMainWorld('api', {
   schedulePreview: (job) => ipcRenderer.invoke('schedule:preview', job),
   onScheduleStart: (cb) => sub('schedule:start', cb),
   onChatRetitle: (cb) => sub('chat:retitle', cb),
+  ntfyGet: () => ipcRenderer.invoke('ntfy:get'), ntfySet: (b) => ipcRenderer.invoke('ntfy:set', b), ntfyTest: () => ipcRenderer.invoke('ntfy:test'),
   onScheduleChanged: (cb) => sub('schedule:changed', cb),
   heartbeatList: () => ipcRenderer.invoke('heartbeat:list'),
   heartbeatSave: (o) => ipcRenderer.invoke('heartbeat:save', o),

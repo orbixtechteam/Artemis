@@ -154,7 +154,7 @@ function createScheduler(deps) {
       const job = {
         runs: 0, lastRun: null, lastStatus: '', lastError: '', ...(old || {}),
         id, name: String(input.name).trim().slice(0, 80), prompt: String(input.prompt).trim(), projectId: input.projectId || null, model: input.model || '',
-        enabled: input.enabled !== false, allowEdits: !!input.allowEdits, notifyPhone: !!input.notifyPhone, reminder: !!input.reminder, repeat: { ...input.repeat },
+        enabled: input.enabled !== false, allowEdits: !!input.allowEdits, notifyPhone: !!input.notifyPhone, notifyPush: input.notifyPush !== undefined ? input.notifyPush !== false : old ? old.notifyPush !== false : true, reminder: !!input.reminder, repeat: { ...input.repeat },
         // one chat for every run (like Claude's scheduled tasks), titled from a template such as "Daily report {date}"
         oneChat: input.oneChat !== undefined ? input.oneChat !== false : old ? old.oneChat !== false : true, title: String(input.title != null ? input.title : (old && old.title) || '').slice(0, 120), ...(input.teamId || (old && old.teamId) ? { teamId: input.teamId || old.teamId } : {})
       };
