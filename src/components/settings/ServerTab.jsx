@@ -80,11 +80,33 @@ function LinkGroup() {
       </Row>
     </Group>
     {st.online && <MoveDataGroup />}
+    {st.online && <DownloadGroup />}
     </>
   );
 }
 
 /** This computer as a server: other devices (phone, web app, another computer) pair with it. */
+/** Settings → Server & devices → Copy from the server to this Mac: everything the server has comes here too. */
+function DownloadGroup() {
+  const [busy, setBusy] = useState(false);
+  const [prog, setProg] = useState(null);
+  const [res, setRes] = useState(null);
+  useEffect(() => (window.api.onServerDownloadProgress ? window.api.onServerDownloadProgress((p) => setProg({ phase: 'files', ...p })) : undefined), []);
+  const start = async () => {
+    setBusy(true); setRes(null); setProg(null);
+    try { setRes(await new Promise((resolve) => window.dispatchEvent(new CustomEvent('aid-server-download', { detail: { resolve, onProgress: setProg } })))); }
+    finally { setBusy(false); setProg(null); }
+  };
+  const progText = prog ? (prog.phase === 'chats' ? `Chats ${prog.done} / ${prog.total}…` : `Files ${prog.done} / ${prog.total}…`) : 'Starting…';
+  return (
+    <Group title="Copy from the server to this Mac" footer="Chats, memory, skills, agents, brains, the server's files and pictures, connectors with their sign-ins, and provider keys. Nothing here is overwritten: a file that differs is kept next to yours as “name (server)”. The server keeps everything.">
+      <Row label="Download everything" description={busy ? progText : res ? (res.ok === false && res.error ? res.error : `${res.chats ? res.chats.copied : 0} chats copied · ${res.files ? res.files.added + res.files.kept : 0} files (${res.files ? res.files.kept : 0} kept next to yours) · ${res.connectors ? res.connectors.added + res.connectors.updated : 0} connectors · ${res.providers ? res.providers.keys : 0} keys${res.failures && res.failures.length ? ` · ${res.failures.length} failed` : ''}${res.filesFolder ? `. The server's files are in ${res.filesFolder}.` : ''}`) : 'A copy of everything on the server, on this Mac.'}>
+        <button type="button" className="pref-btn primary" disabled={busy} onClick={start}>{busy ? 'Copying…' : res ? 'Copy again' : 'Copy to this Mac'}</button>
+      </Row>
+    </Group>
+  );
+}
+
 function HostGroup({ goTo }) {
   const [i, setI] = useState(null);
   const [hosts, setHosts] = useState('');

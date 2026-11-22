@@ -265,7 +265,7 @@ function createHeadless({ dataDir, keysFrom = '', host = '127.0.0.1', port, publ
     const root = project && project.folder ? project.folder : filesDir();
     try {
       await runAgent({
-        persona, sessionId: chatId, userData: dataDir, spillDir: require('path').join(dataDir, 'spill'), mentions: Array.isArray(mentions) ? mentions.slice(0, 20) : [],
+        persona, sessionId: chatId, userData: dataDir, spillDir: require('path').join(dataDir, 'spill'), contentDirs: [filesDir(), path.join(dataDir, 'uploads'), path.join(dataDir, 'project-files')], mentions: Array.isArray(mentions) ? mentions.slice(0, 20) : [],
         baseUrl: route.baseUrl, key: route.key, model: route.model, noToolCalls: !!route.noTools, messages, maxTokens: st.maxTokens || 8192, reasoningEffort: effort && effort !== 'auto' ? effort : (st.reasoningEffort || ''),
         custom: [st.systemPrompt || '', system].filter(Boolean).join('\n\n'), personality: personality.text(st), userName: st.profileName || '', userAbout: st.profileAbout || '', userLocation: st.profileLocation || '',
         project, root, defaultRoot: !(project && project.folder),
@@ -641,6 +641,26 @@ function createHeadless({ dataDir, keysFrom = '', host = '127.0.0.1', port, publ
       const list = readMcpList();
       const st = mcp ? mcp.status(liveMcpList()) : [];
       return { connectors: list.map((c) => { if (isSelf(c)) return { id: c.id, name: c.name || c.id, type: c.type || '', enabled: false, state: 'off', error: 'Artemis itself (the Mac app). Not used on the server.', tools: 0 }; const x = st.find((y) => y.id === c.id || y.name === c.name) || {}; const raw = rawMcp().find((y) => y.id === c.id) || {}; const missing = (o) => Object.entries(o || {}).filter(([, v]) => !v).map(([k]) => k); return { id: c.id, name: c.name || c.id, type: c.type || '', url: c.url || '', enabled: c.enabled !== false, state: x.state || (mcp ? 'off' : 'disabled'), error: x.error || '', tools: x.tools || x.toolCount || 0, canSignIn: c.type === 'http' && !!c.url, signedIn: !!(c.oauth && c.oauth.accessToken), env: Object.keys(raw.env || {}), headers: Object.keys(raw.headers || {}), missing: [...missing(c.env), ...missing(c.headers)] }; }) };
+    }
+    if (area === 'export') { // everything on the server, for the desktop's "Copy from the server to this Mac"
+      const roots = { workspace: (ws && ws.dir) || file('workspace'), skills: file('skills'), agents: file('agents'), brains: file('brains'), files: filesDir(), media: file('media') };
+      if (method === 'GET' && !parts[0]) {
+        const walkArea = (root) => { const out = []; const go = (d, rel) => { let es = []; try { es = fs.readdirSync(d, { withFileTypes: true }); } catch { return; } for (const e of es) { if (out.length >= 20000 || e.name.startsWith('.')) continue; const a = path.join(d, e.name); const r = rel ? rel + '/' + e.name : e.name; if (e.isDirectory()) go(a, r); else if (e.isFile()) { try { const st = fs.statSync(a); if (st.size <= 200 * 1024 * 1024) out.push({ path: r, size: st.size, mtime: st.mtimeMs }); } catch {} } } }; go(root, ''); return out; };
+        const areas = {}; for (const [k, r] of Object.entries(roots)) areas[k] = walkArea(r);
+        const providers = readProviders();
+        const providerKeys = {}; for (const pr of providers) { const k = getProviderKey(pr.id); if (k) providerKeys[pr.id] = k; }
+        return { areas, connectors: readMcpList().filter((c) => !isSelf(c)), providers, providerKeys, serverName: serverName || process.env.ARTEMIS_SERVER_NAME || os.hostname() };
+      }
+      if (method === 'GET' && parts[0] === 'file') {
+        const root = roots[String(query.get('area') || '')]; if (!root) fail(400, 'Unknown area');
+        const rel = String(query.get('path') || '');
+        const abs = path.resolve(root, rel);
+        if (!rel || abs === root || !abs.startsWith(path.resolve(root) + path.sep)) fail(400, 'Bad path');
+        let st; try { st = fs.statSync(abs); } catch { fail(404, 'Not found'); }
+        if (!st.isFile()) fail(404, 'Not found');
+        res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-length': st.size, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
+        fs.createReadStream(abs).pipe(res); return null;
+      }
     }
     if (area === 'sync' && method === 'POST') return syncFromDesktop(await body());
     if (area === 'connectors' && method === 'POST' && parts[0] && parts[1] === 'signin') { const b = await body(); return oauthStart(parts[0], b.base, { native: b.native === true }); }

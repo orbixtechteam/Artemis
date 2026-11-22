@@ -68,6 +68,8 @@ contextBridge.exposeInMainWorld('api', {
   serverLinkConnect: (o) => ipcRenderer.invoke('server:link-connect', o),
   serverLinkDisconnect: (o) => ipcRenderer.invoke('server:link-disconnect', o),
   serverMigrateSurvey: () => ipcRenderer.invoke('server:migrate-survey'),
+  serverDownload: () => ipcRenderer.invoke('server:download'),
+  onServerDownloadProgress: (cb) => { const h = (_e, p) => cb(p); ipcRenderer.on('server:download-progress', h); return () => ipcRenderer.removeListener('server:download-progress', h); },
   serverApi: (method, p, body) => ipcRenderer.invoke('server:api', method, p, body),
   serverMedia: (name) => ipcRenderer.invoke('server:media', name),
   serverChatStart: (o) => ipcRenderer.invoke('server:chat-start', o),

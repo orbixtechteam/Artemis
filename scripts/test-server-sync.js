@@ -58,6 +58,15 @@ const send = (h, area, method, parts, b) => h.handlers.extra(area, { method, par
   const r6 = await send(h, 'sync', 'POST', [], { projects: [{ id: 'srv1', name: 'Renamed', updatedAt: 1, files: [{ id: added.file.id, name: 'brief.md', addedAt: 1 }] }] });
   assert.ok(!r6.projects.find((p) => p.id === 'srv1').files.some((f) => f.id === added.file.id), 'a removed file stays removed');
 
+  // export (Copy from the server to this Mac): the list of areas, and one file; no path outside an area
+  fs.mkdirSync(path.join(data, 'skills', 'demo'), { recursive: true }); fs.writeFileSync(path.join(data, 'skills', 'demo', 'SKILL.md'), '# Demo');
+  const ex = await send(h, 'export', 'GET', [], {});
+  assert.ok(ex.areas.skills.some((f) => f.path === 'demo/SKILL.md'));
+  assert.ok(Array.isArray(ex.connectors) && ex.providerKeys.or === 'sk-or');
+  const fake = { writeHead() {}, end() {}, on() {}, once() {}, emit() {}, write() { return true; } };
+  const qs = (o) => new URLSearchParams(o);
+  await assert.rejects(h.handlers.extra('export', { method: 'GET', parts: ['file'], query: qs({ area: 'skills', path: '../settings.json' }), body: async () => ({}), res: fake }), (e) => e.status === 400);
+
   // connectors list says what is missing; a key typed in the app fills it
   fs.writeFileSync(path.join(data, 'mcp.json'), JSON.stringify([...raw, { id: 'gh', name: 'github', type: 'http', url: 'https://gh.example/mcp', headers: { Authorization: '' }, env: {}, enabled: true }]));
   let list = (await send(h, 'connectors', 'GET', [], {})).connectors;
