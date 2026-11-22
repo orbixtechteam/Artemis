@@ -10,13 +10,16 @@ export function ContextMenu({ menu, onClose }) {
     if (!menu) return undefined;
     const close = (e) => { if (e && e.type === 'mousedown' && ref.current && ref.current.contains(e.target)) return; onClose(); };
     const key = (e) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('mousedown', close); window.addEventListener('blur', close); window.addEventListener('resize', close); window.addEventListener('keydown', key); window.addEventListener('wheel', close, { passive: true });
-    return () => { window.removeEventListener('mousedown', close); window.removeEventListener('blur', close); window.removeEventListener('resize', close); window.removeEventListener('keydown', key); window.removeEventListener('wheel', close); };
+    const wheel = (e) => { if (ref.current && ref.current.contains(e.target)) return; onClose(); }; // a long menu scrolls; scrolling elsewhere closes it
+    window.addEventListener('mousedown', close); window.addEventListener('blur', close); window.addEventListener('resize', close); window.addEventListener('keydown', key); window.addEventListener('wheel', wheel, { passive: true });
+    return () => { window.removeEventListener('mousedown', close); window.removeEventListener('blur', close); window.removeEventListener('resize', close); window.removeEventListener('keydown', key); window.removeEventListener('wheel', wheel); };
   }, [menu]);
   if (!menu) return null;
-  const x = Math.min(menu.x, window.innerWidth - 230), y = Math.min(menu.y, window.innerHeight - (menu.items.length * 30 + 16));
+  // a long menu (many projects) fits the window and scrolls instead of running off the screen
+  const maxH = window.innerHeight - 16;
+  const x = Math.min(menu.x, window.innerWidth - 230), y = Math.max(8, Math.min(menu.y, window.innerHeight - Math.min(maxH, menu.items.length * 30 + 16) - 8));
   return (
-    <div className="ctx-menu" ref={ref} style={{ left: x, top: y }} onContextMenu={(e) => e.preventDefault()}>
+    <div className="ctx-menu" ref={ref} style={{ left: x, top: y, maxHeight: maxH, overflowY: 'auto' }} onContextMenu={(e) => e.preventDefault()}>
       {menu.items.map((it, i) => it.sep
         ? <div key={i} className="ctx-sep" />
         : <button key={i} className={`ctx-item ${it.danger ? 'danger' : ''}`} disabled={it.disabled} onClick={() => { onClose(); it.onClick(); }}>{it.label}{it.hint ? <span className="ctx-hint">{it.hint}</span> : null}</button>)}
