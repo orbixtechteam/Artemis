@@ -17,14 +17,14 @@ docker compose -f deploy/server/docker-compose.yml up -d --build
 docker compose -f deploy/server/docker-compose.yml logs -f artemis    # shows the first pairing code
 ```
 
-The image contains the server and the web app. To build it alone, from the repository root: `docker build -f deploy/server/Dockerfile -t artemis-server .`
+This builds the server only (the API the desktop and phone apps use). The web app is optional: to serve it from the same address too, set `target: full` in `docker-compose.yml` (or `docker build -f deploy/server/Dockerfile --target full -t artemis-server .`).
 
 Without Docker (Node.js 22.13 or newer):
 
 ```bash
 pnpm install
-cd mobile && npm install && npm run export:web && cd ..     # the web app (optional)
-node bin/artemis.js gateway --public-host artemis.example.com --web mobile/dist-web
+node bin/artemis.js gateway --public-host artemis.example.com
+# optional, the web app too: cd mobile && npm install && npm run export:web && cd .. and add --web mobile/dist-web
 ```
 
 The server listens on `127.0.0.1:8789`. Health check: `curl http://127.0.0.1:8789/v1/ping`.
@@ -62,7 +62,7 @@ Use the https address in the apps: away from home the phone needs it, and most c
 - **A code**: on the server `artemis pair` (with Docker: `docker compose -f deploy/server/docker-compose.yml exec artemis node bin/artemis.js pair`), in the desktop app Settings → Server & devices → **New code**, or in the phone app Settings → **Pair another device**. A code works once, for 10 minutes. Wrong codes are rate limited.
 - **Desktop app**: Settings → Server & devices → Connect to a server: the address and the code.
 - **Phone**: open the app, enter the address and the code, or scan the QR code shown next to a new code in the desktop app.
-- **Web**: open the server's address in a browser (the server serves the web app) and enter a code.
+- **Web** (optional, when the server serves the web app): open the server's address in a browser and enter a code.
 
 Every device gets its own access token, stored on that device. See the devices, rename or revoke one in Settings → Server & devices (desktop), Settings → Paired devices (phone), or with `artemis clients` and `artemis revoke <id>`.
 

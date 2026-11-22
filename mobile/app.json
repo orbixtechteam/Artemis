@@ -23,14 +23,19 @@
       "permissions": [
         "CAMERA",
         "RECORD_AUDIO"
-      ]
+      ],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#4F5BD5"
+      }
     },
     "web": {
       "bundler": "metro",
       "output": "single",
       "name": "Artemis",
       "shortName": "Artemis",
-      "themeColor": "#111111"
+      "themeColor": "#111111",
+      "favicon": "./assets/favicon.png"
     },
     "plugins": [
       "expo-router",
@@ -58,6 +63,12 @@
     ],
     "experiments": {
       "typedRoutes": false
+    },
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#4F5BD5"
     }
   }
 }
