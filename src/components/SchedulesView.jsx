@@ -53,7 +53,14 @@ function Editor({ job, projects, models, onSave, onClose }) {
     return () => clearTimeout(t);
   }, [repeatKey]);
   const save = async () => {
-    const res = await api.scheduleSave({ ...j, repeat: fromEditor(r) });
+    const { where, ...rest } = j;
+    const job = { ...rest, repeat: fromEditor(r) };
+    if (where === 'server') { // a task that runs on the server (made there, on the phone, or here while linked)
+      const res = await api.serverApi('POST', '/v1/x/schedules', job);
+      if (!res || res.ok === false) return setErr((res && res.error) || 'The server did not answer.');
+      return onSave();
+    }
+    const res = await api.scheduleSave(job);
     if (!res.ok) return setErr(res.error);
     onSave();
   };
@@ -127,7 +134,18 @@ export default function SchedulesView({ projects, models, onOpenChat }) {
   const setTab = (t) => { lastTab = t; setTab0(t); };
   const [jobs, setJobs] = useState([]);
   const [edit, setEdit] = useState(null);
-  const load = () => api.scheduleList().then((l) => setJobs(l || [])).catch(() => {});
+  const [server, setServer] = useState(false); // linked to a server that answers: its tasks are listed (and new ones go) there
+  // this Mac's tasks, plus the server's while linked (made on the phone, the web app or here); a task moved to the server is not listed twice
+  const load = async () => {
+    const local = (await api.scheduleList().catch(() => [])) || [];
+    let remote = [];
+    const st = api.serverLinkStatus ? await api.serverLinkStatus().catch(() => null) : null;
+    const on = !!(st && st.configured && st.online);
+    if (on) { const r = await api.serverApi('GET', '/v1/x/schedules').catch(() => null); remote = (r && Array.isArray(r.schedules) ? r.schedules : []).map((j) => ({ ...j, where: 'server' })); }
+    setServer(on);
+    setJobs([...remote, ...local.filter((j) => !(on && j.movedToServer && remote.some((x) => x.id === j.id))).map((j) => ({ ...j, where: 'local' }))]);
+  };
+  const act = (j, local, path, method = 'POST', body = {}) => (j.where === 'server' ? api.serverApi(method, `/v1/x/schedules${path}`, body) : local()).then(load);
   useEffect(() => { load(); const off = api.onScheduleChanged(load); const t = setInterval(load, 30000); return () => { off && off(); clearInterval(t); }; }, []);
   const pname = (id) => (projects.find((p) => p.id === id) || {}).name;
   return (
@@ -135,27 +153,27 @@ export default function SchedulesView({ projects, models, onOpenChat }) {
       <div className="page-head">
         <h1>Scheduled</h1>
         <div className="seg" role="tablist">{TABS.map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}</div>
-        {tab === 'tasks' && <button className="primary-btn" onClick={() => setEdit(blank())}><Icon name="plus" size={15} /> New task</button>}
+        {tab === 'tasks' && <button className="primary-btn" onClick={() => setEdit({ ...blank(), where: server ? 'server' : 'local' })}><Icon name="plus" size={15} /> New task</button>}
       </div>
       {tab === 'heartbeat' ? <HeartbeatPanel models={models} /> : tab === 'hooks' ? <WebhooksPanel models={models} projects={projects} /> : jobs.length === 0 ? (
         <div className="empty-card">
           <Icon name="clock" size={28} />
           <p>Run a prompt automatically — every morning, every few hours, or once at a set time. Each run appears as its own chat.</p>
-          <button className="primary-btn" onClick={() => setEdit(blank())}>Create your first task</button>
+          <button className="primary-btn" onClick={() => setEdit({ ...blank(), where: server ? 'server' : 'local' })}>Create your first task</button>
         </div>
       ) : (
         <div className="sched-list">
           {jobs.map((j) => (
             <div key={j.id} className={`sched-row ${j.enabled ? '' : 'off'}`}>
               <div className="sched-main">
-                <div className="sched-name">{j.name}{j.teamId && <span className="sched-badge">Team</span>}{j.running && <span className="sched-badge run">Running…</span>}{j.lastStatus === 'error' && <span className="sched-badge bad" title={j.lastError}>Failed</span>}</div>
+                <div className="sched-name">{j.name}{j.teamId && <span className="sched-badge">Team</span>}{j.running && <span className="sched-badge run">Running…</span>}{j.lastStatus === 'error' && <span className="sched-badge bad" title={j.lastError}>Failed</span>}{server && <span className="sched-badge">{j.where === 'server' ? 'Server' : 'This Mac'}</span>}</div>
                 <div className="sched-sub">{j.description}{pname(j.projectId) ? ` · ${pname(j.projectId)}` : ''}</div>
                 <div className="sched-sub">Next: {j.enabled ? when(j.nextRun) : 'paused'} · Last: {when(j.lastRun)}{j.runs ? ` · ${j.runs} run${j.runs === 1 ? '' : 's'}` : ''}</div>
               </div>
-              <button className="icon-btn" title="Run now" aria-label="Run now" onClick={() => api.scheduleRun(j.id)} disabled={j.running}><Icon name="play" size={15} /></button>
-              <button className="icon-btn" title="Edit" aria-label="Edit" onClick={() => setEdit(toEditor(j))}><Icon name="pencil" size={15} /></button>
-              <button className="icon-btn" title="Delete" aria-label="Delete" onClick={() => askConfirm({ title: 'Delete task', message: `Delete "${j.name}"?`, confirmLabel: 'Delete', danger: true }).then((ok) => ok && api.scheduleDelete(j.id).then(load))}><Icon name="trash" size={15} /></button>
-              <label className="switch" title={j.enabled ? 'Pause' : 'Resume'}><input type="checkbox" checked={j.enabled} onChange={(e) => api.scheduleToggle(j.id, e.target.checked).then(load)} /><i /></label>
+              <button className="icon-btn" title="Run now" aria-label="Run now" onClick={() => act(j, () => api.scheduleRun(j.id), `/${encodeURIComponent(j.id)}/run`)} disabled={j.running}><Icon name="play" size={15} /></button>
+              <button className="icon-btn" title="Edit" aria-label="Edit" onClick={() => setEdit({ ...toEditor(j), where: j.where })}><Icon name="pencil" size={15} /></button>
+              <button className="icon-btn" title="Delete" aria-label="Delete" onClick={() => askConfirm({ title: 'Delete task', message: `Delete "${j.name}"?`, confirmLabel: 'Delete', danger: true }).then((ok) => ok && act(j, () => api.scheduleDelete(j.id), `/${encodeURIComponent(j.id)}`, 'DELETE'))}><Icon name="trash" size={15} /></button>
+              <label className="switch" title={j.enabled ? 'Pause' : 'Resume'}><input type="checkbox" checked={j.enabled} onChange={(e) => act(j, () => api.scheduleToggle(j.id, e.target.checked), `/${encodeURIComponent(j.id)}`, 'POST', { enabled: e.target.checked })} /><i /></label>
             </div>
           ))}
         </div>

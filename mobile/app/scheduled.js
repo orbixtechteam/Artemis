@@ -12,9 +12,9 @@ const TYPES = [['daily', 'Every day'], ['weekdays', 'Weekdays'], ['weekly', 'Wee
 const DAYS = [[1, 'Mo'], [2, 'Tu'], [3, 'We'], [4, 'Th'], [5, 'Fr'], [6, 'Sa'], [0, 'Su']];
 const today = () => { const d = new Date(Date.now() + 86400000); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
-function Editor({ job, projects, onClose, onSaved }) {
+function Editor({ job, projects, models, defaultModel, onClose, onSaved }) {
   const { api } = useSession();
-  const [j, setJ] = useState({ name: '', prompt: '', enabled: true, notifyPhone: false, allowEdits: false, projectId: null, repeat: { type: 'daily', at: '08:00' }, ...(job || {}) });
+  const [j, setJ] = useState({ name: '', prompt: '', enabled: true, notifyPhone: false, allowEdits: false, projectId: null, model: '', repeat: { type: 'daily', at: '08:00' }, ...(job || {}) });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const r = j.repeat || {};
@@ -35,6 +35,7 @@ function Editor({ job, projects, onClose, onSaved }) {
       {r.type === 'weekly' && <Choice label="Days" multi value={r.days || []} options={DAYS} onChange={(v) => setR({ days: v })} />}
       {r.type === 'monthly' && <F label="Day of the month" value={String(r.dayOfMonth || 1)} onChange={(v) => setR({ dayOfMonth: v.replace(/\D/g, '') })} keyboardType="number-pad" />}
       {r.type === 'once' && <F label="Date (YYYY-MM-DD)" value={r.date || today()} onChange={(v) => setR({ date: v })} />}
+      <Choice label="Model" value={j.model || ''} options={[['', `Default for scheduled tasks${defaultModel ? ` (${(models.find((m) => m[0] === defaultModel) || [])[1] || defaultModel.split(':').pop()})` : ''}`], ...models.map((m) => [m[0], m[1] || m[0]])]} onChange={(v) => setJ({ ...j, model: v })} />
       {projects.length > 0 && <Choice label="Project" value={j.projectId || ''} options={[['', 'None'], ...projects.map((p) => [p.id, p.name])]} onChange={(v) => setJ({ ...j, projectId: v || null })} />}
       <Choice label="Options" multi value={[j.notifyPhone && 'phone', j.allowEdits && 'edits'].filter(Boolean)} options={[['phone', 'Send the result to Telegram'], ['edits', 'May change files without asking']]} onChange={(v) => setJ({ ...j, notifyPhone: v.includes('phone'), allowEdits: v.includes('edits') })} />
     </FormSheet>
@@ -46,10 +47,12 @@ export default function Scheduled() {
   const { api, c } = useSession();
   const [list, setList] = useState(null);
   const [projects, setProjects] = useState([]);
+  const [models, setModels] = useState([]);
+  const [defaultModel, setDefaultModel] = useState('');
   const [edit, setEdit] = useState(null);
   const [error, setError] = useState('');
   const load = useCallback(() => api.get('/v1/x/schedules').then((r) => setList(r.schedules)).catch((e) => setError(e.message)), [api]);
-  useEffect(() => { load(); api.get('/v1/x/projects').then((r) => setProjects(r.projects || [])).catch(() => {}); }, [load]);
+  useEffect(() => { load(); api.get('/v1/x/projects').then((r) => setProjects(r.projects || [])).catch(() => {}); api.get('/v1/x/models').then((r) => setModels(r.models || [])).catch(() => {}); api.get('/v1/x/settings').then((r) => setDefaultModel((r.settings && r.settings.scheduleModel) || r.defaultModel || '')).catch(() => {}); }, [load]);
   const toggle = async (j, on) => { setList((l) => l.map((x) => (x.id === j.id ? { ...x, enabled: on } : x))); try { await api.post(`/v1/x/schedules/${encodeURIComponent(j.id)}`, { enabled: on }); load(); } catch (e) { setError(e.message); load(); } };
   const runNow = async (j) => { try { await api.post(`/v1/x/schedules/${encodeURIComponent(j.id)}/run`, {}); setTimeout(load, 1500); } catch (e) { setError(e.message); } };
   return (
@@ -73,7 +76,7 @@ export default function Scheduled() {
           </Group>
         )}
       </ScrollView>
-      {edit && <Editor job={edit.job} projects={projects} onClose={() => setEdit(null)} onSaved={load} />}
+      {edit && <Editor job={edit.job} projects={projects} models={models} defaultModel={defaultModel} onClose={() => setEdit(null)} onSaved={load} />}
     </View>
   );
 }

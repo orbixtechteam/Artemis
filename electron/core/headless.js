@@ -741,7 +741,7 @@ function createHeadless({ dataDir, keysFrom = '', host = '127.0.0.1', port, publ
       return { themes: [...out.values()] };
     }
     if (area === 'settings') { // the few settings the phone and web app change; the rest stays in the desktop's Settings
-      const KEYS = ['model', 'personality', 'systemPrompt', 'profileName', 'profileAbout', 'profileLocation', 'gatewayRestrict', 'memoryEnabled', 'webEnabled', 'autoApproveEdits', 'theme', 'palette', 'appearance', 'accent', 'textSize'];
+      const KEYS = ['model', 'personality', 'systemPrompt', 'profileName', 'profileAbout', 'profileLocation', 'gatewayRestrict', 'memoryEnabled', 'webEnabled', 'autoApproveEdits', 'theme', 'palette', 'appearance', 'accent', 'textSize', 'scheduleModel'];
       if (method === 'POST') { const b = await body(); const patch = {}; for (const k of KEYS) if (b[k] !== undefined) patch[k] = b[k]; if (patch.model && !providersLib.parseModel(String(patch.model))) throw Object.assign(new Error('Unknown model id'), { status: 400 }); saveSettings(patch); }
       const st = settings(); return { settings: Object.fromEntries(KEYS.map((k) => [k, st[k] === undefined ? null : st[k]])), defaultModel: pickModel('') };
     }

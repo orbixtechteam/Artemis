@@ -266,11 +266,12 @@ export default function Chat() {
           </View>
         )}
         {chat && !empty && (
-          <FlatList ref={listRef} data={msgs} keyExtractor={(m, i) => m.id || String(i)} style={{ flex: 1 }}
+          // inverted: the newest message is at the bottom and the chat opens there (no jump from the top)
+          <FlatList ref={listRef} data={[...msgs].reverse()} inverted keyExtractor={(m, i) => m.id || String(i)} style={{ flex: 1 }}
             contentContainerStyle={{ paddingHorizontal: 20, paddingVertical: 12, maxWidth: 820, width: '100%', alignSelf: 'center' }}
-            onContentSizeChange={() => listRef.current && listRef.current.scrollToEnd({ animated: false })} keyboardDismissMode="interactive"
-            renderItem={({ item, index }) => <Message m={item} api={api} c={c} chatId={id} artifacts={chat.artifacts} onDecide={running ? decide : null} running={running && index === msgs.length - 1}
-              onCopy={copy} onSpeak={speak} onEdit={!running && item.role === 'user' && !item.compacted ? edit : null} onRegenerate={!running && item.role === 'assistant' && index === msgs.length - 1 ? regenerate : null} />} />
+            keyboardDismissMode="interactive" maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+            renderItem={({ item, index }) => { const last = index === 0; return <Message m={item} api={api} c={c} chatId={id} artifacts={chat.artifacts} onDecide={running ? decide : null} running={running && last}
+              onCopy={copy} onSpeak={speak} onEdit={!running && item.role === 'user' && !item.compacted ? edit : null} onRegenerate={!running && item.role === 'assistant' && last ? regenerate : null} />; }} />
         )}
 
         {!!error && <Text style={{ color: c.danger, paddingHorizontal: 24, paddingBottom: 6 }}>{error}</Text>}
