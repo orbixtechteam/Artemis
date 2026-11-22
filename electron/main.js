@@ -2854,7 +2854,7 @@ const serverChat = require('./server-chat').createServerChat({
   link: serverLink, executeRun, abortLocal: (rid) => { const r = runs.get(rid); if (r) r.abort(); }, settings: getSettings, log: coreLog('server'),
   send: (rid, ev) => toWinSafe('chat:event', { ...ev, requestId: rid })
 });
-const SERVER_PATHS = /^\/v1\/(health|me|sessions(\/[\w.:%-]+)?|search|memory(\/list|\/note)?|runs(\/[\w-]+(\/abort)?)?|approvals(\/[\w.:%-]+)?|clients(\/[a-f0-9]{16}(\/(revoke|rotate))?)?|pairing|x\/(models|projects|providers|settings|secrets|import|sync|sessions\/[\w.:%-]+))(\?.*)?$/;
+const SERVER_PATHS = /^\/v1\/(health|me|sessions(\/[\w.:%-]+)?|search|memory(\/list|\/note)?|runs(\/[\w-]+(\/abort)?)?|approvals(\/[\w.:%-]+)?|clients(\/[a-f0-9]{16}(\/(revoke|rotate))?)?|pairing|x\/(models|projects|providers|settings|secrets|import|sync|schedules(\/[\w-]+(\/run)?)?|sessions\/[\w.:%-]+))(\?.*)?$/;
 ipcMain.handle('server:api', async (_e, method, p, body) => {
   if (!['GET', 'POST', 'DELETE'].includes(method) || !SERVER_PATHS.test(String(p))) return { ok: false, error: 'Not allowed' };
   try { return await serverLink.request(String(p), { method, body: method === 'GET' ? undefined : body || {} }); } catch (e) { return { ok: false, error: e.message, status: e.status || 0 }; }
