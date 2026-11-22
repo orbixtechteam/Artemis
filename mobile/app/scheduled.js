@@ -39,7 +39,7 @@ function Editor({ job, projects, models, defaultModel, onClose, onSaved }) {
       {projects.length > 0 && <Choice label="Project" value={j.projectId || ''} options={[['', 'None'], ...projects.map((p) => [p.id, p.name])]} onChange={(v) => setJ({ ...j, projectId: v || null })} />}
       <F label="Chat title" value={j.title || ''} onChange={(v) => setJ({ ...j, title: v })} placeholder={(j.name || 'Daily report') + ' {date}'} autoCapitalize="none"
         hint="Empty: the task's name. Filled in on every run: {date}, {weekday}, {day}, {month}, {monthName}, {year}, {time}, {name}." />
-      <Choice label="Options" multi value={[j.oneChat !== false && 'one', j.notifyPhone && 'phone', j.allowEdits && 'edits'].filter(Boolean)} options={[['one', 'Keep every run in one chat'], ['phone', 'Send the result to Telegram'], ['edits', 'May change files without asking']]} onChange={(v) => setJ({ ...j, oneChat: v.includes('one'), notifyPhone: v.includes('phone'), allowEdits: v.includes('edits') })} />
+      <Choice label="Options" multi value={[j.oneChat !== false && 'one', j.notifyPush !== false && 'push', j.notifyPhone && 'phone', j.allowEdits && 'edits'].filter(Boolean)} options={[['one', 'Keep every run in one chat'], ['push', 'Push notification (ntfy)'], ['phone', 'Send the result to Telegram'], ['edits', 'May change files without asking']]} onChange={(v) => setJ({ ...j, oneChat: v.includes('one'), notifyPush: v.includes('push'), notifyPhone: v.includes('phone'), allowEdits: v.includes('edits') })} />
     </FormSheet>
   );
 }

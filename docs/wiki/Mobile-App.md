@@ -58,6 +58,16 @@ Then install it from TestFlight. `eas build -p ios --profile preview` makes an a
 
 Open the server's https address in Safari (the server serves the web app when it runs with `--web`), then Share → **Add to Home Screen**.
 
+## Notifications
+
+Push notifications are free and need no Apple Developer account: your server sends them through [ntfy](https://ntfy.sh), an open-source push service, and the free ntfy app shows them (iPhone and Android). A tap opens the chat in the Artemis app.
+
+1. In the Artemis app: **Settings → Notifications → Push notifications** on. A private topic is made for you.
+2. **Get the ntfy app**, then **Subscribe in ntfy** (the topic is also copied: in ntfy tap **+** and paste it if the app does not open by itself).
+3. **Send a test**.
+
+You get one when a scheduled task finishes, when an answer you asked for on the phone is ready while the app is closed, and when a task from the phone waits for your OK. Each can be switched off, and **Show the text** off sends only the title. The same settings are on the desktop in **Settings → Notifications → On your phone**. You can use your own ntfy server instead of ntfy.sh (on iPhone it needs `upstream-base-url: https://ntfy.sh` for instant delivery). Anyone who knows the topic can read the notifications: keep it private, or make a new one.
+
 ## Connect
 
 Open the app, enter the server's address and a pairing code (from `artemis pair`, the desktop app's Settings → Server & devices → New code, or another paired phone), or scan the QR code. Use the server's https address (your tunnel or reverse proxy) so the app works away from home; `http://192.168…` works only on the home Wi-Fi.

@@ -91,6 +91,12 @@ function createHeadless({ dataDir, keysFrom = '', host = '127.0.0.1', port, publ
   /** Secrets set while headless (cannot use the OS encryption the app uses): kept in headless.json, readable by this user only. */
   const setSecret = (name, value) => writeJson('headless', { ...headlessCfg(), [name]: value }, 0o600);
   const saveSettings = (patch) => writeJson('settings', { ...settings(), ...patch });
+  // phone notifications (ntfy): a scheduled task finished, an answer the phone asked for is ready, or a run waits for an OK.
+  // Chats and approvals only ping while the phone app is not open (it keeps /v1/events open while it is in front).
+  const ntfy = require('./ntfy');
+  const watchers = new Map(); let watcherId = 0;
+  const phoneWatching = () => [...watchers.values()].some((k) => k === 'mobile');
+  const phonePush = (msg) => ntfy.send(settings(), msg).then((r) => { if (!r.ok && !r.skipped) log('warn', 'ntfy', r.error); });
   /** A model id with a provider (prov:<id>:<model>); old ids without one fall back to the first enabled provider's first model. */
   function pickModel(id) {
     const st = settings();
@@ -216,7 +222,7 @@ function createHeadless({ dataDir, keysFrom = '', host = '127.0.0.1', port, publ
   }
 
   /** One agent run. Returns { text, steps, error }. */
-  async function run({ runId, messages, modelId, project, chatId, send, unattended = false, allowEdits = false, restrict = false, system = '', source = '', watchTeamId = '', incognito = false, brain = null, brainPick = '', toolsMode = '', agentsMode = '', effort = '', permMode = '', mentions = [] }) {
+  async function run({ runId, messages, modelId, project, chatId, send, unattended = false, allowEdits = false, restrict = false, system = '', source = '', watchTeamId = '', incognito = false, brain = null, brainPick = '', toolsMode = '', agentsMode = '', effort = '', permMode = '', mentions = [], phoneRun = false }) {
     const st = settings();
     let route = providersLib.resolve(modelId, readProviders(), getProviderKey);
     if (route.error) throw new Error(route.error + (/key/i.test(route.error) ? ` Set ARTEMIS_KEY_${envName(String(modelId).split(':')[1] || '')} or add it to ${file('headless.json')}.` : ''));
@@ -302,6 +308,7 @@ function createHeadless({ dataDir, keysFrom = '', host = '127.0.0.1', port, publ
           const timer = setTimeout(() => { if (approvals.delete(info.id)) resolve(false); }, APPROVAL_TIMEOUT);
           approvals.set(info.id, (ok) => { clearTimeout(timer); resolve(ok); });
           out({ type: 'tool:approval', id: info.id, category: info.category, session: !!info.session, summary: info.summary, agent: info.agent });
+          if (phoneRun && !phoneWatching()) phonePush({ kind: 'approval', title: 'Artemis needs your OK', message: info.summary, chatId, tags: ['raised_hand'], priority: 4 });
         }),
         send: out, signal: controller.signal
       });
@@ -335,6 +342,7 @@ function createHeadless({ dataDir, keysFrom = '', host = '127.0.0.1', port, publ
       if (prev || res.renamed) sessions.patchChat(chatId, { title: res.renamed || title }); // the template's title on every run, unless the AI named it
       mirror();
       log('info', 'schedule', `${job.name}: ${res.error ? 'failed: ' + res.error : 'done'}`);
+      if (job.notifyPush !== false) phonePush({ kind: 'schedule', title: job.name, message: res.error ? `Failed: ${res.error}` : res.text || 'Finished.', chatId, tags: [res.error ? 'warning' : 'alarm_clock'] });
       if (job.notifyPhone) {
         const ph = remote && remote.phone();
         const summary = (res.error ? `Failed: ${res.error}` : res.text || 'Finished.').slice(0, 600);
@@ -626,6 +634,11 @@ function createHeadless({ dataDir, keysFrom = '', host = '127.0.0.1', port, publ
       if (!r.ok) fail(400, r.error);
       return { text: r.text };
     }
+    if (area === 'notify') { // phone notifications through ntfy
+      if (method === 'POST' && parts[0] === 'test') { const r = await ntfy.send(settings(), { kind: 'test', title: 'Artemis', message: 'Notifications work. A tap on one opens its chat in the Artemis app.', tags: ['white_check_mark'] }); if (!r.ok) fail(400, r.error); return { ok: true, notify: ntfy.config(settings()) }; }
+      if (method === 'POST') { const b = await body(); saveSettings(ntfy.patchFrom(b, settings())); }
+      return { notify: ntfy.config(settings()) };
+    }
     if (area === 'schedules') {
       if (method === 'GET' && !parts[0]) return { schedules: sched.list() };
       if (method === 'POST' && (!parts[0] || parts[0] === 'save')) { const b = await body(); try { return { schedule: sched.save(b) }; } catch (e) { fail(400, e.message); } }
@@ -896,6 +909,7 @@ function createHeadless({ dataDir, keysFrom = '', host = '127.0.0.1', port, publ
     return fresh;
   }
   const handlers = {
+    liveOpen: (client) => { const id = ++watcherId; watchers.set(id, (client && client.kind) || 'other'); return () => watchers.delete(id); },
     oauthCallback,
     info: () => ({ mode: 'headless', serverName: serverName || process.env.ARTEMIS_SERVER_NAME || os.hostname(), platform: process.platform, version: require('../../package.json').version, model: pickModel(''), sqlite: true, memory: !!ws, shell: sandbox() ? sandbox().mode : allowShell ? 'host' : false, browser: browserOn && browserAvailable(), computer: !!computer, telegram: !!(remote && remote.status().telegram.running), connectors: !!mcp }),
     async chat({ runId, sessionId, message, model, projectId, client, attachments = [], clientMessageId = '', options = {} }, emit, ctx = {}) {
@@ -926,7 +940,7 @@ function createHeadless({ dataDir, keysFrom = '', host = '127.0.0.1', port, publ
         // the chat's own switches (set in any app: brain, tools, agents, thinking, ask-first), then this message's
         const o = { ...pickOpts(prev || {}), ...pickOpts(options || {}) };
         res = await run({ runId, messages: media.resolveMessages(history), modelId, project: projectFor(pid), chatId: sid, send: out, restrict: !!settings().gatewayRestrict,
-          brain: o.brain !== undefined ? o.brain : null, brainPick: (prev && prev.councilPick) || '', toolsMode: o.tools || '', agentsMode: o.agents || '', effort: o.effort || '', permMode: o.perm === 'auto' ? 'auto' : o.perm ? 'ask' : '', mentions: o.mentions || [] });
+          phoneRun: via === 'mobile', brain: o.brain !== undefined ? o.brain : null, brainPick: (prev && prev.councilPick) || '', toolsMode: o.tools || '', agentsMode: o.agents || '', effort: o.effort || '', permMode: o.perm === 'auto' ? 'auto' : o.perm ? 'ask' : '', mentions: o.mentions || [] });
       } finally {
         if (timer) { clearTimeout(timer); timer = null; }
         const fresh = tb.artifacts();
@@ -938,6 +952,7 @@ function createHeadless({ dataDir, keysFrom = '', host = '127.0.0.1', port, publ
         sessions.putMessage(sid, fin, { patch: { model: modelId, ...(pick ? { councilPick: pick } : {}), ...(Object.keys(fresh).length ? { artifacts: merged } : {}) }, final: true });
         mirror();
       }
+      if (via === 'mobile' && !phoneWatching() && !(ctx.signal && ctx.signal.aborted)) phonePush({ kind: 'chat', title: (sessions.get(sid) || {}).title || 'Artemis', message: res.error ? `Failed: ${res.error}` : tb.text() || res.text, chatId: sid, tags: [res.error ? 'warning' : 'speech_balloon'] });
       if (res.error && !res.steps.length) throw new Error(res.error);
       return { sessionId: sid, text: tb.text() || res.text };
     },

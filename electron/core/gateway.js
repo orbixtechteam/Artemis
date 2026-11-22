@@ -239,8 +239,9 @@ function createGateway({ host = '127.0.0.1', port = 8789, token, clients = null,
         } catch {}
       };
       send('hello', { seq });
+      const leave = handlers.liveOpen ? handlers.liveOpen(client) : null; // who has an app open (phone notifications wait while it is)
       const t = setInterval(tick, 1000); const ping = setInterval(() => { if (!closed) res.write(': ping\n\n'); }, 15000);
-      res.on('close', () => { closed = true; clearInterval(t); clearInterval(ping); });
+      res.on('close', () => { closed = true; clearInterval(t); clearInterval(ping); if (leave) leave(); });
       tick();
       return;
     }

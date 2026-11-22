@@ -167,6 +167,7 @@ const { createMake, ZONES: MAKE_ZONES, cleanZone: cleanMakeZone, validZone: vali
 const chatSearch = require('./chatsearch');
 const { createScheduler, chatTitle: schedChatTitle, chatIdOf: schedChatIdOf } = require('./scheduler');
 const { toApiMessages } = require('./core/history');
+const ntfy = require('./core/ntfy');
 const { createPermissions } = require('./permissions');
 const readProviders = () => { const l = readJson('providers', []); const list = Array.isArray(l) ? l : []; providersLib.registerHeaders(list); return list; };
 const readProviderKeys = () => readJson('providerkeys', {});
@@ -577,6 +578,10 @@ ipcMain.handle('chats:save', (_e, delta) => {
   } catch (e) { logger.error('db', 'Saving chats to artemis.db failed: ' + e.message); return { ok: false, full: true }; }
 });
 ipcMain.handle('settings:get', () => publicSettings());
+// phone notifications through ntfy (electron/core/ntfy.js): this Mac's scheduled tasks; Settings also sends the same choice to a linked server
+ipcMain.handle('ntfy:get', () => ntfy.config(getSettings()));
+ipcMain.handle('ntfy:set', (_e, b) => { saveSettings(ntfy.patchFrom(b || {}, getSettings())); return ntfy.config(getSettings()); });
+ipcMain.handle('ntfy:test', () => ntfy.send(getSettings(), { kind: 'test', title: 'Artemis', message: 'Notifications work. A tap on one opens its chat in the Artemis app.', tags: ['white_check_mark'] }));
 ipcMain.handle('settings:set', async (_e, patch) => {
   // never let the renderer overwrite stored secrets: undefined values survive IPC and would wipe them
   const { apiKey, apiKeyEnc, telegramToken, telegramTokenEnc, makeTokenEnc, mcpTokenEnc, braveKey, braveKeyEnc, hasBraveKey, mcpServerEnabled, mcpServerPort, mcpAlwaysAllow, hasMakeToken, hasApiKey, hasTelegramToken, gatewayTokenEnc: _gwTok, gatewayEnabled: _gwOn, gatewayPort: _gwPort, sqliteStore: _sq, hooksTunnelTokenEnc: _htTok, ...rest } = patch;
@@ -1841,6 +1846,7 @@ async function runScheduled(job) {
   } else await executeRun({ requestId, messages: [...hist, { role: 'user', content: job.prompt }], chatId, send, restrict: true, source: 'schedule', unattended: true, allowEdits: job.allowEdits,
     model, system: (st.systemPrompt || '') + '\n\n' + prompts.text('scheduled', prompts.defaultOf('scheduled')), maxTokens: st.maxTokens, project });
   const summary = (error ? `Failed: ${error}` : text.trim() || 'Finished.').slice(0, 600);
+  if (job.notifyPush !== false) ntfy.send(getSettings(), { kind: 'schedule', title: job.name, message: summary, chatId, tags: [error ? 'warning' : 'alarm_clock'] }).then((r) => { if (!r.ok && !r.skipped) logger.warn('app', 'ntfy: ' + r.error); });
   try { if (Notification.isSupported()) { const n = new Notification({ title: job.name, body: summary.slice(0, 160) }); n.on('click', () => showMain('scheduled task notification clicked')); n.show(); } } catch {}
   if (job.notifyPhone) {
     try {
@@ -2889,7 +2895,7 @@ const serverChat = require('./server-chat').createServerChat({
   link: serverLink, executeRun, abortLocal: (rid) => { const r = runs.get(rid); if (r) r.abort(); }, settings: getSettings, log: coreLog('server'),
   send: (rid, ev) => toWinSafe('chat:event', { ...ev, requestId: rid })
 });
-const SERVER_PATHS = /^\/v1\/(health|me|sessions(\/[\w.:%-]+)?|search|memory(\/list|\/note)?|runs(\/[\w-]+(\/abort)?)?|approvals(\/[\w.:%-]+)?|clients(\/[a-f0-9]{16}(\/(revoke|rotate))?)?|pairing|x\/(models|projects|providers|settings|secrets|import|sync|schedules(\/[\w-]+(\/run)?)?|sessions\/[\w.:%-]+))(\?.*)?$/;
+const SERVER_PATHS = /^\/v1\/(health|me|sessions(\/[\w.:%-]+)?|search|memory(\/list|\/note)?|runs(\/[\w-]+(\/abort)?)?|approvals(\/[\w.:%-]+)?|clients(\/[a-f0-9]{16}(\/(revoke|rotate))?)?|pairing|x\/(models|projects|providers|settings|secrets|import|sync|notify(\/test)?|schedules(\/[\w-]+(\/run)?)?|sessions\/[\w.:%-]+))(\?.*)?$/;
 ipcMain.handle('server:api', async (_e, method, p, body) => {
   if (!['GET', 'POST', 'DELETE'].includes(method) || !SERVER_PATHS.test(String(p))) return { ok: false, error: 'Not allowed' };
   try { return await serverLink.request(String(p), { method, body: method === 'GET' ? undefined : body || {} }); } catch (e) { return { ok: false, error: e.message, status: e.status || 0 }; }
