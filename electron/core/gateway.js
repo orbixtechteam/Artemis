@@ -223,6 +223,27 @@ function createGateway({ host = '127.0.0.1', port = 8789, token, clients = null,
     }
     if (m === 'GET' && p === '/v1/search') return json(res, 200, { ok: true, hits: handlers.sessions.search(String(u.searchParams.get('q') || ''), Math.min(50, Number(u.searchParams.get('limit')) || 8)) });
     if (m === 'POST' && p === '/v1/chat') return chat(req, res, client);
+    // live changes for the apps (like the Claude and ChatGPT apps): chats made, changed or deleted on any device, and which
+    // chats have an answer running. The apps refresh what they show instead of asking every few seconds.
+    if (m === 'GET' && p === '/v1/events' && handlers.sessions && handlers.sessions.seq) {
+      sseHead(res);
+      let seq = Number(u.searchParams.get('after')) || handlers.sessions.seq(); let runs = null; let closed = false;
+      const send = (type, data) => { if (!closed) res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`); };
+      const tick = () => {
+        if (closed) return;
+        try {
+          const s = handlers.sessions.seq();
+          if (s !== seq) { const ch = handlers.sessions.changedSince(seq); seq = ch.seq; if (ch.items.length) send('sessions', ch); }
+          const active = [...new Set(hub.list({ active: true }).map((r) => r.session_id).filter(Boolean))].sort();
+          if (runs === null || active.join(',') !== runs) { runs = active.join(','); send('runs', { sessions: active }); }
+        } catch {}
+      };
+      send('hello', { seq });
+      const t = setInterval(tick, 1000); const ping = setInterval(() => { if (!closed) res.write(': ping\n\n'); }, 15000);
+      res.on('close', () => { closed = true; clearInterval(t); clearInterval(ping); });
+      tick();
+      return;
+    }
     if (m === 'GET' && p === '/v1/runs') return json(res, 200, { ok: true, runs: hub.list({ sessionId: u.searchParams.get('session_id') || '', active: u.searchParams.get('active') === '1' }) });
     if (m === 'GET' && seg[1] === 'runs' && seg.length === 3) { const r = hub.get(seg[2]); return r ? json(res, 200, { ok: true, run: r }) : fail(res, 404, 'No run with that id (finished runs are kept for 15 minutes)'); }
     if (m === 'GET' && seg[1] === 'runs' && seg[3] === 'events') {

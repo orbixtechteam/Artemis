@@ -10,6 +10,7 @@ import { newChatId } from '../lib/core';
 import { Icon, Pill, RoundButton, initials, serif } from './ui';
 import { ChatActions } from './ChatActions';
 import { ProjectActions } from './ProjectActions';
+import { useLive } from '../lib/live';
 
 const PROJECT_ROWS = 4; // chats under each project before "View all", as on the desktop
 
@@ -45,7 +46,7 @@ function Head({ label, open, onToggle, c }) {
 
 export function Home() {
   const currentId = '';
-  const running = [];
+  const [running, setRunning] = useState([]); // chats with an answer running (on any device)
   const { api, c, server } = useSession();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -95,6 +96,12 @@ export function Home() {
     api.get('/v1/memory/list').then((r) => setCounts((x) => ({ ...x, memory: (r.entries || []).length }))).catch(() => {});
   }, [api]);
   useFocusEffect(useCallback(() => { load(); }, [load])); // fresh every time you come back to it
+  // live: a chat made, answered, renamed or deleted elsewhere shows up at once
+  const soon = useRef(null);
+  useLive(api, (ev) => {
+    if (ev.type === 'runs') setRunning((ev.data && ev.data.sessions) || []);
+    if (ev.type === 'sessions' || ev.type === 'resume') { clearTimeout(soon.current); soon.current = setTimeout(load, 400); }
+  });
   useEffect(() => { if (api) api.get('/v1/x/settings').then((r) => setMe((r.settings && r.settings.profileName) || '')).catch(() => {}); }, [api]);
 
   const go = (p) => router.push(p);

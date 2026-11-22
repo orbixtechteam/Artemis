@@ -10,6 +10,7 @@ import { LocalFileView } from '../../src/components/Preview';
 import { Icon, Logo, RoundButton, serif } from '../../src/components/ui';
 import { OptionsSheet, DEFAULT_OPTS } from '../../src/components/ChatOptions';
 import { ChatActions } from '../../src/components/ChatActions';
+import { useLive } from '../../src/lib/live';
 
 const greeting = (name) => {
   const h = new Date().getHours();
@@ -152,6 +153,16 @@ export default function Chat() {
     const sub = AppState.addEventListener('change', (s) => { if (s === 'active') { if (run.current && !run.current.live && !run.current.done) follow(); else if (!run.current) reload(true); } });
     return () => sub.remove();
   }, [id]);
+
+  // live: an answer this chat gets on another device (desktop, web, another phone) appears here at once and streams
+  const liveT = useRef(null);
+  useLive(api, (ev) => {
+    if (incognito || run.current) return; // this phone is running it: its own stream is already live
+    const mine = ev.type === 'sessions' && ((ev.data && ev.data.items) || []).find((x) => x.id === id);
+    if (mine && mine.deleted) { home(); return; }
+    const started = ev.type === 'runs' && ((ev.data && ev.data.sessions) || []).includes(id);
+    if (mine || started) { clearTimeout(liveT.current); liveT.current = setTimeout(() => reload(true), 300); }
+  });
 
   const send = async (override) => {
     const text = (override && override.text != null ? override.text : input).trim();

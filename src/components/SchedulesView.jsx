@@ -9,7 +9,7 @@ const api = window.api;
 const DAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
-const blank = () => ({ name: '', prompt: '', projectId: '', model: '', enabled: true, allowEdits: false, notifyPhone: false, reminder: false, repeat: { type: 'daily', at: '09:00', every: 60, days: [1], dayOfMonth: 1, date: today(), window: false, from: '09:00', to: '18:00', idays: [0, 1, 2, 3, 4, 5, 6] } });
+const blank = () => ({ name: '', prompt: '', projectId: '', model: '', enabled: true, allowEdits: false, notifyPhone: false, reminder: false, oneChat: true, title: '', repeat: { type: 'daily', at: '09:00', every: 60, days: [1], dayOfMonth: 1, date: today(), window: false, from: '09:00', to: '18:00', idays: [0, 1, 2, 3, 4, 5, 6] } });
 const ALL = [0, 1, 2, 3, 4, 5, 6];
 const EVERY = [5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 360, 480, 720];
 const everyLabel = (m) => (m < 60 ? `${m} minutes` : m % 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m / 60} hour${m === 60 ? '' : 's'}`);
@@ -114,6 +114,11 @@ function Editor({ job, projects, models, onSave, onClose }) {
           </label>
         </div>
         {!j.teamId && <>
+        {!j.teamId && <>
+          <label className="field"><span>Chat title</span><input value={j.title || ''} placeholder={(j.name || 'Daily report') + ' {date}'} onChange={(e) => setJ({ ...j, title: e.target.value })} /></label>
+          <small className="hint">Empty: the task's name. Filled in on every run: {'{date}'} 2026-11-22, {'{weekday}'} Sunday, {'{day}'}, {'{month}'} Nov, {'{monthName}'} November, {'{year}'}, {'{time}'} 09:00, {'{name}'} the task's name.</small>
+          <label className="check"><input type="checkbox" checked={j.oneChat !== false} onChange={(e) => setJ({ ...j, oneChat: e.target.checked })} /> Keep every run in one chat (off: a new chat for each run)</label>
+        </>}
         <label className="check"><input type="checkbox" checked={!!j.reminder} onChange={(e) => setJ({ ...j, reminder: e.target.checked })} /> Plain reminder: show the text above exactly as written, without running the AI</label>
         <label className="check"><input type="checkbox" checked={j.allowEdits} onChange={(e) => setJ({ ...j, allowEdits: e.target.checked })} /> Allow file changes in the project folder (otherwise the task can only read)</label>
         <label className="check"><input type="checkbox" checked={j.notifyPhone} onChange={(e) => setJ({ ...j, notifyPhone: e.target.checked })} /> Send the result to my phone (Telegram)</label>

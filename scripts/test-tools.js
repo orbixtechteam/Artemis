@@ -148,7 +148,13 @@ const XLSX = require('xlsx');
   // when the folder is missing
   r = await tools.run('list_dir', {}, { root: null });
   assert(!r.ok && /folder/.test(r.text));
-  assert.deepStrictEqual(tools.definitions({ hasFolder: false, memoryEnabled: false }).map((d) => d.function.name), ['create_artifact', 'present_files', 'compact_chat', 'ask_user', 'lock_app']);
+  assert.deepStrictEqual(tools.definitions({ hasFolder: false, memoryEnabled: false }).map((d) => d.function.name), ['create_artifact', 'present_files', 'set_chat_title', 'compact_chat', 'ask_user', 'lock_app']);
+  { // the AI renames its chat; variables like {date} are filled in
+    let got = ''; const r1 = await tools.run('set_chat_title', { title: 'Report {date}' }, { renameChat: (t) => { got = t; } });
+    assert(r1.ok && /^Report \d{4}-\d{2}-\d{2}$/.test(got), got);
+    const r2 = await tools.run('set_chat_title', { title: 'x' }, {});
+    assert(r2.ok && /no chat/.test(r2.text));
+  }
 
   // long file paging
   fs.writeFileSync(path.join(root, 'long.txt'), 'a'.repeat(130000));

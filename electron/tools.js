@@ -130,6 +130,7 @@ function definitions({ teamsEnabled, makeEnabled, hasFolder, memoryEnabled, memo
       fn('delete_file', 'Deletes a file or folder (always asks the user for approval).', { path: { type: 'string' } }, ['path'])
     );
   }
+  defs.push(fn('set_chat_title', 'Renames this chat (the title shown in the chat list, on every device). Use it when the user asks to name or rename the chat, or when a scheduled task\'s instructions say what its chat should be called. Variables are filled in: {date} (2026-11-22), {weekday}, {day}, {month}, {monthName}, {year}, {time}, so "Daily report {date}" stays correct.', { title: { type: 'string', description: 'The new title, short (under 80 characters)' } }, ['title']));
   defs.push(fn('compact_chat', 'Compacts this chat once your answer is finished: the older messages are summarized into one card and the last few stay as they are, so later turns cost fewer tokens. Use it yourself when the chat has grown long and the old part no longer matters word for word (for example the topic changed or a long task is done), or when the user asks to compact. Not for short chats. Needs no arguments and no approval.', {}, []));
   defs.push(fn('ask_user', 'Asks the user 1-4 multiple-choice questions on a card in the chat and waits for the answers. Use it only when you are blocked on a decision that is the user\'s to make (which approach, which option, missing requirement), not for facts you can check yourself and not to ask "should I proceed?". The user can always type their own answer instead of an option. If you recommend an option, put it first and add "(Recommended)" to its label.', {
     questions: { type: 'array', minItems: 1, maxItems: 4, description: 'The questions', items: { type: 'object', properties: {
@@ -329,7 +330,7 @@ function definitions({ teamsEnabled, makeEnabled, hasFolder, memoryEnabled, memo
   }
   if (scheduleEnabled) {
     defs.push(
-      fn('schedule_task', 'Creates a scheduled task: a prompt that Artemis runs by itself later or on a repeat (shown in the Scheduled page). Use it when the user asks to do something at a time, every day/week, or "remind me". Each run starts a fresh chat with the prompt, so the prompt must be complete and self-contained. Requires approval.', {
+      fn('schedule_task', 'Creates a scheduled task: a prompt that Artemis runs by itself later or on a repeat (shown in the Scheduled page). Use it when the user asks to do something at a time, every day/week, or "remind me". All runs go into one chat of their own (the last runs are shown to the AI, so it can compare with before), but the prompt must still be complete and self-contained. Requires approval.', {
         name: { type: 'string', description: 'Short name, e.g. "Morning news summary"' },
         prompt: { type: 'string', description: 'Exactly what to do on each run, complete and self-contained. An instruction to the assistant, unless reminder is true.' },
         repeat: { type: 'string', enum: ['once', 'interval', 'custom', 'daily', 'weekdays', 'weekly', 'monthly'], description: 'custom = every N minutes, only between two times of day and/or only on some weekdays (e.g. every 30 min from 09:00 to 18:00 on weekdays)' },
@@ -342,7 +343,9 @@ function definitions({ teamsEnabled, makeEnabled, hasFolder, memoryEnabled, memo
         day_of_month: { type: 'integer', description: 'For monthly: 1-31' },
         reminder: { type: 'boolean', description: 'Set true for a plain reminder. Then prompt is the exact message shown to the user, written to them (for example "Time to drink a glass of water!"), and no AI runs. Use this whenever the user only wants to be reminded of something.' },
         notify_phone: { type: 'boolean', description: 'Send the result to the user\'s phone (Telegram) after every run. Set true whenever the user says to send, notify or message them on their phone or Telegram.' },
-        allow_edits: { type: 'boolean', description: 'Let the task edit files without asking. Default false; only true if the user clearly asked.' }
+        allow_edits: { type: 'boolean', description: 'Let the task edit files without asking. Default false; only true if the user clearly asked.' },
+        chat_title: { type: 'string', description: 'Title of the task\'s chat, set again on every run. Variables: {date} (2026-11-22), {weekday} (Sunday), {day}, {month} (Nov), {monthName}, {year}, {time}, {name}. E.g. "Daily report {date}". Empty: the task\'s name.' },
+        one_chat: { type: 'boolean', description: 'true (default): every run goes into the same chat. false: a new chat for each run.' }
       }, ['name', 'prompt', 'repeat']),
       fn('list_schedules', 'Lists the scheduled tasks (id, name, when, next run, on/off).', {}),
       fn('update_schedule', 'Changes an existing scheduled task in place (use it instead of schedule_task when the user wants to edit, move, rename, pause or resume a task). Get the id from list_schedules. Only the fields you pass are changed.', {
@@ -358,6 +361,8 @@ function definitions({ teamsEnabled, makeEnabled, hasFolder, memoryEnabled, memo
         days: { type: 'array', items: { type: 'integer' }, description: 'For weekly and custom: weekdays, 0=Sunday … 6=Saturday' },
         day_of_month: { type: 'integer', description: 'For monthly: 1-31' },
         reminder: { type: 'boolean' }, notify_phone: { type: 'boolean' }, allow_edits: { type: 'boolean' },
+        chat_title: { type: 'string', description: 'Title of the task\'s chat, set again on every run. Variables: {date} (2026-11-22), {weekday} (Sunday), {day}, {month} (Nov), {monthName}, {year}, {time}, {name}. E.g. "Daily report {date}". Empty: the task\'s name.' },
+        one_chat: { type: 'boolean', description: 'true (default): every run goes into the same chat. false: a new chat for each run.' },
         enabled: { type: 'boolean', description: 'false pauses the task, true resumes it' }
       }, ['id']),
       fn('delete_schedule', 'Deletes a scheduled task by id (from list_schedules). Requires approval.', { id: { type: 'string' } }, ['id']),
@@ -667,6 +672,7 @@ function summarize(name, args) {
     case 'ask_user': return 'Question for you';
     case 'lock_app': return 'Lock Artemis';
     case 'compact_chat': return 'Compact this chat';
+    case 'set_chat_title': return 'Rename this chat: ' + String(args.title || '');
     case 'get_location': return 'Look up your approximate location from your IP address (one request to ipwho.is)';
     case 'schedule_task': return `Schedule "${args.name}": ${args.repeat}${args.from && args.to ? ` ${args.from}-${args.to}` : ''}${args.date ? ' ' + args.date : ''}${args.at ? ' at ' + args.at : ''}${args.every_minutes ? ' every ' + args.every_minutes + ' min' : ''}`;
     case 'update_schedule': { const f = Object.keys(args).filter((k) => k !== 'id'); return `Change scheduled task ${args.id}${args.name ? ` ("${args.name}")` : ''}${f.length ? ': ' + f.join(', ') : ''}${args.enabled === false ? ' (pause)' : ''}`; }
@@ -1179,6 +1185,13 @@ async function runTool(name, args, ctx) {
         fs.rmSync(abs, { recursive: true, force: true });
         return { ok: true, text: `Deleted: ${rel(root, abs)}` };
       }
+      case 'set_chat_title': {
+        if (!ctx.renameChat) return { ok: true, text: 'This kind of task has no chat to rename.' };
+        const title = require('./scheduler').chatTitle({ title: String(args.title || ''), name: '' }).replace(/\s+/g, ' ').trim().slice(0, 120);
+        if (!title) throw new Error('Give a title.');
+        ctx.renameChat(title);
+        return { ok: true, text: `The chat is now called "${title}".` };
+      }
       case 'compact_chat': {
         if (!ctx.compactChat) return { ok: true, text: 'Compacting is not available in this kind of task.' };
         ctx.compactChat();
@@ -1519,7 +1532,7 @@ async function runTool(name, args, ctx) {
         // needs a run, or the user gets the instruction itself.
         let reminder = !!args.reminder;
         if (reminder && /\b(the user|user's|summar|xülasə|today's notes|daily note|memory\/|search|look up|check (the|my|if)|find out)/i.test(String(args.prompt || ''))) reminder = false;
-        const job = ctx.schedule.save({ name: args.name, prompt: args.prompt, repeat, notifyPhone: !!args.notify_phone, reminder, allowEdits: !!args.allow_edits });
+        const job = ctx.schedule.save({ name: args.name, prompt: args.prompt, repeat, notifyPhone: !!args.notify_phone, reminder, allowEdits: !!args.allow_edits, title: args.chat_title || '', oneChat: args.one_chat !== false });
         const phoneWarn = args.notify_phone && !ctx.phone ? ' Warning: Telegram is not connected and paired, so the result will not reach the phone until the user connects it in Settings → Phone. Tell the user.' : '';
         return { ok: true, text: `Scheduled "${job.name}" (id ${job.id}). It runs: ${ctx.schedule.list().find((j) => j.id === job.id)?.description || type}. Next run: ${job.nextRun ? new Date(job.nextRun).toLocaleString() : 'none'}.${phoneWarn}` };
       }
@@ -1540,7 +1553,8 @@ async function runTool(name, args, ctx) {
         const job = ctx.schedule.save({
           id: old.id, name: has('name') ? args.name : old.name, prompt: has('prompt') ? args.prompt : old.prompt, projectId: old.projectId, model: old.model, repeat: rep,
           enabled: has('enabled') ? !!args.enabled : old.enabled, allowEdits: has('allow_edits') ? !!args.allow_edits : old.allowEdits,
-          notifyPhone: has('notify_phone') ? !!args.notify_phone : old.notifyPhone, reminder: has('reminder') ? !!args.reminder : !!old.reminder
+          notifyPhone: has('notify_phone') ? !!args.notify_phone : old.notifyPhone, reminder: has('reminder') ? !!args.reminder : !!old.reminder,
+          title: has('chat_title') ? String(args.chat_title) : (old.title || ''), oneChat: has('one_chat') ? !!args.one_chat : old.oneChat !== false
         });
         return { ok: true, text: `Updated "${job.name}" (id ${job.id}). It runs: ${ctx.schedule.list().find((j) => j.id === job.id)?.description || rep.type}. Next run: ${job.nextRun ? new Date(job.nextRun).toLocaleString() : 'none'}.` };
       }

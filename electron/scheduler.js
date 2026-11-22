@@ -154,7 +154,9 @@ function createScheduler(deps) {
       const job = {
         runs: 0, lastRun: null, lastStatus: '', lastError: '', ...(old || {}),
         id, name: String(input.name).trim().slice(0, 80), prompt: String(input.prompt).trim(), projectId: input.projectId || null, model: input.model || '',
-        enabled: input.enabled !== false, allowEdits: !!input.allowEdits, notifyPhone: !!input.notifyPhone, reminder: !!input.reminder, repeat: { ...input.repeat }, ...(input.teamId || (old && old.teamId) ? { teamId: input.teamId || old.teamId } : {})
+        enabled: input.enabled !== false, allowEdits: !!input.allowEdits, notifyPhone: !!input.notifyPhone, reminder: !!input.reminder, repeat: { ...input.repeat },
+        // one chat for every run (like Claude's scheduled tasks), titled from a template such as "Daily report {date}"
+        oneChat: input.oneChat !== undefined ? input.oneChat !== false : old ? old.oneChat !== false : true, title: String(input.title != null ? input.title : (old && old.title) || '').slice(0, 120), ...(input.teamId || (old && old.teamId) ? { teamId: input.teamId || old.teamId } : {})
       };
       job.nextRun = job.enabled ? nextRunAfter(job, now()) : null;
       store(old ? list.map((j) => (j.id === id ? job : j)) : [...list, job]);
@@ -173,7 +175,19 @@ function createScheduler(deps) {
   };
 }
 
-module.exports = { createScheduler, nextRunAfter, describe, validate };
+/** A chat title from a template: {date} 2026-11-22, {day} 22, {month} Nov, {monthName} November, {year} 2026,
+ *  {weekday} Sunday, {time} 06:00, {name} the task's name. Empty template: the task's name. */
+function chatTitle(job, at = new Date()) {
+  const d = at instanceof Date ? at : new Date(at);
+  const pad = (n) => String(n).padStart(2, '0');
+  const v = { date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, day: String(d.getDate()), month: d.toLocaleString('en', { month: 'short' }), monthName: d.toLocaleString('en', { month: 'long' }), year: String(d.getFullYear()), weekday: d.toLocaleString('en', { weekday: 'long' }), time: `${pad(d.getHours())}:${pad(d.getMinutes())}`, name: String((job && job.name) || '') };
+  const t = String((job && job.title) || '').trim() || v.name || 'Scheduled task';
+  return t.replace(/\{(\w+)\}/g, (m, k) => (v[k] != null ? v[k] : m)).slice(0, 120);
+}
+/** The chat a task writes to: one per task (oneChat, the default), or a new one per run. */
+const chatIdOf = (job, runId) => (job && job.oneChat !== false && job.id ? 'sch-' + String(job.id).replace(/[^\w-]/g, '') : runId);
+
+module.exports = { chatTitle, chatIdOf, createScheduler, nextRunAfter, describe, validate };
 
 /** The next few run times, for the editor's preview. */
 module.exports.preview = function preview(job, n = 3, from = Date.now()) {
