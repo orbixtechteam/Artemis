@@ -495,6 +495,8 @@ function isSensitive(real, ctx) {
   const unix = real.split(path.sep).join('/');
   if (SENSITIVE.test(unix)) return true;
   if (ctx && ctx.spillDir) { let sp = ctx.spillDir; try { sp = fs.realpathSync(sp); } catch {} if (!outside(sp, real)) return false; } // big tool results saved for the model to read back
+  // the user's own content kept inside the data folder (the server's files/, phone uploads, project files): not protected
+  for (const d of (ctx && Array.isArray(ctx.contentDirs) ? ctx.contentDirs : [])) { let r = d; try { r = fs.realpathSync(d); } catch {} if (d && !outside(r, real)) return false; }
   const own = ctx && (ctx.userData || ctx.userDataDir);
   if (own) { let o = own; try { o = fs.realpathSync(own); } catch {} if (!outside(o, real)) return true; }
   return false;
