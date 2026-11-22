@@ -165,7 +165,8 @@ const { createTeams } = require('./teams');
 const { createCliAgents, createCliTeamTurn, createCliChat, createCliSessions, kindOf: cliKindOf, modelOf: cliModelOf, transcript: cliTranscript, KINDS: CLI_KINDS } = require('./cli-agents');
 const { createMake, ZONES: MAKE_ZONES, cleanZone: cleanMakeZone, validZone: validMakeZone } = require('./make');
 const chatSearch = require('./chatsearch');
-const { createScheduler } = require('./scheduler');
+const { createScheduler, chatTitle: schedChatTitle, chatIdOf: schedChatIdOf } = require('./scheduler');
+const { toApiMessages } = require('./core/history');
 const { createPermissions } = require('./permissions');
 const readProviders = () => { const l = readJson('providers', []); const list = Array.isArray(l) ? l : []; providersLib.registerHeaders(list); return list; };
 const readProviderKeys = () => readJson('providerkeys', {});
@@ -1326,6 +1327,7 @@ async function executeRun({ requestId, model: model0, messages, project, system,
       teams: unattended || restrict ? (watchTeamId ? hbLib.scopedTeams(teamsTools, watchTeamId) : null) : teamsTools,
       lockApp: unattended || restrict ? null : () => lock.lock('ai'),
       compactChat: unattended || restrict || !chatId ? null : () => toWinSafe('remote:compact', { chatId }),
+      renameChat: incognito || !chatId ? null : (title) => toWinSafe('chat:retitle', { chatId, title }),
       appShot: unattended || restrict ? null : appScreenshot, withArtemisVisible: unattended || restrict ? null : withArtemisVisible,
       notes: settings.notesAi !== false ? notesAi : null,
       library: settings.notesAi !== false ? library : null,
@@ -1820,7 +1822,12 @@ async function runScheduled(job) {
   const project = proj ? { name: proj.name, instructions: proj.instructions, knowledge: projectFiles.knowledge(proj), ...(proj.folder && fs.existsSync(proj.folder) ? { folder: proj.folder } : {}) } : null;
   const model = job.model || (st.scheduleModel ? liveModel(st.scheduleModel) : '') || st.model; // the task's own model, else the one set for scheduled tasks, else the default
   let text = '', error = '';
-  toWinSafe('schedule:start', { requestId, jobId: job.id, name: job.name, prompt: job.prompt, model, projectId: job.projectId || null });
+  // every run goes into the task's own chat (unless it asks for a new chat each time), titled from its template ("Report {date}");
+  // the latest runs go with the prompt, so the AI can build on what it found before
+  const chatId = schedChatIdOf(job, 'sched-' + requestId); const title = schedChatTitle(job);
+  let hist = [];
+  if (chatId !== 'sched-' + requestId) { try { const c = initCore(); const prev = c.sessions && c.sessions.get(chatId); if (prev && Array.isArray(prev.messages)) hist = toApiMessages(prev.messages.slice(-6)); } catch {} }
+  toWinSafe('schedule:start', { requestId, chatId, title, jobId: job.id, name: job.name, prompt: job.prompt, model, projectId: job.projectId || null });
   const send = (ev) => {
     if (ev.type === 'step:new') text = '';
     if (ev.type === 'chunk') text += ev.text;
@@ -1831,7 +1838,7 @@ async function runScheduled(job) {
   if (job.reminder) {
     text = String(job.prompt || '').trim();
     send({ type: 'chunk', text }); send({ type: 'done' });
-  } else await executeRun({ requestId, messages: [{ role: 'user', content: job.prompt }], send, restrict: true, source: 'schedule', unattended: true, allowEdits: job.allowEdits,
+  } else await executeRun({ requestId, messages: [...hist, { role: 'user', content: job.prompt }], chatId, send, restrict: true, source: 'schedule', unattended: true, allowEdits: job.allowEdits,
     model, system: (st.systemPrompt || '') + '\n\n' + prompts.text('scheduled', prompts.defaultOf('scheduled')), maxTokens: st.maxTokens, project });
   const summary = (error ? `Failed: ${error}` : text.trim() || 'Finished.').slice(0, 600);
   try { if (Notification.isSupported()) { const n = new Notification({ title: job.name, body: summary.slice(0, 160) }); n.on('click', () => showMain('scheduled task notification clicked')); n.show(); } } catch {}
@@ -2782,6 +2789,34 @@ async function syncServerSecrets() {
   } catch (e) { if (e && e.code !== 'NO_SERVER') logger.warn('server', 'could not keep the server in step: ' + e.message); }
 }
 setTimeout(() => { syncServerSecrets(); setInterval(syncServerSecrets, 30000); }, 8000);
+/** Live changes from the linked server (GET /v1/events): chats made, answered or deleted on the phone or the web app
+ *  reach the window at once (it refreshes them), instead of waiting for the next check. Reconnects on its own. */
+async function serverLiveLoop() {
+  const nap = (ms) => new Promise((r) => setTimeout(r, ms));
+  for (;;) {
+    const cfg = serverLink.config(); const tok = serverLink.token();
+    if (!cfg || !tok || !win || win.isDestroyed()) { await nap(5000); continue; }
+    try {
+      const r = await fetch(`${cfg.url}/v1/events`, { headers: { authorization: `Bearer ${tok}`, accept: 'text/event-stream' } });
+      if (!r.ok || !r.body) throw new Error('HTTP ' + r.status);
+      const dec = new TextDecoder(); let buf = '';
+      for await (const chunk of r.body) {
+        buf += dec.decode(chunk, { stream: true }).replace(/\r\n/g, '\n');
+        let i;
+        while ((i = buf.indexOf('\n\n')) >= 0) {
+          const block = buf.slice(0, i); buf = buf.slice(i + 2);
+          let type = 'message', data = '';
+          for (const line of block.split('\n')) { if (line.startsWith('event:')) type = line.slice(6).trim(); else if (line.startsWith('data:')) data += line.slice(5).trim(); }
+          if (data) { try { toWinSafe('server:live', { type, data: JSON.parse(data) }); } catch {} }
+        }
+        if (serverLink.config() !== cfg && JSON.stringify(serverLink.config()) !== JSON.stringify(cfg)) break; // linked elsewhere now
+      }
+    } catch {}
+    await nap(3000);
+  }
+}
+setTimeout(serverLiveLoop, 5000);
+
 /** "Copy from the server to this Mac": the server's memory, skills, agents, brains, files, pictures, connectors (with
  *  their sign-ins) and provider keys come here. Nothing here is overwritten: a file that differs is kept next to
  *  this Mac's as "<name> (server)". Chats are copied by the window (it keeps them). onProgress({ done, total, file }). */

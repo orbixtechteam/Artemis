@@ -118,6 +118,11 @@ function createSessions({ db, log = () => {}, writer: defaultWriter = 'app', med
   }
 
   /** Changes by other writers after change number `since`: { seq, chats (current versions), deleted (ids) }. */
+  /** What changed after `since` (ids and list fields only), for the live event stream of the apps. */
+  function changedSince(since) {
+    const rows = db.all('SELECT id, title, project_id, updated_at, deleted_at, incognito FROM sessions WHERE seq > ? ORDER BY seq LIMIT 500', Number(since) || 0);
+    return { seq: db.seq(), items: rows.filter((r) => !r.incognito).map((r) => ({ id: r.id, title: r.title || '', projectId: r.project_id || null, updatedAt: r.updated_at, deleted: !!r.deleted_at })) };
+  }
   function changesSince(since, { exclude = '' } = {}) {
     const rows = db.all('SELECT * FROM sessions WHERE seq > ? AND writer <> ? ORDER BY seq', Number(since) || 0, String(exclude));
     const chats = [], deletedIds = [];
@@ -309,7 +314,7 @@ function createSessions({ db, log = () => {}, writer: defaultWriter = 'app', med
     if (!row) return null;
     let meta = {}; try { meta = JSON.parse(row.meta || '{}'); } catch {}
     const allowed = {};
-    for (const k of ['title', 'pinned', 'projectId', 'model', 'env', 'brain', 'tools', 'agents', 'effort', 'perm', 'shell', 'councilPick']) if (patch && patch[k] !== undefined) allowed[k] = patch[k];
+    for (const k of ['title', 'titleManual', 'pinned', 'projectId', 'model', 'env', 'brain', 'tools', 'agents', 'effort', 'perm', 'shell', 'councilPick']) if (patch && patch[k] !== undefined) allowed[k] = patch[k];
     meta = { ...meta, ...allowed };
     db.tx(() => {
       db.run('UPDATE sessions SET meta = ?, title = ?, project_id = ?, seq = ?, writer = ?, hash = ? WHERE id = ?', JSON.stringify(meta), String(meta.title || ''), meta.projectId == null ? null : String(meta.projectId), db.nextSeq(), String(writer), '', sid);
@@ -384,7 +389,7 @@ function createSessions({ db, log = () => {}, writer: defaultWriter = 'app', med
 
   /** Chats deleted in the last `days` days (for an undo / restore view). */
   const trash = (days = 30) => db.all('SELECT id, title, deleted_at FROM sessions WHERE deleted_at IS NOT NULL AND deleted_at >= ? ORDER BY deleted_at DESC', Date.now() - days * DAY);
-  return { sync, syncDelta, changesSince, seq: () => db.seq(), toArray, get, count, recent, page, search, read, turns, appendTurn, startTurn, putMessage, importChats, patchChat, remove, setMessages, truncateFrom, purge, trash, migrateMedia, gcMedia };
+  return { sync, syncDelta, changesSince, changedSince, seq: () => db.seq(), toArray, get, count, recent, page, search, read, turns, appendTurn, startTurn, putMessage, importChats, patchChat, remove, setMessages, truncateFrom, purge, trash, migrateMedia, gcMedia };
 }
 
 module.exports = { createSessions };

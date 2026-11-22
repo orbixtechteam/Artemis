@@ -255,7 +255,7 @@ function createHeadless({ dataDir, keysFrom = '', host = '127.0.0.1', port, publ
         if (chosen.model) { const r = providersLib.resolve(chosen.model, readProviders(), getProviderKey); if (r.error) send({ type: 'notice', text: `${chosen.name}'s model is not available (${r.error}) so the chat model was used.` }); else route = r; }
       }
     }
-    const steps = ['']; let error = '';
+    const steps = ['']; let error = ''; let renamed = '';
     const out = (ev) => {
       if (ev.type === 'chunk' && !ev.agent) steps[steps.length - 1] += ev.text;
       else if (ev.type === 'step:new') steps.push('');
@@ -265,6 +265,7 @@ function createHeadless({ dataDir, keysFrom = '', host = '127.0.0.1', port, publ
     const root = project && project.folder ? project.folder : filesDir();
     try {
       await runAgent({
+        renameChat: incognito || !chatId ? null : (t) => { renamed = t; try { sessions.patchChat(chatId, { title: t, titleManual: true }); mirror(); } catch {} },
         persona, sessionId: chatId, userData: dataDir, spillDir: require('path').join(dataDir, 'spill'), contentDirs: [filesDir(), path.join(dataDir, 'uploads'), path.join(dataDir, 'project-files')], mentions: Array.isArray(mentions) ? mentions.slice(0, 20) : [],
         baseUrl: route.baseUrl, key: route.key, model: route.model, noToolCalls: !!route.noTools, messages, maxTokens: st.maxTokens || 8192, reasoningEffort: effort && effort !== 'auto' ? effort : (st.reasoningEffort || ''),
         custom: [st.systemPrompt || '', system].filter(Boolean).join('\n\n'), personality: personality.text(st), userName: st.profileName || '', userAbout: st.profileAbout || '', userLocation: st.profileLocation || '',
@@ -306,7 +307,7 @@ function createHeadless({ dataDir, keysFrom = '', host = '127.0.0.1', port, publ
       });
     } catch (e) { if (e.name !== 'AbortError') { error = e.message || String(e); send({ type: 'error', message: error }); } }
     finally { runs.delete(runId); for (const id of mine) { const r = approvals.get(id); if (r) { approvals.delete(id); r(false); } } }
-    return { text: steps.map((t) => t.trim()).filter(Boolean).pop() || '', steps: steps.map((t) => t.trim()).filter(Boolean), error };
+    return { text: steps.map((t) => t.trim()).filter(Boolean).pop() || '', steps: steps.map((t) => t.trim()).filter(Boolean), error, renamed };
   }
 
   // ---- scheduled tasks ----
@@ -321,10 +322,17 @@ function createHeadless({ dataDir, keysFrom = '', host = '127.0.0.1', port, publ
       }
       const runId = 'sch-' + crypto.randomBytes(5).toString('hex');
       const modelId = pickModel(job.model || settings().scheduleModel);
+      // one chat for all runs of a task (unless it asks for a new one each time), titled from its template ("Report {date}");
+      // the latest runs go with the prompt, so the AI can compare with what it found before
+      const { chatTitle, chatIdOf } = require('../scheduler');
+      const chatId = chatIdOf(job, runId); const title = chatTitle(job);
+      const prev = chatId !== runId ? sessions.get(chatId) : null;
+      const hist = prev && Array.isArray(prev.messages) ? toApiMessages(prev.messages.slice(-6)) : [];
       let res;
       if (job.reminder) res = { text: String(job.prompt || '').trim(), steps: [String(job.prompt || '').trim()], error: '' };
-      else res = await run({ runId, messages: [{ role: 'user', content: job.prompt }], modelId, project: projectFor(job.projectId), chatId: runId, send: () => {}, unattended: true, allowEdits: job.allowEdits, restrict: true, system: prompts.text('scheduled', prompts.defaultOf('scheduled')) });
-      sessions.appendTurn(runId, { user: job.prompt, steps: res.steps.map((t) => ({ text: t, toolCalls: [] })), assistant: res.error ? `Failed: ${res.error}` : '', title: job.name, source: 'schedule', model: modelId, projectId: job.projectId || null });
+      else res = await run({ runId, messages: [...hist, { role: 'user', content: job.prompt }], modelId, project: projectFor(job.projectId), chatId, send: () => {}, unattended: true, allowEdits: job.allowEdits, restrict: true, system: prompts.text('scheduled', prompts.defaultOf('scheduled')) });
+      sessions.appendTurn(chatId, { user: job.prompt, steps: res.steps.map((t) => ({ text: t, toolCalls: [] })), assistant: res.error ? `Failed: ${res.error}` : '', title: res.renamed || title, source: 'schedule', model: modelId, projectId: job.projectId || null });
+      if (prev || res.renamed) sessions.patchChat(chatId, { title: res.renamed || title }); // the template's title on every run, unless the AI named it
       mirror();
       log('info', 'schedule', `${job.name}: ${res.error ? 'failed: ' + res.error : 'done'}`);
       if (job.notifyPhone) {
@@ -945,7 +953,7 @@ function createHeadless({ dataDir, keysFrom = '', host = '127.0.0.1', port, publ
         return teams[what](id);
       }
     },
-    sessions: { recent: (n, o = {}) => sessions.page({ limit: n, before: o.before, projectId: o.projectId, projects: readJson('projects', []) }), get: (id) => sessions.get(id), search: (q, n) => sessions.search(q, { limit: n, projects: readJson('projects', []) }) },
+    sessions: { seq: () => sessions.seq(), changedSince: (s) => sessions.changedSince(s), recent: (n, o = {}) => sessions.page({ limit: n, before: o.before, projectId: o.projectId, projects: readJson('projects', []) }), get: (id) => sessions.get(id), search: (q, n) => sessions.search(q, { limit: n, projects: readJson('projects', []) }) },
     media: { file: (name) => { const f = media.fileOf(name); return fs.existsSync(f) ? f : ''; } },
     extra: (area, o) => serverApi(area, o),
     memory: memoryApi ? { search: (q, n) => memoryApi.search(q, n), list: () => memoryApi.list(), add: (t) => memoryApi.add(t), note: (t) => memoryApi.note(t) } : null

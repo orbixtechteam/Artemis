@@ -46,5 +46,18 @@ assert.strictEqual(describe({ repeat: { type: 'interval', every: 120 } }), 'Ever
   s2.tick(); s2.tick(); s2.tick();
   assert.strictEqual(writes, 1); assert.strictEqual(store[0].enabled, false);
   s2.toggle('old', true); assert.strictEqual(store[0].enabled, false, 'cannot switch on a past one-time job');
+  // one chat per task, titled from a template with variables
+  const { chatTitle, chatIdOf } = require('../electron/scheduler');
+  const at9 = new Date(2026, 10, 22, 9, 5);
+  assert.strictEqual(chatTitle({ name: 'Daily report', title: 'Daily report {date}' }, at9), 'Daily report 2026-11-22');
+  assert.strictEqual(chatTitle({ name: 'Daily report', title: '{name} · {weekday} {day} {monthName} {year} {time}' }, at9), 'Daily report · Sunday 22 November 2026 09:05');
+  assert.strictEqual(chatTitle({ name: 'Daily report', title: '' }, at9), 'Daily report');
+  assert.strictEqual(chatIdOf({ id: 'ab1', oneChat: true }, 'run-1'), 'sch-ab1');
+  assert.strictEqual(chatIdOf({ id: 'ab1', oneChat: false }, 'run-1'), 'run-1');
+  const kept = s.save({ name: 'Rep', prompt: 'x', title: 'Rep {date}', repeat: { type: 'daily', at: '09:00' } });
+  assert.strictEqual(kept.oneChat, true); assert.strictEqual(kept.title, 'Rep {date}');
+  const again = s.save({ id: kept.id, name: 'Rep 2', prompt: 'x', repeat: { type: 'daily', at: '09:00' } });
+  assert.strictEqual(again.title, 'Rep {date}', 'the title template stays when an edit does not send it');
+  assert.strictEqual(s.save({ id: kept.id, name: 'Rep 2', prompt: 'x', oneChat: false, repeat: { type: 'daily', at: '09:00' } }).oneChat, false);
   console.log('scheduler: all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

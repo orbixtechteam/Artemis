@@ -910,6 +910,7 @@ async function runAgent(opts) {
     lockApp: opts.lockApp && !opts.isSub ? opts.lockApp : null,
     askUser: opts.askUser && !opts.isSub ? opts.askUser : null,
     compactChat: opts.compactChat && !opts.isSub ? opts.compactChat : null,
+    renameChat: opts.renameChat && !opts.isSub ? opts.renameChat : null,
     appShot: opts.appShot && !opts.isSub ? opts.appShot : null, withArtemisVisible: opts.withArtemisVisible && !opts.isSub ? opts.withArtemisVisible : null,
     make: opts.make && subOk('make') ? opts.make : null, skills: opts.skills || null, plugins: opts.plugins && !opts.isSub ? opts.plugins : null, chats: opts.chats || null, autoLearn: !!opts.autoLearn, autoLearnAllowed: !!opts.autoLearn && !opts.isSub,
     delegate: opts.delegateEnabled && !opts.isSub ? async (job, context, meta = {}) => {

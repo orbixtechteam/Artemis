@@ -1939,6 +1939,22 @@ export default function App() {
     return () => window.removeEventListener('aid-server-download', h);
   }, []);
 
+  // Live changes from the server: a chat made, answered, renamed or deleted on the phone or the web app shows up here at
+  // once (the open chat reloads too, unless this window is running it). The check every 15 s stays as a fallback.
+  const liveRef = useRef({});
+  liveRef.current = { syncRemote, loadRemoteChat };
+  const liveT = useRef(null);
+  useEffect(() => (api.onServerLive ? api.onServerLive((ev) => {
+    if (!ev || ev.type !== 'sessions') return;
+    clearTimeout(liveT.current);
+    liveT.current = setTimeout(() => {
+      liveRef.current.syncRemote().catch(() => {});
+      const cur = currentRef.current;
+      const c = chatsRef.current.find((x) => x.id === cur);
+      if (c && c.remote && !busyChat(cur) && ((ev.data && ev.data.items) || []).some((x) => x.id === cur)) liveRef.current.loadRemoteChat(cur);
+    }, 300);
+  }) : undefined), []);
+
   // Conversations coming from the phone (Telegram) show up as a chat here, live.
   useEffect(() => api.onPhoneStart((p) => {
     const asst = { id: uid(), role: 'assistant', steps: [{ text: '', toolCalls: [] }] };
@@ -1985,12 +2001,26 @@ export default function App() {
 
   // Scheduled task runs show up as their own chat, live.
   useEffect(() => api.onScheduleStart((p) => {
-    const id = 'sched-' + p.requestId;
-    const asst = { id: uid(), role: 'assistant', steps: [{ text: '', toolCalls: [] }] };
-    const user = { id: uid(), role: 'user', content: p.prompt };
+    // every run of a task lands in its own chat (p.chatId), like a conversation that continues; the title follows its template
+    const id = p.chatId || 'sched-' + p.requestId;
+    const now = Date.now();
+    const asst = { id: uid(), role: 'assistant', createdAt: now, steps: [{ text: '', toolCalls: [] }] };
+    const user = { id: uid(), role: 'user', content: p.prompt, createdAt: now, via: 'schedule' };
     streamsRef.current[p.requestId] = { chatId: id, msgId: asst.id };
     setRunningIds((ids) => [...ids, id]);
-    setChats((cs) => [{ id, title: p.name, source: 'schedule', model: p.model, projectId: p.projectId, messages: [user, asst], updatedAt: Date.now() }, ...cs]);
+    setChats((cs) => {
+      const old = cs.find((c) => c.id === id);
+      if (!old) return [{ id, title: p.title || p.name, source: 'schedule', model: p.model, projectId: p.projectId, messages: [user, asst], updatedAt: now }, ...cs];
+      const upd = { ...old, title: p.title || old.title, model: p.model || old.model, messages: [...(old.messages || []), user, asst], updatedAt: now };
+      return [upd, ...cs.filter((c) => c.id !== id)];
+    });
+  }), []);
+  // the AI renamed a chat (set_chat_title): the name sticks, automatic titles leave it alone
+  useEffect(() => api.onChatRetitle && api.onChatRetitle((p) => {
+    if (!p || !p.chatId || !p.title) return;
+    setChats((cs) => cs.map((c) => (c.id === p.chatId ? { ...c, title: p.title, titleManual: true } : c)));
+    const c = chatsRef.current.find((x) => x.id === p.chatId);
+    if (c && c.remote) api.serverApi('POST', `/v1/x/sessions/${encodeURIComponent(p.chatId)}`, { title: p.title, titleManual: true });
   }), []);
 
   const openLibFile = async (rel) => { const r = await api.libPreview(rel); if (r && r.file) setPreviewFile(r.file); };

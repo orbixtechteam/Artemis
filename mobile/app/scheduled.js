@@ -14,7 +14,7 @@ const today = () => { const d = new Date(Date.now() + 86400000); return `${d.get
 
 function Editor({ job, projects, models, defaultModel, onClose, onSaved }) {
   const { api } = useSession();
-  const [j, setJ] = useState({ name: '', prompt: '', enabled: true, notifyPhone: false, allowEdits: false, projectId: null, model: '', repeat: { type: 'daily', at: '08:00' }, ...(job || {}) });
+  const [j, setJ] = useState({ name: '', prompt: '', title: '', oneChat: true, enabled: true, notifyPhone: false, allowEdits: false, projectId: null, model: '', repeat: { type: 'daily', at: '08:00' }, ...(job || {}) });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const r = j.repeat || {};
@@ -37,7 +37,9 @@ function Editor({ job, projects, models, defaultModel, onClose, onSaved }) {
       {r.type === 'once' && <F label="Date (YYYY-MM-DD)" value={r.date || today()} onChange={(v) => setR({ date: v })} />}
       <Choice label="Model" value={j.model || ''} options={[['', `Default for scheduled tasks${defaultModel ? ` (${(models.find((m) => m[0] === defaultModel) || [])[1] || defaultModel.split(':').pop()})` : ''}`], ...models.map((m) => [m[0], m[1] || m[0]])]} onChange={(v) => setJ({ ...j, model: v })} />
       {projects.length > 0 && <Choice label="Project" value={j.projectId || ''} options={[['', 'None'], ...projects.map((p) => [p.id, p.name])]} onChange={(v) => setJ({ ...j, projectId: v || null })} />}
-      <Choice label="Options" multi value={[j.notifyPhone && 'phone', j.allowEdits && 'edits'].filter(Boolean)} options={[['phone', 'Send the result to Telegram'], ['edits', 'May change files without asking']]} onChange={(v) => setJ({ ...j, notifyPhone: v.includes('phone'), allowEdits: v.includes('edits') })} />
+      <F label="Chat title" value={j.title || ''} onChange={(v) => setJ({ ...j, title: v })} placeholder={(j.name || 'Daily report') + ' {date}'} autoCapitalize="none"
+        hint="Empty: the task's name. Filled in on every run: {date}, {weekday}, {day}, {month}, {monthName}, {year}, {time}, {name}." />
+      <Choice label="Options" multi value={[j.oneChat !== false && 'one', j.notifyPhone && 'phone', j.allowEdits && 'edits'].filter(Boolean)} options={[['one', 'Keep every run in one chat'], ['phone', 'Send the result to Telegram'], ['edits', 'May change files without asking']]} onChange={(v) => setJ({ ...j, oneChat: v.includes('one'), notifyPhone: v.includes('phone'), allowEdits: v.includes('edits') })} />
     </FormSheet>
   );
 }
