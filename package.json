@@ -1,7 +1,7 @@
 {
   "name": "artemis",
   "productName": "Artemis",
-  "version": "1.9.0",
+  "version": "1.9.1",
   "description": "Artemis is an open-source desktop AI agent that lives on your laptop. It reads your files, runs commands, browses the web, and remembers what you tell it. You pick the model, you keep the data, you approve every action.",
   "keywords": [
     "ai",
@@ -81,7 +81,7 @@
     "wait-on": "^8.0.0"
   },
   "build": {
-    "copyright": "Copyright \u00a9 2026 Orbix Lab",
+    "copyright": "Copyright © 2026 Orbix Lab",
     "appId": "dev.orbixlabs.artemis",
     "productName": "Artemis",
     "asarUnpack": [
@@ -116,7 +116,7 @@
       "identity": null,
       "extendInfo": {
         "NSMicrophoneUsageDescription": "Artemis uses the microphone when you press the mic button to turn your speech into text.",
-        "NSCameraUsageDescription": "Artemis can take one photo with the camera when someone tries to get into a locked Artemis, if you turn that on in Settings \u2192 Security."
+        "NSCameraUsageDescription": "Artemis can take one photo with the camera when someone tries to get into a locked Artemis, if you turn that on in Settings → Security."
       }
     },
     "dmg": {
