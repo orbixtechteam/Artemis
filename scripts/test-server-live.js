@@ -13,6 +13,8 @@ const { createHeadless } = require('../electron/core/headless');
   await new Promise((r) => setTimeout(r, 400));
   hl.sessions.importChats([{ id: 'c1', title: 'Hello', messages: [{ id: 'm1', role: 'user', content: 'hi' }], updatedAt: Date.now() }]);
   await new Promise((r) => setTimeout(r, 1500));
+  hl.sessions.patchChat('c1', { pinned: true }); // a pin changes no date: it is announced too
+  await new Promise((r) => setTimeout(r, 1500));
   hl.sessions.remove('c1');
   await new Promise((r) => setTimeout(r, 1500));
   req.destroy(); await hl.stop();
@@ -22,6 +24,7 @@ const { createHeadless } = require('../electron/core/headless');
   const s = evs.filter((e) => e.type === 'sessions').flatMap((e) => e.data.items);
   assert.ok(s.some((x) => x.id === 'c1' && x.title === 'Hello' && !x.deleted), 'a new chat is announced');
   assert.ok(s.some((x) => x.id === 'c1' && x.deleted), 'a deleted chat is announced');
+  assert.ok(s.some((x) => x.id === 'c1' && x.pinned === true && !x.deleted), 'a pin is announced');
   console.log('test-server-live: ok');
   process.exit(0);
 })().catch((e) => { console.error(e); process.exit(1); });

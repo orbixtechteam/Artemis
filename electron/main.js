@@ -2778,6 +2778,18 @@ const serverExporter = () => require('./migrate-export').createExporter({
 /** While this Mac is linked to a server, its connectors (with their keys and sign-ins) and provider keys are kept in
  *  step there on their own: nothing to move by hand. Values are decrypted here and stored encrypted on the server. */
 let serverSyncHash = '';
+// While linked, the server refreshes connector sign-ins for both (one copy of a refresh token, refreshed in one place).
+// A connector the server does not have, or a server that cannot be reached, is refreshed here as before.
+mcp.setTokenRefresher(async (cfg) => {
+  if (!cfg || !cfg.id || !serverLink.config() || !serverLink.token()) return null;
+  try {
+    const r = await serverLink.request(`/v1/x/connectors/${encodeURIComponent(cfg.id)}/token`, { method: 'POST', body: { stale: (cfg.oauth && cfg.oauth.accessToken) || '' }, timeout: 40000 });
+    return r && r.oauth && r.oauth.accessToken ? { accessToken: r.oauth.accessToken, refreshToken: r.oauth.refreshToken || '', expiresAt: Number(r.oauth.expiresAt) || 0 } : null;
+  } catch (e) {
+    if (!e.status || e.status === 404 || e.status === 403 || e.status >= 500) return null; // not there, or not reachable: refresh here
+    throw new Error(`Token refresh failed on the server: ${e.message}. Sign in again.`);
+  }
+});
 async function syncServerSecrets() {
   try {
     if (!serverLink.config() || !serverLink.token()) return;
@@ -2790,8 +2802,15 @@ async function syncServerSecrets() {
     const body = { connectors, providers, providerKeys, secrets, look };
     const h = crypto.createHash('sha256').update(JSON.stringify(body)).digest('hex');
     if (h === serverSyncHash) return;
-    await serverLink.request('/v1/x/sync', { method: 'POST', body, timeout: 30000 });
+    const r = await serverLink.request('/v1/x/sync', { method: 'POST', body, timeout: 30000 });
     serverSyncHash = h;
+    // sign-ins the server refreshed: this Mac takes the newer copy (its own copy would be refused next time)
+    const fresh = r && Array.isArray(r.tokens) ? r.tokens.filter((t) => t && t.id && t.oauth && t.oauth.accessToken) : [];
+    if (fresh.length) {
+      writeMcpList(readMcpList().map((c) => { const t = fresh.find((x) => x.id === c.id); return t ? { ...c, oauth: { accessToken: t.oauth.accessToken, refreshToken: t.oauth.refreshToken || '', expiresAt: Number(t.oauth.expiresAt) || 0 } } : c; }));
+      serverSyncHash = '';
+      logger.info('server', `took ${fresh.length} newer connector sign-in(s) from the server`);
+    }
   } catch (e) { if (e && e.code !== 'NO_SERVER') logger.warn('server', 'could not keep the server in step: ' + e.message); }
 }
 setTimeout(() => { syncServerSecrets(); setInterval(syncServerSecrets, 30000); }, 8000);
