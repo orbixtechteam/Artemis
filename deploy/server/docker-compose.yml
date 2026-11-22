@@ -9,6 +9,7 @@ services:
     build:
       context: ../..
       dockerfile: deploy/server/Dockerfile
+      target: server                # the API only (desktop and phone apps). "full" also serves the web app
     image: artemis-server:latest
     container_name: artemis
     restart: unless-stopped
