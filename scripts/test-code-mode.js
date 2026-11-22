@@ -73,7 +73,10 @@ const { runCode, describeTools } = require('../electron/code-mode');
   assert.deepStrictEqual(okd, ['create_diagram', 'create_document'], 'each write asked for approval');
   assert.strictEqual(sent.filter((e) => e.type === 'files').length, 2, 'file cards for both');
   r = await tools.run('run_code', { code: 'return typeof tools.artemis.run_command' }, c2); assert.strictEqual(r.text, 'function', 'shell commands are callable (with approval) when offered');
-  r = await tools.run('run_code', { code: 'return typeof tools.artemis.delete_file' }, c2); assert.strictEqual(r.text, 'undefined', 'deleting stays a direct, visible tool call');
+  r = await tools.run('run_code', { code: 'return await tools.artemis.delete_file({ path: "x" })' }, c2); assert.ok(/has no tool "delete_file"/.test(r.text) && !r.ok, 'deleting stays a direct, visible tool call: ' + r.text);
+  // a guessed name close to a real one still works; a wrong one lists the real names
+  r = await tools.run('run_code', { code: 'return typeof tools.artemis["create-diagram"]' }, c2); assert.strictEqual(r.text, 'function', 'add-comment style names find add_comment');
+  r = await tools.run('run_code', { code: 'return await tools.nope.list({})' }, c2); assert.ok(/No connector "nope"/.test(r.text), r.text);
   fsx.rmSync(root, { recursive: true, force: true });
   console.log('code-mode tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

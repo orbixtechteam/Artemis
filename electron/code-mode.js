@@ -103,7 +103,8 @@ function describeTools(defs, { query = '', limit = 30 } = {}) {
     const f = d.function || d; const m = /^mcp__(.+?)__(.+)$/.exec(f.name || '') || /^(artemis)__(.+)$/.exec(f.name || ''); if (!m) continue;
     const hay = (f.name + ' ' + (f.description || '')).toLowerCase();
     if (q.length && !q.every((w) => hay.includes(w))) continue;
-    rows.push(`tools.${m[1]}.${m[2]}(${sigOf(f.parameters)}) — ${String(f.description || '').replace(/^\[[^\]]*\]\s*/, '').replace(/\s+/g, ' ').slice(0, 220)}`);
+    const id = (x) => (/^[A-Za-z_$][\w$]*$/.test(x) ? '.' + x : `[${JSON.stringify(x)}]`); // add-comments → ["add-comments"], so the call is valid JavaScript
+    rows.push(`tools${id(m[1])}${id(m[2])}(${sigOf(f.parameters)}) — ${String(f.description || '').replace(/^\[[^\]]*\]\s*/, '').replace(/\s+/g, ' ').slice(0, 220)}`);
   }
   if (!rows.length) return q.length ? `No connector tool matches "${query}".` : 'No connector tools are connected.';
   return rows.slice(0, limit).join('\n') + (rows.length > limit ? `\n…${rows.length - limit} more: narrow the query.` : '');

@@ -101,7 +101,8 @@ export default function App() {
   const [view, setView] = useState('chat'); // 'chat' | 'projects' | { project: id }
   const [providers, setProviders] = useState([]);
   const [clis, setClis] = useState({}); // Claude Code / Codex installed on this computer (plan-login chat models)
-  useEffect(() => { window.api.teamsClis?.().then((c) => c && setClis(c)).catch(() => {}); }, []);
+  // looked up again when the window comes back: Codex or Claude Code installed while Artemis runs shows up in the model list
+  useEffect(() => { const look = () => window.api.teamsClis?.().then((c) => c && setClis(c)).catch(() => {}); look(); window.addEventListener('focus', look); return () => window.removeEventListener('focus', look); }, []);
   const applyProviders = (r) => { setProviders(r.providers || []); setExtraPrices(r.prices || {}); };
   const [runningIds, setRunningIds] = useState([]); // chats with a run in progress
   const [connectorCount, setConnectorCount] = useState(0);
@@ -1379,7 +1380,7 @@ export default function App() {
     const lastUser = [...msgs].reverse().find((x) => x.role === 'user');
     if (c.remote) {
       const atts = ((lastUser && lastUser.attachments) || []).map((a) => (a.kind === 'image' && a.dataUrl ? { kind: 'image', name: a.name, dataUrl: a.dataUrl } : a.text != null ? { kind: 'file', name: a.name, text: a.text } : null)).filter(Boolean);
-      api.serverChatStart({ requestId, sessionId: c.id, message: (lastUser && lastUser.content) || '', attachments: atts, env: c.env || runEnvDefault(), model: c.model || undefined, projectId: c.projectId || undefined, options: { brain: brainOf(c), tools: c.tools || '', agents: c.agents || '', effort: c.effort || '', perm: c.perm || '', mentions: (lastUser && lastUser.mentions) || [] } }).then((r) => {
+      api.serverChatStart({ requestId, sessionId: c.id, message: (lastUser && lastUser.content) || '', attachments: atts, env: c.env || runEnvDefault(), model: c.model || undefined, projectId: c.projectId || undefined, options: { brain: brainOf(c), tools: c.tools || ((settings || {}).toolsEnabled === false ? 'off' : 'on'), agents: c.agents || ((settings || {}).delegateEnabled === false ? 'off' : 'on'), effort: c.effort || '', perm: c.perm === 'auto' ? 'auto' : c.perm ? 'ask' : ((settings || {}).autoApproveEdits ? 'auto' : 'ask'), mentions: (lastUser && lastUser.mentions) || [] } }).then((r) => {
         if (r && r.ok) return;
         // nothing started (server or computer not reachable): say why and free the chat; never run it somewhere else
         delete streamsRef.current[requestId];

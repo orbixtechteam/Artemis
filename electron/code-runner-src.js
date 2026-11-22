@@ -27,7 +27,16 @@ const PRELUDE = `
     const srv = tools[m[1]] || (tools[m[1]] = {}); if (key(m[1]) !== m[1]) tools[key(m[1])] = srv;
     srv[m[2]] = (args) => callTool(full, args); if (key(m[2]) !== m[2]) srv[key(m[2])] = srv[m[2]];
   }
-  globalThis.tools = tools;
+  // a name the model guessed slightly wrong (add-comment for add-comments, add_comment, AddComments) still finds the tool;
+  // an unknown one fails with the list of real names instead of "is not a function"
+  const norm = (s) => String(s).toLowerCase().replace(/[^a-z0-9]/g, '').replace(/s$/, '');
+  const near = (obj, prop) => { if (typeof prop !== 'string') return undefined; if (prop in obj) return obj[prop]; const k = Object.keys(obj).find((x) => norm(x) === norm(prop)); return k ? obj[k] : undefined; };
+  const real = (obj) => Object.keys(obj).filter((k) => !(k.indexOf('_') >= 0 && Object.keys(obj).indexOf(k.split('_').join('-')) >= 0));
+  const wrapSrv = (srvName, srv) => new Proxy(srv, { get: (t, prop) => { const v = near(t, prop); if (v !== undefined || typeof prop !== 'string' || prop === 'then') return v;
+    return () => Promise.reject(new Error('tools.' + srvName + ' has no tool "' + prop + '". Its tools: ' + real(t).join(', '))); } });
+  const wrapped = {}; for (const k of Object.keys(tools)) wrapped[k] = wrapSrv(k, tools[k]);
+  globalThis.tools = new Proxy(wrapped, { get: (t, prop) => { const v = near(t, prop); if (v !== undefined || typeof prop !== 'string' || prop === 'then') return v;
+    return new Proxy({}, { get: (_x, tool) => (typeof tool !== 'string' || tool === 'then' ? undefined : () => Promise.reject(new Error('No connector "' + prop + '" here. Connected: ' + (Object.keys(t).join(', ') || 'none')))) }); } });
   const log = (level) => (...a) => send(JSON.stringify({ type: 'log', level, text: a.map(fmt).join(' ') }));
   globalThis.console = { log: log('log'), info: log('log'), debug: log('log'), warn: log('warn'), error: log('error'), table: log('log') };
   globalThis.__fmt = fmt;

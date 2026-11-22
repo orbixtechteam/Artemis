@@ -192,8 +192,12 @@ function createCliAgents(deps) {
       p = (await ask('-ilc')) || (await ask('-lc'));
     }
     if (!p) p = DIRS.slice(1).map((d) => path.join(d, bin)).find(ok) || '';
-    if (p) log(`${kind}: using ${p}`);
-    found.set(kind, p);
+    if (!p) { // installed with npm under nvm / fnm (not on the app's PATH, and the login shell may not load nvm): newest Node first
+      const vers = (dir) => { try { return fs.readdirSync(dir).sort((a, b) => b.localeCompare(a, undefined, { numeric: true })).map((v) => path.join(dir, v)); } catch { return []; } };
+      const cands = [...vers(path.join(home, '.nvm', 'versions', 'node')).map((d) => path.join(d, 'bin')), ...vers(path.join(home, '.local', 'share', 'fnm', 'node-versions')).map((d) => path.join(d, 'installation', 'bin')), path.join(home, 'Library', 'pnpm'), path.join(home, '.yarn', 'bin')];
+      p = cands.map((d) => path.join(d, bin)).find(ok) || '';
+    }
+    if (p) { log(`${kind}: using ${p}`); found.set(kind, p); } // only a hit is kept: installed later, it is found on the next look
     return p;
   }
 

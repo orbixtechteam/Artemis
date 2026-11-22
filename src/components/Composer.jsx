@@ -326,7 +326,7 @@ export default function Composer({ env = null, onEnv = null, streaming, onSend, 
     onAgents && { label: 'Helper agents', hint: onOff(agents), onClick: () => onAgents(agents === 'off' ? 'on' : 'off') },
     onPerm && { label: 'Ask before acting', hint: perm === 'auto' ? 'Off' : 'On', onClick: () => onPerm(perm === 'auto' ? 'ask' : 'auto') },
     ...(onProject && projects.length ? [{ sep: true }, { label: 'No project', hint: projectId ? '' : '✓', onClick: () => onProject(null) },
-      ...projects.slice(0, 8).map((pr) => ({ label: pr.name, hint: pr.id === projectId ? '✓' : '', onClick: () => onProject(pr.id) }))] : []),
+      ...projects.map((pr) => ({ label: pr.name, hint: pr.id === projectId ? '✓' : '', onClick: () => onProject(pr.id) }))] : []),
     onProject && onNewProject && !incognito && { label: 'New project…', onClick: () => onNewProject() },
   ].filter(Boolean);
   const pick = async () => {
