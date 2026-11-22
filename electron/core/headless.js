@@ -296,7 +296,7 @@ function createHeadless({ dataDir, keysFrom = '', host = '127.0.0.1', port, publ
         memoryApi, onCompact: memoryApi && st.memoryFlush !== false ? (t) => flushFor(t, modelId, chatId) : null,
         onUsage: (u) => recordUsage({ t: Date.now(), model: u.model || modelId, chat: chatId || '', project: (project && project.name) || '', source: source || (unattended ? 'schedule' : 'gateway'), prompt: u.prompt, completion: u.completion, cached: u.cached || 0, cacheWrite: u.cacheWrite || 0, estimated: u.estimated }),
         autoApprove: unattended ? !!allowEdits : permMode ? permMode === 'auto' : !!st.autoApproveEdits, autoAll: !unattended && permMode === 'auto', agentAutoApprove: false,
-        approve: (info) => unattended ? Promise.resolve(info.category === 'phone' || (info.name === 'run_command' && !!sandbox()) || (info.name === 'team_start' && !!watchTeamId)) : new Promise((resolve) => {
+        approve: (info) => unattended ? Promise.resolve(info.category === 'phone' || (info.name === 'run_command' && !!sandbox()) || (info.name === 'team_start' && !!watchTeamId) || tools.unattendedAllows(info, !!allowEdits)) : new Promise((resolve) => {
           mine.add(info.id);
           const timer = setTimeout(() => { if (approvals.delete(info.id)) resolve(false); }, APPROVAL_TIMEOUT);
           approvals.set(info.id, (ok) => { clearTimeout(timer); resolve(ok); });

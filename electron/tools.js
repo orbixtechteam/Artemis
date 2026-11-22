@@ -911,6 +911,16 @@ function normQuestions(list) {
   })).filter((q) => q.question && q.options.length);
 }
 
+/** What a scheduled or background run (nobody there to approve) may do by itself: the user set the task up, so reading
+ *  through connectors, notes and the Files library is allowed; connector writes and Make only when the task may change
+ *  things ("Allow file changes"). Everything else that would ask is declined. */
+function unattendedAllows(info, allowEdits) {
+  const cat = String((info && info.category) || '');
+  if (cat.startsWith('mcp-read:') || cat === 'notes' || cat === 'library') return true;
+  if (allowEdits && (cat.startsWith('mcp:') || cat === 'make')) return true;
+  return false;
+}
+
 async function runTool(name, args, ctx) {
   args = args || {};
   const resolveSafe = (r, p) => (ctx && ctx.fullAccess ? openPath(r, p) : resolveStrict(r, p));
@@ -1713,4 +1723,4 @@ async function runTool(name, args, ctx) {
   }
 }
 
-module.exports = { pluginWebFetch, definitions, normQuestions, run, clip, modelId, resolveSafe, isSensitive, WRITE_TOOLS, SESSION_TOOLS, jobsOf, withLocks, lockKey, walk, browserApproval, summarize };
+module.exports = { unattendedAllows, pluginWebFetch, definitions, normQuestions, run, clip, modelId, resolveSafe, isSensitive, WRITE_TOOLS, SESSION_TOOLS, jobsOf, withLocks, lockKey, walk, browserApproval, summarize };
