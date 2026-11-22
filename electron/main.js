@@ -1377,7 +1377,7 @@ async function executeRun({ requestId, model: model0, messages, project, system,
       agentAutoApprove: !unattended && (perm === 'auto' || (perm === 'edits' && settings.agentWriteApproval === false)),
       memoryApi: memoryApi(() => send({ type: 'memory:changed' })),
       onCompact: incognito || settings.memoryEnabled === false || settings.memoryFlush === false || !initCore().ws ? null : (text) => flushFromRun(text, { model, chatId, project }),
-      approve: (info) => unattended ? Promise.resolve(info.category === 'phone' || (info.name === 'run_command' && !!sb) || (info.name === 'team_start' && !!watchTeamId)) : new Promise((resolve) => {
+      approve: (info) => unattended ? Promise.resolve(info.category === 'phone' || (info.name === 'run_command' && !!sb) || (info.name === 'team_start' && !!watchTeamId) || tools.unattendedAllows(info, !!allowEdits)) : new Promise((resolve) => {
         myApprovals.add(info.id);
         approvals.set(info.id, resolve);
         if (approvalMeta.size > 200) approvalMeta.clear();
